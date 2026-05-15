@@ -1,0 +1,78 @@
+doctrine:
+  dbal:
+    default_connection: default
+
+    connections:
+      default:
+        url: '%env(resolve:DATABASE_URL)%'
+        profiling_collect_backtrace: '%kernel.debug%'
+
+      folio:
+        driver: pdo_sqlite
+        path: '%kernel.project_dir%/../data/folio/_bootstrap.folio.sqlite'
+        wrapper_class: Survos\FolioBundle\DBAL\FolioConnectionWrapper
+        profiling_collect_backtrace: '%kernel.debug%'
+
+  orm:
+    default_entity_manager: default
+    controller_resolver:
+      auto_mapping: false
+
+    entity_managers:
+      folio:
+        connection: folio
+        naming_strategy: doctrine.orm.naming_strategy.underscore_number_aware
+        mappings:
+          SurvosFolioBundle:
+            is_bundle: false
+            type: attribute
+            dir: '%kernel.project_dir%/../src/Entity'
+            prefix: 'Survos\FolioBundle\Entity'
+            alias: SurvosFolioBundle
+
+      default:
+        connection: default
+        naming_strategy: doctrine.orm.naming_strategy.underscore_number_aware
+        identity_generation_preferences:
+          Doctrine\DBAL\Platforms\PostgreSQLPlatform: identity
+        mappings:
+          App:
+            is_bundle: false
+            type: attribute
+            dir: '%kernel.project_dir%/src/Entity'
+            prefix: 'App\Entity'
+            alias: App
+
+when@test:
+  doctrine:
+    dbal:
+      connections:
+        default:
+          dbname_suffix: '_test%env(default::TEST_TOKEN)%'
+
+when@prod:
+  doctrine:
+    orm:
+      entity_managers:
+        default:
+          query_cache_driver:
+            type: pool
+            pool: doctrine.system_cache_pool
+          result_cache_driver:
+            type: pool
+            pool: doctrine.result_cache_pool
+        folio:
+          query_cache_driver:
+            type: pool
+            pool: doctrine.system_cache_pool
+          result_cache_driver:
+            type: pool
+            pool: doctrine.result_cache_pool
+
+  framework:
+    cache:
+      pools:
+        doctrine.result_cache_pool:
+          adapter: cache.app
+        doctrine.system_cache_pool:
+          adapter: cache.system

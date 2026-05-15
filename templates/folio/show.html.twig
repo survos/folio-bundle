@@ -1,0 +1,17 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+{% block body %}
+{% set parts = ctx.folioCode|split('/') %}
+<h1>Folio {{ ctx.folioCode }}</h1>
+<table>
+    <thead><tr><th>Core</th><th>Label</th><th>Rows</th></tr></thead>
+    <tbody>
+    {% for core in cores %}
+        <tr>
+            <td><a href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}">{{ core.code }}</a></td>
+            <td>{{ core.label }}</td>
+            <td>{{ core.rowCount }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

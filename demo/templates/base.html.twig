@@ -1,0 +1,14 @@
+{% extends "@SurvosTabler/layout/base.html.twig" %}
+
+{% block page_content_end %}
+    {{ parent() }}
+    {{ include('_image_viewer_dialog.html.twig') }}
+{% endblock %}
+
+{% block content %}
+    {{ block('body') }}
+{% endblock %}
+
+{% block body_end %}
+    {{ parent() }}
+{% endblock %}

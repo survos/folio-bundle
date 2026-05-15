@@ -1,0 +1,76 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Folio Browser{% endblock %}
+
+{% block body %}
+<div class="container-xl py-4">
+    <div class="page-header mb-4">
+        <div class="row align-items-center">
+            <div class="col">
+                <h2 class="page-title">Folios</h2>
+                <div class="text-muted mt-1">{{ folios|length }} dataset(s) known</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table table-vcenter card-table table-hover">
+                <thead>
+                    <tr>
+                        <th>Dataset</th>
+                        <th>Label</th>
+                        <th>Status</th>
+                        <th class="text-end">Records</th>
+                        <th class="text-end">Folio size</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for folio in folios %}
+                    {% set dataset = folio.dataset %}
+                    {% set parts = dataset.datasetKey|split('/') %}
+                    <tr>
+                        <td>
+                            <code>{{ dataset.datasetKey }}</code>
+                        </td>
+                        <td class="text-muted">{{ dataset.label ?? '—' }}</td>
+                        <td>
+                            {% if folio.exists %}
+                                <span class="badge bg-success-lt">folio</span>
+                            {% elseif dataset.normalizedPath %}
+                                <span class="badge bg-azure-lt">normalized</span>
+                            {% else %}
+                                <span class="badge bg-secondary-lt">{{ dataset.status ?? 'discovered' }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end text-muted">
+                            {{ dataset.normalizedCount ?? dataset.objCount ?? '—' }}
+                        </td>
+                        <td class="text-end text-muted">
+                            {% if folio.size is not null %}
+                                {{ (folio.size / 1024)|round }} KB
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if folio.exists and parts|length >= 2 %}
+                                <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}"
+                                   class="btn btn-sm btn-outline-primary">Browse</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">
+                            No datasets found. Run <code>data:scan-datasets</code> first.
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,2 @@
+{"class":"Survos\\DataContracts\\Dto\\Item\\GenericItemDto","id":"per-1","title":"Avery Stone","description":"Placeholder person row until data-contracts has an agent DTO.","subjects":["artist"]}
+{"class":"Survos\\DataContracts\\Dto\\Item\\GenericItemDto","id":"per-2","title":"Mina Park","description":"Placeholder person row until data-contracts has an agent DTO.","subjects":["artist"]}

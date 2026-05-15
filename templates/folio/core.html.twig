@@ -1,0 +1,117 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+{% block body %}
+{% set parts = ctx.folioCode|split('/') %}
+<div class="container-xl py-4">
+
+    {# ── breadcrumb ── #}
+    <div class="page-header mb-3">
+        <div class="row align-items-center">
+            <div class="col">
+                <h2 class="page-title">
+                    <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="text-muted">{{ ctx.folioCode }}</a>
+                    <span class="text-muted mx-1">/</span>{{ core.code }}
+                </h2>
+                <div class="text-muted">{{ core.rowCount }} rows</div>
+            </div>
+        </div>
+    </div>
+
+    {# ── DTO type tabs ── #}
+    {% if dtoStats %}
+    <div class="card mb-4">
+        <div class="card-header">
+            <ul class="nav nav-tabs card-header-tabs">
+                <li class="nav-item">
+                    <a class="nav-link {{ not selectedDto ? 'active' }}"
+                       href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}">
+                        All <span class="badge bg-secondary ms-1">{{ core.rowCount }}</span>
+                    </a>
+                </li>
+                {% for stat in dtoStats %}
+                    {% set shortName = stat.dto_class ? stat.dto_class|split('\\')|last : '(none)' %}
+                    <li class="nav-item">
+                        <a class="nav-link {{ selectedDto == stat.dto_class ? 'active' }}"
+                           href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code, dtoClass: stat.dto_class}) }}">
+                            {{ shortName }}
+                            <span class="badge bg-secondary ms-1">{{ stat.cnt }}</span>
+                        </a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+
+    {# ── table view when a DTO type is selected ── #}
+    {% if selectedDto and columns %}
+        <div class="card">
+            <div class="card-header">
+                <span class="font-monospace text-azure fw-bold">{{ selectedDto|split('\\')|last }}</span>
+                <span class="text-muted ms-2 small">{{ selectedDto }}</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-vcenter table-sm card-table">
+                    <thead>
+                        <tr>
+                            <th>id</th>
+                            {% for col in columns %}
+                                {% if col != 'id' %}
+                                    <th>{{ col }}</th>
+                                {% endif %}
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in rows %}
+                            <tr>
+                                <td class="font-monospace small text-muted">{{ entry.row.localId }}</td>
+                                {% for col in columns %}
+                                    {% if col != 'id' %}
+                                        <td>
+                                            {% set val = entry.dto[col] ?? null %}
+                                            {% if val is iterable %}
+                                                {{ val|join(', ')|slice(0,60) }}
+                                            {% else %}
+                                                {{ val|default('')|slice(0,80) }}
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    {# ── card view for all rows / no DTO filter ── #}
+    {% else %}
+        {% for entry in rows %}
+            {% set row = entry.row %}
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong class="font-monospace small">{{ row.localId }}</strong>
+                    <span class="text-muted small">{{ row.label|default('')|slice(0,80) }}{{ row.label|length > 80 ? '…' }}</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="row g-0">
+                        <div class="{{ entry.extras ? 'col-md-6' : 'col-12' }} p-3 border-end">
+                            {% if entry.dtoClass %}
+                                <div class="font-monospace text-azure fw-bold small mb-2">{{ entry.dtoClass|split('\\')|last }}</div>
+                            {% endif %}
+                            <pre class="mb-0 small" style="white-space: pre-wrap; word-break: break-word;">{{ entry.dto|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_UNICODE') b-or constant('JSON_UNESCAPED_SLASHES')) }}</pre>
+                        </div>
+                        {% if entry.extras %}
+                        <div class="col-md-6 p-3">
+                            <div class="text-muted small mb-1">Extras</div>
+                            <pre class="mb-0 small" style="white-space: pre-wrap; word-break: break-word;">{{ entry.extras|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_UNICODE') b-or constant('JSON_UNESCAPED_SLASHES')) }}</pre>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+</div>
+{% endblock %}

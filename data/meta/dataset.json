@@ -1,0 +1,8 @@
+{
+  "code": "demo",
+  "label": "Demo Folio Dataset",
+  "cores": {
+    "obj": { "label": "Objects", "file": "obj.jsonl" },
+    "per": { "label": "People", "file": "per.jsonl", "note": "No agent DTO exists in data-contracts yet; this is placeholder core data." }
+  }
+}

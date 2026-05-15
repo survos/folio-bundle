@@ -1,0 +1,33 @@
+{
+  "name": "survos/folio-bundle",
+  "description": "Portable SQLite folios for normalized museum dataset rows.",
+  "type": "symfony-bundle",
+  "license": "MIT",
+  "minimum-stability": "beta",
+  "prefer-stable": true,
+  "require": {
+    "php": "^8.4",
+    "doctrine/dbal": "^4.3",
+    "doctrine/doctrine-bundle": "^2.14|^3.0",
+    "doctrine/orm": "^3.4",
+    "survos/data-bundle": "*",
+    "survos/data-contracts": "*",
+    "survos/field-bundle": "*",
+    "survos/jsonl-bundle": "*",
+    "symfony/config": "8.1.*@beta",
+    "symfony/console": "8.1.*@beta",
+    "symfony/dependency-injection": "8.1.*@beta",
+    "symfony/framework-bundle": "8.1.*@beta",
+    "symfony/http-kernel": "8.1.*@beta",
+    "symfony/routing": "8.1.*@beta"
+  },
+  "suggest": {
+    "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios."
+  },
+  "autoload": { "psr-4": { "Survos\\FolioBundle\\": "src/" } },
+  "autoload-dev": { "psr-4": { "Survos\\FolioBundle\\Tests\\": "tests/" } },
+  "extra": { "symfony": { "allow-contrib": false, "require": "8.1.*" } },
+  "require-dev": {
+    "phpstan/phpstan": "^2.1"
+  }
+}
