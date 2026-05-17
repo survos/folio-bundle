@@ -2,8 +2,8 @@
 
 namespace App\Controller;
 
-use Survos\DataBundle\Repository\DatasetInfoRepository;
-use Survos\FolioBundle\Service\FolioService;
+use Survos\DataBundle\Entity\Artifact;
+use Survos\DataBundle\Repository\ArtifactRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
@@ -11,22 +11,10 @@ use Symfony\Component\Routing\Attribute\Route;
 final class AppController extends AbstractController
 {
     #[Route('/', name: 'app_homepage')]
-    public function index(DatasetInfoRepository $datasetInfoRepository, FolioService $folioService): Response
+    public function index(ArtifactRepository $artifactRepository): Response
     {
-        $datasets = $datasetInfoRepository->findBy([], ['datasetKey' => 'ASC']);
-
-        $folios = array_map(static function ($dataset) use ($folioService) {
-            $path = $folioService->path($dataset->datasetKey);
-            return [
-                'dataset' => $dataset,
-                'path'    => $path,
-                'exists'  => is_file($path),
-                'size'    => is_file($path) ? filesize($path) : null,
-            ];
-        }, $datasets);
-
         return $this->render('app/index.html.twig', [
-            'folios' => $folios,
+            'artifacts' => $artifactRepository->findBy(['type' => Artifact::TYPE_FOLIO], ['uri' => 'ASC']),
         ]);
     }
 }

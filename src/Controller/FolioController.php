@@ -4,20 +4,27 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Controller;
 
+use Survos\FolioBundle\Attribute\FolioContext;
 use Survos\FolioBundle\Entity\{Core,Row};
-use Survos\FolioBundle\Service\FolioService;
+use Survos\FolioBundle\Service\{FolioDtoTypeResolver,FolioService};
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
 #[Route('/folio')]
+#[FolioContext]
 final class FolioController extends AbstractController
 {
+    public function __construct(
+        private readonly FolioService $folios,
+        private readonly FolioDtoTypeResolver $dtoTypeResolver,
+    ) {}
+
     #[Route('/{provider}/{dataset}', name: 'survos_folio_show')]
-    public function show(string $provider, string $dataset, FolioService $folios): Response
+    public function show(string $provider, string $dataset): Response
     {
-        $ctx = $folios->context("$provider/$dataset");
+        $ctx = $this->folios->context("$provider/$dataset");
         return $this->render('@SurvosFolioBundle/folio/show.html.twig', [
             'ctx'   => $ctx,
             'cores' => $ctx->em->getRepository(Core::class)->findBy([], ['code' => 'ASC']),
@@ -25,50 +32,49 @@ final class FolioController extends AbstractController
     }
 
     #[Route('/{provider}/{dataset}/{coreCode}', name: 'survos_folio_core')]
-    public function core(
-        string $provider,
-        string $dataset,
-        string $coreCode,
-        Request $request,
-        FolioService $folios,
-    ): Response {
-        $folioCode  = "$provider/$dataset";
-        $ctx        = $folios->context($folioCode);
-        $core       = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+    public function core(string $provider, string $dataset, string $coreCode, Request $request): Response
+    {
+        $folioCode = "$provider/$dataset";
+        $ctx       = $this->folios->context($folioCode);
+        $core      = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
 
-        // Distinct DTO classes + counts for page nav.
         $dtoStats = $ctx->em->getConnection()->executeQuery(
-            'SELECT dto_class, COUNT(*) AS cnt FROM item WHERE core_id = ? GROUP BY dto_class ORDER BY cnt DESC',
+            'SELECT dto_type, COUNT(*) AS cnt FROM item WHERE core_id = ? GROUP BY dto_type ORDER BY cnt DESC',
             [$core->id],
         )->fetchAllAssociative();
 
-        $selectedDto = $request->query->get('dtoClass');
-        $columns     = $selectedDto ? $this->dtoColumns($selectedDto) : [];
-
-        $qb = $ctx->em->getRepository(Row::class)
-            ->createQueryBuilder('r')
-            ->where('r.core = :core')->setParameter('core', $core)
-            ->orderBy('r.localId', 'ASC')
-            ->setMaxResults(50);
-
-        if ($selectedDto) {
-            $qb->andWhere('r.dtoClass = :dto')->setParameter('dto', $selectedDto);
+        $dtoChoices = [];
+        foreach ($dtoStats as $stat) {
+            $type = is_string($stat['dto_type'] ?? null) ? $stat['dto_type'] : null;
+            $dtoChoices[] = [
+                'type' => $type,
+                'label' => $this->dtoTypeResolver->labelForType($type),
+                'count' => (int) $stat['cnt'],
+            ];
         }
 
-        $rows = $qb->getQuery()->getResult();
+        $selectedDto = $request->query->getString('dto');
+        $selectedDtoClass = $this->dtoTypeResolver->classForType($selectedDto);
+        $populated   = array_flip($core->fieldSummary ?? []);
+        $columns     = $selectedDtoClass
+            ? array_values(array_filter(
+                $this->dtoColumns($selectedDtoClass),
+                fn (string $col) => isset($populated[$col]) || $col === 'id',
+            ))
+            : [];
 
         return $this->render('@SurvosFolioBundle/folio/core.html.twig', [
             'ctx'         => $ctx,
             'core'        => $core,
             'dtoStats'    => $dtoStats,
+            'dtoChoices'   => $dtoChoices,
             'selectedDto' => $selectedDto,
+            'rowClass'     => Row::class,
             'columns'     => $columns,
-            'rows'        => array_map(fn (Row $r) => $this->processRow($r, $columns), $rows),
         ]);
     }
 
-    /** @return string[] public non-static property names from the full inheritance chain */
     private function dtoColumns(string $dtoClass): array
     {
         if (!class_exists($dtoClass)) {
@@ -81,45 +87,5 @@ final class FolioController extends AbstractController
             }
         }
         return $props;
-    }
-
-    /** @param string[] $columns DTO property names; empty = show all data */
-    private function processRow(Row $row, array $columns): array
-    {
-        $data     = $row->dtoData;
-        $dtoClass = $row->dtoClass;
-
-        // If no columns hint, derive from this row's dtoClass.
-        if (!$columns && $dtoClass) {
-            $columns = $this->dtoColumns($dtoClass);
-        }
-
-        $dto    = [];
-        $extras = $data;
-
-        foreach ($columns as $name) {
-            if (array_key_exists($name, $extras)) {
-                $val = $extras[$name];
-                unset($extras[$name]);
-                if ($val !== null && $val !== '' && $val !== []) {
-                    $dto[$name] = $val;
-                }
-            }
-        }
-
-        // When no DTO class at all, show everything as dto.
-        if (!$columns) {
-            $dto    = $data;
-            $extras = [];
-        }
-
-        $extras = array_filter($extras, fn ($v) => $v !== null && $v !== '' && $v !== []);
-
-        return [
-            'row'      => $row,
-            'dtoClass' => $dtoClass,
-            'dto'      => $dto,
-            'extras'   => $extras,
-        ];
     }
 }

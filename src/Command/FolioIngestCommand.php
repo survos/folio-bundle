@@ -5,13 +5,15 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Command;
 
 use Survos\FolioBundle\Entity\{Core,Folio,Row};
-use Survos\FolioBundle\Service\{FolioRegistry,FolioService};
+use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
+use Survos\FolioBundle\Service\{FolioDtoTypeResolver,FolioRegistry,FolioService,FolioSummaryService};
 use Survos\JsonlBundle\IO\JsonlReader;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\{InputArgument,InputInterface,InputOption};
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 #[AsCommand('folio:ingest', 'Restore normalized JSONL into a folio (replaces existing data).')]
 final class FolioIngestCommand extends Command
@@ -19,6 +21,9 @@ final class FolioIngestCommand extends Command
     public function __construct(
         private readonly FolioService $folios,
         private readonly FolioRegistry $registry,
+        private readonly FolioDtoTypeResolver $dtoTypeResolver,
+        private readonly FolioSummaryService $summaryService,
+        private readonly ?EventDispatcherInterface $dispatcher = null,
     ) { parent::__construct(); }
 
     protected function configure(): void
@@ -75,9 +80,6 @@ final class FolioIngestCommand extends Command
 
                 $count = 0;
                 foreach (JsonlReader::open($file) as $data) {
-                    $dtoClass = isset($data['dtoClass']) && is_string($data['dtoClass']) ? $data['dtoClass'] : null;
-                    unset($data['dtoClass']);
-
                     $localId = (string) ($data[$idField] ?? $data['@id'] ?? $data['_id'] ?? '');
                     if ($localId === '') {
                         throw new \RuntimeException(sprintf('Missing id near row %d in %s.', $count + 1, $file));
@@ -87,7 +89,7 @@ final class FolioIngestCommand extends Command
                     $row->label = isset($data[$labelField])
                         ? (string) $data[$labelField]
                         : (isset($data['title']) ? (string) $data['title'] : $localId);
-                    $row->dtoClass = $dtoClass;
+                    $row->dtoType = $this->dtoTypeResolver->typeFromPayload($data);
                     $row->dtoData = $data;
                     $ctx->em->persist($row);
 
@@ -100,9 +102,19 @@ final class FolioIngestCommand extends Command
                     }
                 }
 
-                $folio->rowCount = $count;
+                $folio->rowCount      = $count;
                 $coreEntity->rowCount = $count;
+                $coreEntity->fieldSummary = $this->registry->populatedFields($dataset, $core);
                 $ctx->em->flush();
+                $summary = $this->summaryService->summarize($ctx->path);
+
+                $this->dispatcher?->dispatch(new FolioIngestFinishedEvent(
+                    datasetKey: $dataset->datasetKey,
+                    core: $core,
+                    dbFile: $ctx->path,
+                    sourceFile: $file,
+                    summary: $summary,
+                ));
 
                 $io->success(sprintf(
                     'Ingested %d rows → %s/%s from %s',

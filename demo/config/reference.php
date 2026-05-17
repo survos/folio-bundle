@@ -1528,7 +1528,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  * @psalm-type SurvosDataConfig = array{
  *     data_dir?: scalar|Param|null, // Default: "%env(APP_DATA_DIR)%"
  *     dataset_root?: scalar|Param|null, // Default: "work"
- *     pixie_root?: scalar|Param|null, // Default: "pixie"
+ *     artifact_root?: scalar|Param|null, // Default: "artifacts"
  *     runs_root?: scalar|Param|null, // Default: "runs"
  *     cache_root?: scalar|Param|null, // Default: "cache"
  *     zips_root?: scalar|Param|null, // Default: "%env(ZIPS_DIR)%"

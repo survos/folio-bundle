@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Entity;
 
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Survos\FolioBundle\Repository\CoreRepository;
 
@@ -28,6 +29,10 @@ class Core
 
     #[ORM\Column(options: ['default' => 0])]
     public int $rowCount = 0;
+
+    /** @var string[]|null populated field names from the normalized profile (nulls < recordCount) */
+    #[ORM\Column(type: Types::JSON, nullable: true)]
+    public ?array $fieldSummary = null;
 
     public function __construct(Folio $folio, string $code)
     {

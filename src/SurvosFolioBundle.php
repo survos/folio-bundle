@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Survos\FolioBundle;
 
 use Survos\FolioBundle\Command\{FolioBrowseCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand};
+use Survos\FolioBundle\EventListener\FolioContextListener;
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\FolioController;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,RelationRepository,RelationTypeRepository,RowRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioRegistry,FolioSchemaManager,FolioService};
+use Survos\FolioBundle\Service\{FolioDtoTypeResolver,FolioRegistry,FolioSchemaManager,FolioService,FolioSummaryService};
+use Survos\FolioBundle\State\FolioRowProvider;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\{ContainerBuilder,Reference};
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -35,12 +37,13 @@ final class SurvosFolioBundle extends AbstractBundle
         $services->set(FolioSchemaManager::class)->autowire()->autoconfigure()->public();
         $services->set(FolioRegistry::class)->autowire()->autoconfigure()->public();
         $services->set(FolioRegistry::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioSummaryService::class)->autowire()->autoconfigure()->public();
         $services->set(FolioService::class)->autowire()->autoconfigure()->public()->args([
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
             '$dbDir' => $config['db_dir'],
             '$extension' => $config['extension'],
         ]);
-        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioController::class, FolioMenu::class] as $class) {
+        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioController::class, FolioMenu::class, FolioContextListener::class, FolioRowProvider::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
     }

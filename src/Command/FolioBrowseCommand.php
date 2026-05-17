@@ -43,7 +43,7 @@ final class FolioBrowseCommand
 
         $io->table(
             ['id', 'label', 'dto'],
-            array_map(fn (Row $r) => [$r->localId, $r->label ?? '—', $r->dtoClass ?? '—'], $rows),
+            array_map(fn (Row $r) => [$r->localId, $r->label ?? '—', $r->dtoType ?? '—'], $rows),
         );
 
         return Command::SUCCESS;

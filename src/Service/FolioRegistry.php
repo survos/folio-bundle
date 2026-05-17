@@ -25,7 +25,9 @@ final class FolioRegistry
         $repo = $this->defaultEntityManager->getRepository(DatasetInfo::class);
 
         if ($datasetKey !== null && $datasetKey !== '') {
-            $dataset = $repo->find($this->dataPaths->sanitizeDatasetKey($datasetKey));
+            // DatasetInfo PKs use slash (e.g. "mus/aust"); sanitizeDatasetKey() returns dash format.
+            $ref     = $this->dataPaths->parseDatasetRef($datasetKey);
+            $dataset = $repo->find($ref['provider'] . '/' . $ref['code']);
             return $dataset instanceof DatasetInfo ? [$dataset] : [];
         }
 
@@ -67,6 +69,34 @@ final class FolioRegistry
         }
 
         return null;
+    }
+
+    /**
+     * Returns field names that have at least one non-null value in the normalized profile.
+     * @return string[]|null null if no profile found
+     */
+    public function populatedFields(DatasetInfo $dataset, string $core = 'obj'): ?array
+    {
+        $profilePath = $this->dataPaths->stageDir($dataset->datasetKey, 'profile') . "/$core.profile.json";
+        if (!is_file($profilePath) && $core === 'obj' && $dataset->profilePath !== null && is_file($dataset->profilePath)) {
+            $profilePath = $dataset->profilePath;
+        }
+        if (!is_file($profilePath)) {
+            return null;
+        }
+        try {
+            $profile     = json_decode(file_get_contents($profilePath), true, 512, JSON_THROW_ON_ERROR);
+            $recordCount = (int) ($profile['recordCount'] ?? 0);
+            $populated   = [];
+            foreach ($profile['fields'] ?? [] as $name => $stats) {
+                if ($recordCount > 0 && ((int) ($stats['nulls'] ?? $recordCount)) < $recordCount) {
+                    $populated[] = $name;
+                }
+            }
+            return $populated ?: null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /** @return list<string> */
