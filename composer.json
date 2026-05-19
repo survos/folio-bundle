@@ -14,12 +14,12 @@
     "survos/data-contracts": "*",
     "survos/field-bundle": "*",
     "survos/jsonl-bundle": "*",
-    "symfony/config": "8.1.*@beta",
-    "symfony/console": "8.1.*@beta",
-    "symfony/dependency-injection": "8.1.*@beta",
-    "symfony/framework-bundle": "8.1.*@beta",
-    "symfony/http-kernel": "8.1.*@beta",
-    "symfony/routing": "8.1.*@beta"
+    "symfony/config": "^8.1",
+    "symfony/console": "^8.1",
+    "symfony/dependency-injection": "^8.1",
+    "symfony/framework-bundle": "^8.1",
+    "symfony/http-kernel": "^8.1",
+    "symfony/routing": "^8.1"
   },
   "suggest": {
     "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios."
