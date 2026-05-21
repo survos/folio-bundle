@@ -20,7 +20,7 @@ return [
     Survos\CoreBundle\SurvosCoreBundle::class => ['all' => true],
     Knp\Bundle\MenuBundle\KnpMenuBundle::class => ['all' => true],
     Survos\ImportBundle\SurvosImportBundle::class => ['all' => true],
-    Survos\DataBundle\SurvosDataBundle::class => ['all' => true],
+    Survos\DataBundle\SurvosDatasetBundle::class => ['all' => true],
     Survos\BabelBundle\SurvosBabelBundle::class => ['all' => true],
     Survos\TablerBundle\SurvosTablerBundle::class => ['all' => true],
     Survos\FolioBundle\SurvosFolioBundle::class => ['all' => true],

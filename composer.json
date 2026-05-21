@@ -10,7 +10,7 @@
     "doctrine/dbal": "^4.3",
     "doctrine/doctrine-bundle": "^2.14|^3.0",
     "doctrine/orm": "^3.4",
-    "survos/data-bundle": "*",
+    "survos/dataset-bundle": "*",
     "survos/data-contracts": "*",
     "survos/field-bundle": "*",
     "survos/jsonl-bundle": "*",
