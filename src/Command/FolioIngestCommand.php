@@ -28,7 +28,7 @@ final class FolioIngestCommand extends Command
 
     protected function configure(): void
     {
-        $this->addArgument('dataset', InputArgument::OPTIONAL, 'Dataset key (e.g. mus/cleveland)')
+        $this->addArgument('dataset', InputArgument::OPTIONAL, 'Dataset key (e.g. harvest/cleveland, md/collection-id, dc/05747667f)')
             ->addOption('all', null, InputOption::VALUE_NONE, 'Ingest all datasets that have source data')
             ->addOption('provider', null, InputOption::VALUE_REQUIRED, 'Ingest all datasets for a provider')
             ->addOption('core', null, InputOption::VALUE_REQUIRED, 'Core name (default: from DatasetInfo or "obj")')
@@ -68,7 +68,7 @@ final class FolioIngestCommand extends Command
 
                 // Restore: copy bootstrap → destination, then open fresh DB.
                 $this->folios->reset($dataset->datasetKey);
-                $ctx = $this->folios->context($dataset->datasetKey);
+                $ctx = $this->folios->context($dataset->datasetKey, ensureSchema: true);
 
                 // Update metadata the service doesn't know about.
                 $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
@@ -90,7 +90,11 @@ final class FolioIngestCommand extends Command
                         ? (string) $data[$labelField]
                         : (isset($data['title']) ? (string) $data['title'] : $localId);
                     $row->dtoType = $this->dtoTypeResolver->typeFromPayload($data);
-                    $row->dtoData = $data;
+                    try {
+                        [$row->dtoData, $row->extras] = $this->splitDtoData($row->dtoType, $data);
+                    } catch (\TypeError) {
+                        $row->dtoData = $data;
+                    }
                     $ctx->em->persist($row);
 
                     if (++$count % $batch === 0) {
@@ -125,4 +129,37 @@ final class FolioIngestCommand extends Command
 
         return Command::SUCCESS;
     }
+
+    /**
+     * @param array<string,mixed> $data
+     * @return array{0:array<string,mixed>,1:array<string,mixed>}
+     */
+    private function splitDtoData(string $dtoType, array $data): array
+    {
+        $class = $this->dtoTypeResolver->classForType($dtoType);
+        if ($class === null || !class_exists($class)) {
+            return [$data, []];
+        }
+
+        $dto = method_exists($class, 'fromNormalized') ? $class::fromNormalized($data) : new $class();
+        $dtoData = method_exists($dto, 'toMeili')
+            ? $dto->toMeili()
+            : array_filter(get_object_vars($dto), static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
+        unset($dtoData['unmapped']);
+
+        $known = array_fill_keys(array_keys(get_object_vars($dto)), true);
+        foreach (['class', 'content_type', 'contentType', 'dto_type', 'dtoType'] as $alias) {
+            $known[$alias] = true;
+        }
+
+        $extras = [];
+        foreach ($data as $key => $value) {
+            if (!isset($known[$key])) {
+                $extras[$key] = $value;
+            }
+        }
+
+        return [$dtoData, $extras];
+    }
+
 }

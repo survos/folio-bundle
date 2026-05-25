@@ -15,20 +15,27 @@ use Survos\FolioBundle\Repository\RelationRepository;
 class Relation
 {
     #[ORM\Id]
-    #[ORM\Column(length: 32)]
+    #[ORM\Column(length: 32, options: ['comment' => 'xxh128 hash of type|leftId|rightId'])]
     public string $id;
 
     #[ORM\ManyToOne(targetEntity: RelationType::class)]
     #[ORM\JoinColumn(name: 'relation_type_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
     public RelationType $type;
 
-    #[ORM\Column(length: 80)] public string $leftCore;
-    #[ORM\Column(length: 180)] public string $leftId;
-    #[ORM\Column(length: 80)] public string $rightCore;
-    #[ORM\Column(length: 180)] public string $rightId;
+    #[ORM\Column(length: 80, options: ['comment' => 'Source core code'])]
+    public string $leftCore;
 
-    #[ORM\Column(type: Types::JSON, options: ['default' => '{}'])]
-    public array $extras = [];
+    #[ORM\Column(length: 180, options: ['comment' => 'Source row local_id'])]
+    public string $leftId;
+
+    #[ORM\Column(length: 80, options: ['comment' => 'Target core code'])]
+    public string $rightCore;
+
+    #[ORM\Column(length: 180, options: ['comment' => 'Target row local_id'])]
+    public string $rightId;
+
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Extra relation metadata'])]
+    public ?array $extras = null;
 
     public function __construct(RelationType $type, string $leftId, string $rightId)
     {

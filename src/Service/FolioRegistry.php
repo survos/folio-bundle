@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Doctrine\ORM\EntityManagerInterface;
-use Survos\DataBundle\Entity\DatasetInfo;
-use Survos\DataBundle\Service\DataPaths;
+use Survos\DatasetBundle\Entity\DatasetInfo;
+use Survos\DatasetBundle\Service\DataPaths;
 
 final class FolioRegistry
 {

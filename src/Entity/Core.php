@@ -14,24 +14,23 @@ use Survos\FolioBundle\Repository\CoreRepository;
 class Core
 {
     #[ORM\Id]
-    #[ORM\Column(length: 180)]
+    #[ORM\Column(length: 180, options: ['comment' => 'Composite: folioCode:coreCode'])]
     public string $id;
 
     #[ORM\ManyToOne(targetEntity: Folio::class)]
     #[ORM\JoinColumn(name: 'folio_code', referencedColumnName: 'code', nullable: false, onDelete: 'CASCADE')]
     public Folio $folio;
 
-    #[ORM\Column(length: 80)]
+    #[ORM\Column(length: 80, options: ['comment' => 'Core code within the folio (e.g. obj, per)'])]
     public string $code;
 
-    #[ORM\Column(length: 255, nullable: true)]
+    #[ORM\Column(length: 255, nullable: true, options: ['comment' => 'Human-readable display name'])]
     public ?string $label = null;
 
-    #[ORM\Column(options: ['default' => 0])]
+    #[ORM\Column(options: ['default' => 0, 'comment' => 'Number of rows in this core'])]
     public int $rowCount = 0;
 
-    /** @var string[]|null populated field names from the normalized profile (nulls < recordCount) */
-    #[ORM\Column(type: Types::JSON, nullable: true)]
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Populated field names from normalized profile'])]
     public ?array $fieldSummary = null;
 
     public function __construct(Folio $folio, string $code)

@@ -1,0 +1,176 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+{% block body %}
+{% set parts = ctx.folioCode|split('/') %}
+
+<div class="container-xl py-3">
+    <div class="page-header mb-3">
+        <div class="row align-items-center">
+            <div class="col">
+                <h1 class="page-title">
+                    <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="text-muted">{{ ctx.folioCode }}</a>
+                    <span class="text-muted mx-1">/</span>Chat
+                </h1>
+                <div class="text-muted">Ask questions against the folio FTS5 index.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row row-cards">
+        <div class="col-lg-8">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <form method="post" class="vstack gap-3" data-turbo="false">
+                        <div>
+                            <label class="form-label" for="folio-chat-q">Question</label>
+                            <textarea id="folio-chat-q" name="q" class="form-control" rows="3" autofocus placeholder="Find records about Cambridge milk dealers">{{ question }}</textarea>
+                        </div>
+                        {% if promptSuggestions %}
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for prompt in promptSuggestions %}
+                                    <button class="btn btn-sm btn-outline-secondary text-start" type="submit" name="q" value="{{ prompt }}">
+                                        {{ prompt }}
+                                    </button>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label" for="folio-chat-core">Core</label>
+                                <select id="folio-chat-core" name="core" class="form-select">
+                                    <option value="">All cores</option>
+                                    {% for core in cores %}
+                                        <option value="{{ core.code }}" {{ selectedCore == core.code ? 'selected' }}>{{ core.code }} · {{ core.rowCount|number_format }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label" for="folio-chat-dto">DTO Type</label>
+                                <select id="folio-chat-dto" name="dtoType" class="form-select">
+                                    <option value="">All DTO types</option>
+                                    {% for coreCode, choices in dtoChoices %}
+                                        {% for dto in choices %}
+                                            <option value="{{ dto.type }}" {{ selectedDtoType == dto.type ? 'selected' }}>{{ coreCode }} / {{ dto.label }} · {{ dto.count|number_format }}</option>
+                                        {% endfor %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button class="btn btn-primary w-100" type="submit">Ask</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            {% if error %}
+                <div class="alert alert-warning">{{ error }}</div>
+            {% endif %}
+
+            {% if result %}
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h2 class="card-title mb-0">Answer</h2>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-0">{{ result.answer }}</p>
+                    </div>
+                </div>
+
+                <div class="vstack gap-3">
+                    {% for hit in result.hits %}
+                        {% set th = hit.thumbnailSource %}
+                        <div class="card">
+                            <div class="row g-0">
+                                {% if th %}
+                                    <div class="col-sm-3 col-lg-2">
+                                        <div class="ratio ratio-1x1 bg-light">
+                                            {% set imageUrl = hit.thumbnailUrl %}
+                                            {% guard filter imgproxy %}
+                                                {% set imageUrl = th|imgproxy('medium') %}
+                                            {% endguard %}
+                                            <img src="{{ imageUrl }}" alt="" loading="lazy" class="w-100 h-100 object-fit-contain p-2">
+                                        </div>
+                                    </div>
+                                {% endif %}
+                                <div class="col">
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between gap-3">
+                                            <div>
+                                                <h3 class="h4 mb-1">
+                                                    <a href="{{ path('survos_folio_row_show', hit.routeParams) }}">{{ hit.label ?: hit.localId }}</a>
+                                                </h3>
+                                                <div class="text-muted small">
+                                                    {{ hit.coreCode }} / {{ hit.dtoType ?: 'row' }} / <span class="font-monospace">{{ hit.localId }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="text-muted small text-end">BM25 {{ hit.score|number_format(4) }}</div>
+                                        </div>
+                                        {% if hit.snippet %}
+                                            <p class="mt-3 mb-2">
+                                                {{ hit.snippet|e|replace({'[[[': '<mark>', ']]]': '</mark>'})|raw }}
+                                            </p>
+                                        {% endif %}
+                                        {% if hit.denseSummary %}
+                                            <p class="text-muted mb-2">{{ hit.denseSummary }}</p>
+                                        {% endif %}
+                                        <div class="d-flex gap-3 small">
+                                            <a href="{{ path('survos_folio_row_show', hit.routeParams) }}">Detail</a>
+                                            {% if hit.citationUrl %}
+                                                <a href="{{ hit.citationUrl }}" target="_blank" rel="noopener">Original</a>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="card">
+                            <div class="card-body text-muted">No matching rows.</div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title mb-0">Word Cloud</h2>
+                </div>
+                <div class="card-body">
+                    {% if wordCloud %}
+                        {% set topTerm = wordCloud|first %}
+                        {% set topValue = topTerm.value ?: 1 %}
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for term in wordCloud %}
+                                {% set scale = min(1.55, max(0.85, 0.85 + (term.value / topValue))) %}
+                                <form method="post" data-turbo="false">
+                                    <input type="hidden" name="q" value="{{ term.text }} gallery. Cite rows.">
+                                    <button class="btn btn-sm btn-outline-secondary" style="font-size: {{ scale }}rem" type="submit">
+                                        {{ term.text }}
+                                    </button>
+                                </form>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-muted">Word-cloud terms will appear after the folio FTS vocabulary is rebuilt.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h2 class="card-title mb-0">Context</h2>
+                </div>
+                <div class="card-body">
+                    {% if result and result.contextPrompt %}
+                        <pre class="small mb-0" style="white-space: pre-wrap">{{ result.contextPrompt }}</pre>
+                    {% else %}
+                        <div class="text-muted">Sources and the generated context prompt will appear after a question.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

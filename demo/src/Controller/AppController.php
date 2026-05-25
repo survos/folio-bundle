@@ -2,8 +2,8 @@
 
 namespace App\Controller;
 
-use Survos\DataBundle\Entity\Artifact;
-use Survos\DataBundle\Repository\ArtifactRepository;
+use Survos\DatasetBundle\Entity\Artifact;
+use Survos\DatasetBundle\Repository\ArtifactRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;

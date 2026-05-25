@@ -1,17 +1,206 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
 {% block body %}
 {% set parts = ctx.folioCode|split('/') %}
-<h1>Folio {{ ctx.folioCode }}</h1>
-<table>
-    <thead><tr><th>Core</th><th>Label</th><th>Rows</th></tr></thead>
-    <tbody>
-    {% for core in cores %}
-        <tr>
-            <td><a href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}">{{ core.code }}</a></td>
-            <td>{{ core.label }}</td>
-            <td>{{ core.rowCount }}</td>
-        </tr>
-    {% endfor %}
-    </tbody>
-</table>
+
+<div class="container-xl py-4">
+    <div class="page-header mb-4">
+        <div class="row align-items-center">
+            <div class="col">
+                <h1 class="page-title">Folio {{ ctx.folioCode }}</h1>
+                <div class="text-muted">{{ cores|length }} cores · {{ cores|reduce((sum, core) => sum + core.rowCount, 0)|number_format }} rows</div>
+            </div>
+            <div class="col-auto">
+                <a href="{{ path('survos_folio_schema', {provider: parts[0], dataset: parts[1]}) }}" class="btn btn-outline-secondary">
+                    Schema
+                </a>
+                <a href="{{ path('survos_folio_chat', {provider: parts[0], dataset: parts[1]}) }}" class="btn btn-primary">
+                    Chat
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="row row-cards mb-4">
+        <div class="col-sm-6 col-lg-4">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted text-uppercase small">Object Core</div>
+                    <div class="h2 mb-1">{{ objectCore ? objectCore.rowCount|number_format : 0 }}</div>
+                    {% if objectCore %}
+                        <a href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: objectCore.code}) }}">
+                            Browse {{ objectCore.code }}
+                        </a>
+                    {% else %}
+                        <span class="text-muted">No cores loaded</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-lg-4">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted text-uppercase small">DTO Types</div>
+                    <div class="h2 mb-1">{{ dtoChoices|length }}</div>
+                    <div class="text-muted">Found in {{ objectCore ? objectCore.code : 'selected' }} rows</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-lg-4">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted text-uppercase small">Other Cores</div>
+                    <div class="h2 mb-1">{{ supportingCores|length }}</div>
+                    <div class="text-muted">{{ supportingCores|reduce((sum, core) => sum + core.rowCount, 0)|number_format }} rows</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if objectCore %}
+        <div class="row row-cards mb-4">
+            <div class="col-lg-7">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h2 class="card-title mb-0">Object DTO Breakdown</h2>
+                    </div>
+                    <div class="card-body">
+                        {% if dtoBreakdownChart %}
+                            <div style="height: 280px">
+                                {{ render_chart(dtoBreakdownChart) }}
+                            </div>
+                        {% elseif dtoChoices %}
+                            <div class="text-muted">Chart.js is not enabled in this app.</div>
+                        {% else %}
+                            <div class="text-muted">No DTO types found for {{ objectCore.code }}.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-5">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h2 class="card-title mb-0">Browse by Type</h2>
+                    </div>
+                    <div class="list-group list-group-flush">
+                        <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                           href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: objectCore.code}) }}">
+                            <span>All rows</span>
+                            <span class="badge bg-secondary">{{ objectCore.rowCount|number_format }}</span>
+                        </a>
+                        {% for dto in dtoChoices %}
+                            <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                               href="{{ path('survos_folio_core_dto', {provider: parts[0], dataset: parts[1], coreCode: objectCore.code, dtoType: dto.type}) }}">
+                                <span>{{ dto.label }}</span>
+                                <span class="badge bg-secondary">{{ dto.count|number_format }}</span>
+                            </a>
+                        {% else %}
+                            <div class="list-group-item text-muted">No DTO breakdown available.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title mb-0">Cores</h2>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-vcenter card-table">
+                <thead>
+                <tr>
+                    <th>Core</th>
+                    <th>Label</th>
+                    <th class="text-end">Rows</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for core in cores %}
+                    <tr>
+                        <td class="font-monospace">
+                            <a href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}">{{ core.code }}</a>
+                        </td>
+                        <td>{{ core.label ?: core.code }}</td>
+                        <td class="text-end">{{ core.rowCount|number_format }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="3" class="text-muted">No cores loaded.</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="row row-cards mt-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h2 class="card-title mb-0">Archive Docs</h2>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for doc in docs %}
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <strong>{{ doc.title }}</strong>
+                                <span class="badge bg-secondary">{{ doc.type }}</span>
+                            </div>
+                            {% if doc.type == 'json' %}
+                                <pre class="small mb-0" style="max-height: 12rem; overflow:auto">{{ doc.body }}</pre>
+                            {% else %}
+                                <pre class="small mb-0" style="max-height: 12rem; overflow:auto; white-space: pre-wrap">{{ doc.body }}</pre>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div class="list-group-item text-muted">No archive docs have been generated yet.</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h2 class="card-title mb-0">Observed Schema</h2>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-vcenter card-table">
+                        <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Core</th>
+                            <th>Type</th>
+                            <th class="text-end">Rows</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for table in schemaTables|filter(table => table.kind == 'dto') %}
+                            <tr>
+                                <td class="font-monospace">{{ table.name }}</td>
+                                <td>{{ table.core_code }}</td>
+                                <td>{{ table.dto_type }}</td>
+                                <td class="text-end">{{ table.row_count|number_format }}</td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="4" class="text-muted">No observed DTO schema has been generated yet.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if views %}
+                    <div class="card-footer">
+                        <div class="text-muted small mb-2">Generated SQLite views</div>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for view in views %}
+                                <span class="badge bg-blue-lt font-monospace">{{ view }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div>
 {% endblock %}

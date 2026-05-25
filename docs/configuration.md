@@ -31,10 +31,27 @@ survos_folio:
   entity_manager: folio
 ```
 
-Commands:
+## Commands
+
+Dataset keys are opaque provider/dataset identifiers. `harvest/...`, `md/...`, `dc/...`, and legacy keys such as `mus/...` should all be treated as data identifiers, not application names.
 
 ```bash
-bin/console folio:migrate cleveland
-bin/console folio:ingest cleveland --core=obj --file=$APP_DATA_DIR/work/cleveland/normalized/obj.jsonl
-bin/console folio:browse cleveland --core=obj --limit=10
+bin/console folio:migrate harvest/cleveland --force
+bin/console folio:ingest harvest/cleveland --core=obj
+bin/console folio:browse harvest/cleveland --core=obj --limit=10
+bin/console folio:archive harvest/cleveland
+bin/console folio:restore var/data/folio/harvest/cleveland.folio.sqlite.gz harvest/cleveland --force
 ```
+
+`folio:ingest` reads datasets from `DatasetInfo` through `FolioRegistry`; it does not scan the work tree directly. It prefers enriched JSONL when present and falls back to normalized JSONL.
+
+## Archive Metadata
+
+After ingest, folio prepares the archive metadata:
+
+1. snapshot observed schema and field stats into `schema_table` / `schema_property`;
+2. generate lightweight `dto_*` SQLite views;
+3. generate JSON/Markdown rows in `docs`;
+4. rebuild FTS5 search indexes.
+
+See `archive-metadata.md` for the archive contract.

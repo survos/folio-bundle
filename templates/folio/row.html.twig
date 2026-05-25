@@ -1,0 +1,117 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+{% block body %}
+{% set parts = ctx.folioCode|split('/') %}
+{% set th = row.thumbnailSource %}
+
+<div class="container-xl py-3">
+    <div class="page-header mb-3">
+        <div class="row align-items-center">
+            <div class="col">
+                <h1 class="page-title">
+                    <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="text-muted">{{ ctx.folioCode }}</a>
+                    <span class="text-muted mx-1">/</span>
+                    <a href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}" class="text-muted">{{ core.code }}</a>
+                    {% if row.dtoType %}
+                        <span class="text-muted mx-1">/</span>
+                        <a href="{{ path('survos_folio_core_dto', {provider: parts[0], dataset: parts[1], coreCode: core.code, dtoType: row.dtoType}) }}" class="text-muted">{{ row.dtoType }}</a>
+                    {% endif %}
+                    <span class="text-muted mx-1">/</span>{{ row.localId }}
+                </h1>
+                <div class="text-muted">{{ row.label ?: row.localId }}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row row-cards">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title mb-0">DTO Data</h2>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-vcenter card-table">
+                        <tbody>
+                        {% for field in columns %}
+                            {% set value = attribute(row.dtoData, field)|default(null) %}
+                            {% if value is not empty %}
+                                <tr>
+                                    <th class="w-25 font-monospace text-muted">{{ field }}</th>
+                                    <td>
+                                        {% if value is iterable %}
+                                            <pre class="mb-0">{{ value|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+                                        {% else %}
+                                            {{ value }}
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        {% else %}
+                            {% for field, value in row.dtoData %}
+                                <tr>
+                                    <th class="w-25 font-monospace text-muted">{{ field }}</th>
+                                    <td>
+                                        {% if value is iterable %}
+                                            <pre class="mb-0">{{ value|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+                                        {% else %}
+                                            {{ value }}
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td class="text-muted">No DTO data captured.</td>
+                                </tr>
+                            {% endfor %}
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            {% if th %}
+                <div class="card mb-3">
+                    <div class="card-body text-center">
+                        {% set imageUrl = row.thumbnailUrl %}
+                        {% guard filter imgproxy %}
+                            {% set imageUrl = th|imgproxy('medium') %}
+                        {% endguard %}
+                        <img src="{{ imageUrl }}" alt="{{ row.label ?: row.localId }}" class="img-fluid rounded" style="max-height: 360px; object-fit: contain" loading="lazy">
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h2 class="card-title mb-0">Row</h2>
+                </div>
+                <div class="card-body">
+                    <dl class="mb-0">
+                        <dt>ID</dt>
+                        <dd class="font-monospace">{{ row.localId }}</dd>
+                        <dt>Type</dt>
+                        <dd>{{ row.dtoType ?: '(none)' }}</dd>
+                        <dt>DTO Class</dt>
+                        <dd class="font-monospace small">{{ dtoClass ?: '(generic)' }}</dd>
+                        {% if row.citationUrl %}
+                            <dt>Original</dt>
+                            <dd><a href="{{ row.citationUrl }}" target="_blank" rel="noopener">Citation record</a></dd>
+                        {% endif %}
+                    </dl>
+                </div>
+            </div>
+
+            {% if row.extras %}
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h2 class="card-title mb-0">Extras</h2>
+                    </div>
+                    <div class="card-body">
+                        <pre class="mb-0">{{ row.extras|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

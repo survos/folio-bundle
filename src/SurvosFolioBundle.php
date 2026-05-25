@@ -4,19 +4,24 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle;
 
-use Survos\FolioBundle\Command\{FolioBrowseCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand};
-use Survos\FolioBundle\EventListener\FolioContextListener;
+use Survos\IiifBundle\SurvosIiifBundle;
+use Survos\ImgproxyBundle\SurvosImgproxyBundle;
+use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioRestoreCommand};
+use Survos\FolioBundle\EventListener\{FolioContextListener,FolioFtsIndexListener};
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\FolioController;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,RelationRepository,RelationTypeRepository,RowRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioDtoTypeResolver,FolioRegistry,FolioSchemaManager,FolioService,FolioSummaryService};
+use Survos\FolioBundle\Service\{FolioArchivePreparer,FolioArchiveService,FolioChatPromptSuggester,FolioChatService,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
 use Survos\FolioBundle\State\FolioRowProvider;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
-use Symfony\Component\DependencyInjection\{ContainerBuilder,Reference};
+use Symfony\Component\DependencyInjection\{ContainerBuilder,ContainerInterface,Reference};
+use Symfony\Component\DependencyInjection\Kernel\RequiredBundle;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
+#[RequiredBundle(SurvosIiifBundle::class, ignoreOnInvalid: true)]
+#[RequiredBundle(SurvosImgproxyBundle::class, ignoreOnInvalid: true)]
 final class SurvosFolioBundle extends AbstractBundle
 {
     public function configure(DefinitionConfigurator $definition): void
@@ -38,14 +43,32 @@ final class SurvosFolioBundle extends AbstractBundle
         $services->set(FolioRegistry::class)->autowire()->autoconfigure()->public();
         $services->set(FolioRegistry::class)->autowire()->autoconfigure()->public();
         $services->set(FolioSummaryService::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioFtsIndexer::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioQueryAnalyzer::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioRetriever::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioWordCloudService::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioChatPromptSuggester::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioChatService::class)->autowire()->autoconfigure()->public()->args([
+            '$agent' => new Reference('ai.agent.folio', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]);
+        $services->set(FolioSchemaSnapshotter::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioViewBuilder::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioDocsBuilder::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioArchivePreparer::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioArchiveService::class)->autowire()->autoconfigure()->public();
         $services->set(FolioService::class)->autowire()->autoconfigure()->public()->args([
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
             '$dbDir' => $config['db_dir'],
             '$extension' => $config['extension'],
         ]);
-        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioController::class, FolioMenu::class, FolioContextListener::class, FolioRowProvider::class, FolioDtoTypeResolver::class] as $class) {
+        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioController::class, FolioMenu::class, FolioContextListener::class, FolioRowProvider::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
+        $services->set(FolioFtsIndexListener::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public()
+            ->tag('kernel.event_listener', ['event' => 'Survos\FolioBundle\Event\FolioIngestFinishedEvent']);
     }
 
     public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void

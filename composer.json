@@ -7,27 +7,34 @@
   "prefer-stable": true,
   "require": {
     "php": "^8.4",
-    "doctrine/dbal": "^4.3",
+    "doctrine/dbal": "^4.4",
     "doctrine/doctrine-bundle": "^2.14|^3.0",
     "doctrine/orm": "^3.4",
     "survos/dataset-bundle": "*",
     "survos/data-contracts": "*",
     "survos/field-bundle": "*",
     "survos/jsonl-bundle": "*",
+    "symfony/ai-agent": "^0.9",
     "symfony/config": "^8.1",
     "symfony/console": "^8.1",
     "symfony/dependency-injection": "^8.1",
     "symfony/framework-bundle": "^8.1",
     "symfony/http-kernel": "^8.1",
-    "symfony/routing": "^8.1"
+    "symfony/routing": "^8.1",
+    "voku/stop-words": "^2.0"
   },
   "suggest": {
     "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios."
   },
   "autoload": { "psr-4": { "Survos\\FolioBundle\\": "src/" } },
   "autoload-dev": { "psr-4": { "Survos\\FolioBundle\\Tests\\": "tests/" } },
-  "extra": { "symfony": { "allow-contrib": false, "require": "8.1.*" } },
+  "extra": { "symfony": { "allow-contrib": true, "require": "8.1.*" } },
   "require-dev": {
-    "phpstan/phpstan": "^2.1"
+    "phpstan/phpstan": "^2.1",
+    "api-platform/core": "^4.3",
+    "symfony/ux-chartjs": "^3.0",
+    "survos/tabler-bundle": "^2.5",
+    "survos/imgproxy-bundle": "^2.5",
+    "survos/iiif-bundle": "^2.5"
   }
 }

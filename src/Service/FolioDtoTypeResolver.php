@@ -12,9 +12,9 @@ final class FolioDtoTypeResolver
 {
     public function typeFromPayload(array $payload): string
     {
-        $type = $payload['content_type'] ?? null;
+        $type = $payload['contentType'] ?? $payload['content_type'] ?? null;
         if (!is_string($type) || trim($type) === '') {
-            throw new \InvalidArgumentException('Folio ingest requires normalized rows to include a non-empty "content_type" field.');
+            throw new \InvalidArgumentException('Folio ingest requires normalized rows to include a non-empty "contentType" field.');
         }
 
         return $this->normalizeType($type);
@@ -37,7 +37,7 @@ final class FolioDtoTypeResolver
             return '(none)';
         }
 
-        return (string) u($type)->replace(['-', '_'], ' ')->title();
+        return (string) u($type)->replace('-', ' ')->replace('_', ' ')->title();
     }
 
     private function normalizeType(string $value): string

@@ -62,6 +62,12 @@ final class FolioService
         if (!$conn instanceof FolioConnectionWrapper) {
             throw new \RuntimeException(sprintf('Configure the folio DBAL connection with wrapper_class: %s', FolioConnectionWrapper::class));
         }
+
+        if ($folioCode === '_bootstrap/_bootstrap') {
+            $this->currentFolioCode = $folioCode;
+            return $em;
+        }
+
         $target = $this->path($folioCode);
         if (!is_file($target)) {
             throw new \RuntimeException(sprintf('Folio file not found: %s. Run folio:migrate first.', $target));

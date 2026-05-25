@@ -6,14 +6,16 @@ namespace Survos\FolioBundle\Entity;
 
 use ApiPlatform\Metadata\ApiFilter;
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
 use ApiPlatform\Doctrine\Orm\Filter\SearchFilter;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
+use Survos\DataContracts\Vocabulary\ItemField;
 use Survos\FieldBundle\Attribute\EntityMeta;
 use Survos\FolioBundle\Repository\RowRepository;
 use Survos\FolioBundle\State\FolioRowProvider;
-use Symfony\Component\Serializer\Annotation\Groups;
+use Symfony\Component\Serializer\Attribute\Groups;
 
 #[EntityMeta(icon: 'mdi:table-row', group: 'Folio', label: 'Folio Rows', adminBrowsable: false)]
 #[ORM\Entity(repositoryClass: RowRepository::class)]
@@ -28,6 +30,13 @@ use Symfony\Component\Serializer\Annotation\Groups;
             uriVariables: ['provider', 'dataset', 'coreCode'],
             provider: FolioRowProvider::class,
             name: self::API_ROWS,
+            normalizationContext: ['groups' => ['row:read']],
+        ),
+        new Get(
+            uriTemplate: '/folios/{provider}/{dataset}/{coreCode}/rows/{localId}',
+            uriVariables: ['provider', 'dataset', 'coreCode', 'localId'],
+            provider: FolioRowProvider::class,
+            normalizationContext: ['groups' => ['row:read']],
         ),
     ],
     shortName: 'FolioRow',
@@ -38,7 +47,7 @@ class Row
     public const API_ROWS = 'folio_rows';
 
     #[ORM\Id]
-    #[ORM\Column(length: 260)]
+    #[ORM\Column(length: 260, options: ['comment' => 'Composite: folioCode:coreCode:localId'])]
     #[Groups(['row:read'])]
     public string $id;
 
@@ -46,28 +55,30 @@ class Row
     #[ORM\JoinColumn(name: 'core_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
     public Core $core;
 
-    #[ORM\Column(name: 'local_id', length: 180)]
+    #[ORM\Column(name: 'local_id', length: 180, options: ['comment' => 'Original ID from source data'])]
     #[Groups(['row:read'])]
     public string $localId;
 
-    #[ORM\Column(length: 500, nullable: true)]
+    #[ORM\Column(length: 500, nullable: true, options: ['comment' => 'Display label'])]
     #[Groups(['row:read'])]
     public ?string $label = null;
 
-    #[ORM\Column(name: 'dto_type', length: 255, nullable: true)]
+    #[ORM\Column(name: 'dto_type', length: 255, nullable: true, options: ['comment' => 'DTO type identifier (e.g. drawing, photograph)'])]
     #[Groups(['row:read'])]
     public ?string $dtoType = null;
 
-    #[ORM\Column(type: Types::JSON, options: ['default' => '{}'])]
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Canonical DTO-shaped JSON'])]
     #[Groups(['row:read'])]
-    public array $dtoData = [];
+    public ?array $dtoData = null;
 
-    #[ORM\Column(type: Types::JSON, options: ['default' => '{}'])]
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Non-DTO source fields'])]
     #[Groups(['row:read'])]
-    public array $extras = [];
+    public ?array $extras = null;
 
-    #[ORM\Column(type: Types::JSON, nullable: true)]
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Optional raw source copy'])]
     public ?array $raw = null;
+
+    private ?string $resolvedThumbnailUrl = null;
 
     public function __construct(Core $core, string $localId)
     {
@@ -77,4 +88,61 @@ class Row
     }
 
     public static function id(string $coreId, string $localId): string { return "$coreId:$localId"; }
+
+    // Core ID format: "provider/dataset:coreCode" e.g. "dc/4168b346w:obj"
+    public function getProvider(): string  { return explode('/', explode(':', $this->core->id, 2)[0], 2)[0]; }
+    public function getDataset(): string   { return explode('/', explode(':', $this->core->id, 2)[0], 2)[1]; }
+    public function getCoreCode(): string  { return explode(':', $this->core->id, 2)[1]; }
+
+    #[Groups(['row:read'])]
+    public function getCitationUrl(): ?string
+    {
+        return $this->canonicalDtoValue(ItemField::CITATION_URL);
+    }
+
+    #[Groups(['row:read'])]
+    public function getThumbnailSource(): ?string
+    {
+        return $this->canonicalDtoValue(ItemField::IIIF_BASE)
+            ?? $this->canonicalDtoValue(ItemField::LARGE_IMAGE_URL)
+            ?? $this->canonicalDtoValue(ItemField::THUMBNAIL_URL);
+    }
+
+    #[Groups(['row:read'])]
+    public function getThumbnailUrl(): ?string
+    {
+        return $this->resolvedThumbnailUrl ?? $this->getThumbnailSource();
+    }
+
+    public function setResolvedThumbnailUrl(?string $resolvedThumbnailUrl): void
+    {
+        $this->resolvedThumbnailUrl = $resolvedThumbnailUrl;
+    }
+
+    /**
+     * Route parameters consumed by api-grid link columns.
+     *
+     * @return array{provider: string, dataset: string, coreCode: string, dtoType: string, localId: string}
+     */
+    #[Groups(['row:read'])]
+    public function getRp(): array
+    {
+        return [
+            'provider' => $this->getProvider(),
+            'dataset' => $this->getDataset(),
+            'coreCode' => $this->getCoreCode(),
+            'dtoType' => $this->dtoType ?: 'row',
+            'localId' => $this->localId,
+        ];
+    }
+
+    private function canonicalDtoValue(string $property): ?string
+    {
+        $value = $this->dtoData[$property] ?? null;
+        if (is_string($value) && $value !== '') {
+            return $value;
+        }
+
+        return null;
+    }
 }

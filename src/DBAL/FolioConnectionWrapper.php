@@ -12,6 +12,7 @@ final class FolioConnectionWrapper extends Connection
 
     public function __construct(array $params, Driver $driver, ?Configuration $config = null)
     {
+        /** @phpstan-ignore method.internal */
         parent::__construct($params, $driver, $config);
         $this->currentPath = (string) ($params['path'] ?? $params['dbname'] ?? '');
     }
@@ -24,10 +25,13 @@ final class FolioConnectionWrapper extends Connection
         if ($this->isConnected()) {
             $this->close();
         }
+        /** @var array<string, mixed> $params */
+        /** @phpstan-ignore method.internal */
         $params = $this->getParams();
         unset($params['url'], $params['dbname']);
         $params['driver'] ??= 'pdo_sqlite';
         $params['path'] = $this->currentPath = $path;
+        /** @phpstan-ignore method.internal */
         parent::__construct($params, $this->getDriver(), $this->_config);
     }
 }

@@ -4,64 +4,32 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Menu;
 
-use Survos\DataBundle\Repository\DatasetInfoRepository;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\TablerBundle\Event\MenuEvent;
+use Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Routing\RouterInterface;
 
-class FolioMenu
+class FolioMenu extends AbstractAdminMenuSubscriber
 {
     public function __construct(
         private readonly FolioService $folioService,
-        private readonly DatasetInfoRepository $datasetInfoRepository,
-        private readonly RouterInterface $router,
-    ) {}
+        ?RouterInterface $router = null,
+    ) {
+        parent::__construct($router);
+    }
 
-    #[AsEventListener(event: MenuEvent::NAVBAR_MENU)]
-    public function onNavbarMenu(MenuEvent $event): void
+    protected function getLabel(): string { return 'Folio'; }
+    protected function getGroupIcon(): ?string { return 'mdi:database-outline'; }
+    protected function getResourceClasses(): array { return []; }
+    protected function getBrowseRoute(): ?string { return null; }
+
+    #[AsEventListener(event: MenuEvent::ADMIN_NAVBAR_MENU)]
+    public function onAdminNavbarMenu(MenuEvent $event): void
     {
         $menu = $event->getMenu();
+        $submenu = $this->addSubmenu($menu, $this->getLabel(), $this->getGroupIcon());
 
-        // Find all datasets that have a folio file on disk.
-        $datasets = array_filter(
-            $this->datasetInfoRepository->findBy([], ['datasetKey' => 'ASC']),
-            fn ($d) => is_file($this->folioService->path($d->datasetKey)),
-        );
-
-        if (empty($datasets)) {
-            return;
-        }
-
-        $submenu = $menu->addChild('Folios', [
-            'uri' => $this->router->generate('app_homepage'),
-        ]);
-
-        // Group by provider; show individual dataset links when ≤ 20 total.
-        $byProvider = [];
-        foreach ($datasets as $d) {
-            $provider = explode('/', $d->datasetKey)[0];
-            $byProvider[$provider][] = $d;
-        }
-
-        if (count($datasets) <= 20) {
-            foreach ($byProvider as $provider => $items) {
-                $providerMenu = $submenu->addChild($provider);
-                foreach ($items as $d) {
-                    $parts = explode('/', $d->datasetKey, 2);
-                    $providerMenu->addChild($d->label ?? $d->datasetKey, [
-                        'route' => 'survos_folio_show',
-                        'routeParameters' => ['provider' => $parts[0], 'dataset' => $parts[1] ?? $parts[0]],
-                    ]);
-                }
-            }
-        } else {
-            // Too many to list — just show provider counts.
-            foreach ($byProvider as $provider => $items) {
-                $submenu->addChild(sprintf('%s (%d)', $provider, count($items)), [
-                    'uri' => $this->router->generate('app_homepage') . '#' . $provider,
-                ]);
-            }
-        }
+        $this->add($submenu, 'survos_folio_schema', ['provider' => '_bootstrap', 'dataset' => '_bootstrap'], 'Bootstrap Schema', icon: 'mdi:table-cog');
     }
 }
