@@ -6,12 +6,12 @@ namespace Survos\FolioBundle;
 
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
-use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioRestoreCommand};
+use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand};
 use Survos\FolioBundle\EventListener\{FolioContextListener,FolioFtsIndexListener};
 use Survos\FolioBundle\Menu\FolioMenu;
-use Survos\FolioBundle\Controller\FolioController;
-use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,RelationRepository,RelationTypeRepository,RowRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioArchivePreparer,FolioArchiveService,FolioChatPromptSuggester,FolioChatService,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
+use Survos\FolioBundle\Controller\{FolioCollectionController,FolioController,FolioSearchController};
+use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,TermRepository,TermSetRepository};
+use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatPromptSuggester,FolioChatService,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
 use Survos\FolioBundle\State\FolioRowProvider;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\{ContainerBuilder,ContainerInterface,Reference};
@@ -27,8 +27,7 @@ final class SurvosFolioBundle extends AbstractBundle
     public function configure(DefinitionConfigurator $definition): void
     {
         $definition->rootNode()->children()
-            ->scalarNode('db_dir')->defaultValue('%env(APP_DATA_DIR)%/folio')->end()
-            ->scalarNode('extension')->defaultValue('folio.sqlite')->end()
+            ->scalarNode('extension')->defaultValue('folio')->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
         ->end();
     }
@@ -36,7 +35,7 @@ final class SurvosFolioBundle extends AbstractBundle
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         $services = $container->services();
-        foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, RelationTypeRepository::class, RelationRepository::class] as $class) {
+        foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');
         }
         $services->set(FolioSchemaManager::class)->autowire()->autoconfigure()->public();
@@ -56,13 +55,26 @@ final class SurvosFolioBundle extends AbstractBundle
         $services->set(FolioDocsBuilder::class)->autowire()->autoconfigure()->public();
         $services->set(FolioArchivePreparer::class)->autowire()->autoconfigure()->public();
         $services->set(FolioArchiveService::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioAiArtifactPaths::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioAiPromptBuilder::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioAiBatchPreparer::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioAiClaimImporter::class)->autowire()->autoconfigure()->public();
+        if (class_exists(\Survos\MeiliBundle\Service\MeiliService::class)) {
+            $services->set(FolioMeiliDocumentBuilder::class)->autowire()->autoconfigure()->public();
+            $services->set(FolioMeiliIndexer::class)->autowire()->autoconfigure()->public();
+        }
         $services->set(FolioService::class)->autowire()->autoconfigure()->public()->args([
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
-            '$dbDir' => $config['db_dir'],
             '$extension' => $config['extension'],
         ]);
-        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioController::class, FolioMenu::class, FolioContextListener::class, FolioRowProvider::class, FolioDtoTypeResolver::class] as $class) {
+        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioCollectionController::class, FolioController::class, FolioSearchController::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
+        }
+        if (interface_exists(\ApiPlatform\State\ProviderInterface::class)) {
+            $services->set(FolioRowProvider::class)->autowire()->autoconfigure()->public();
+        }
+        if (class_exists(\Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber::class)) {
+            $services->set(FolioMenu::class)->autowire()->autoconfigure()->public();
         }
         $services->set(FolioFtsIndexListener::class)
             ->autowire()

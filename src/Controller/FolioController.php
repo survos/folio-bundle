@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Controller;
 
 use Survos\FolioBundle\Attribute\FolioContext;
-use Survos\FolioBundle\Entity\{Core,Doc,Row};
+use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Row};
 use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService};
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -27,6 +27,7 @@ final class FolioController extends AbstractController
         private readonly ?ChartBuilderInterface $chartBuilder = null,
     ) {}
 
+
     #[Route('/{provider}/{dataset}', name: 'survos_folio_show')]
     public function show(string $provider, string $dataset): Response
     {
@@ -44,6 +45,7 @@ final class FolioController extends AbstractController
         $views = $ctx->em->getConnection()->executeQuery(
             "SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'dto_%' ORDER BY name"
         )->fetchFirstColumn();
+        $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
 
         return $this->render('@SurvosFolioBundle/folio/show.html.twig', [
             'ctx'              => $ctx,
@@ -55,6 +57,7 @@ final class FolioController extends AbstractController
             'docs'             => $ctx->em->getRepository(Doc::class)->findBy([], ['position' => 'ASC']),
             'schemaTables'     => $schemaTables,
             'views'            => $views,
+            'linkTypes'        => $folio?->linkTypes ?? [],
         ]);
     }
 
@@ -205,6 +208,16 @@ final class FolioController extends AbstractController
         $schemaTable = $this->schemaTable($ctx->em->getConnection(), $coreCode, $row->dtoType);
         $dtoClass = is_array($schemaTable) && is_string($schemaTable['dto_class'] ?? null) ? $schemaTable['dto_class'] : $this->dtoTypeResolver->classForType($row->dtoType);
         $columns = $schemaTable ? $this->schemaColumns($ctx->em->getConnection(), (string) $schemaTable['id']) : ($dtoClass ? $this->dtoColumns($dtoClass) : []);
+        $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
+        $terms = [];
+        $extras = $row->extras ?? [];
+        if (isset($extras['genreSpecific'])) {
+            $terms['genre'] = $extras['genreSpecific'];
+            unset($extras['genreSpecific']);
+        }
+        if ($links !== []) {
+            unset($extras['creator']);
+        }
 
         return $this->render('@SurvosFolioBundle/folio/row.html.twig', [
             'ctx' => $ctx,
@@ -213,7 +226,48 @@ final class FolioController extends AbstractController
             'dtoClass' => $dtoClass,
             'columns' => $columns,
             'schemaTable' => $schemaTable,
+            'links' => $links,
+            'terms' => $terms,
+            'extras' => $extras,
         ]);
+    }
+
+
+    /**
+     * @return list<array{direction:string, label:?string, code:string, core:string, localId:string, row:?Row}>
+     */
+    private function rowLinks(\Doctrine\ORM\EntityManagerInterface $em, string $folioCode, string $coreCode, string $localId): array
+    {
+        $linkRows = $em->getRepository(Link::class)->createQueryBuilder('r')
+            ->join('r.type', 't')
+            ->join('t.folio', 'f')
+            ->where('f.code = :folioCode')
+            ->andWhere('(r.leftCore = :coreCode AND r.leftId = :localId) OR (r.rightCore = :coreCode AND r.rightId = :localId)')
+            ->setParameter('folioCode', $folioCode)
+            ->setParameter('coreCode', $coreCode)
+            ->setParameter('localId', $localId)
+            ->orderBy('t.code', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        $links = [];
+        foreach ($linkRows as $link) {
+            \assert($link instanceof Link);
+            $outgoing = $link->leftCore === $coreCode && $link->leftId === $localId;
+            $targetCore = $outgoing ? $link->rightCore : $link->leftCore;
+            $targetId = $outgoing ? $link->rightId : $link->leftId;
+            $target = $em->find(Row::class, Row::id(Core::id($folioCode, $targetCore), $targetId));
+            $links[] = [
+                'direction' => $outgoing ? 'out' : 'in',
+                'label' => $outgoing ? $link->type->label : $link->type->reverseLabel,
+                'code' => $outgoing ? $link->type->code : ($link->type->reverseCode ?? $link->type->code),
+                'core' => $targetCore,
+                'localId' => $targetId,
+                'row' => $target instanceof Row ? $target : null,
+            ];
+        }
+
+        return $links;
     }
 
     #[Route('/{provider}/{dataset}/{coreCode}', name: 'survos_folio_core')]

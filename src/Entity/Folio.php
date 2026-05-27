@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Entity;
 
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use Survos\FolioBundle\Repository\FolioRepository;
 
@@ -24,5 +26,13 @@ class Folio
     #[ORM\Column(options: ['default' => 0, 'comment' => 'Total rows across all cores'])]
     public int $rowCount = 0;
 
-    public function __construct(string $code) { $this->code = $code; }
+    /** @var Collection<int, LinkType> */
+    #[ORM\OneToMany(targetEntity: LinkType::class, mappedBy: 'folio', fetch: 'EXTRA_LAZY')]
+    public Collection $linkTypes;
+
+    public function __construct(string $code)
+    {
+        $this->code = $code;
+        $this->linkTypes = new ArrayCollection();
+    }
 }

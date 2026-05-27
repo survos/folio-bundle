@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
-use Survos\FolioBundle\Entity\{Core,Relation,Row,TermSet};
+use Survos\FolioBundle\Entity\{Core,Link,Row,TermSet};
 use Survos\FolioBundle\Service\FolioService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -22,7 +22,7 @@ final class FolioInfoCommand extends Command
         $ctx = $this->folios->context((string) $input->getArgument('folioCode'));
         $repo = fn (string $class) => $ctx->em->getRepository($class)->count([]);
         (new SymfonyStyle($input, $output))->table(['Metric', 'Count'], [
-            ['cores', $repo(Core::class)], ['rows', $repo(Row::class)], ['term sets', $repo(TermSet::class)], ['relations', $repo(Relation::class)],
+            ['cores', $repo(Core::class)], ['rows', $repo(Row::class)], ['term sets', $repo(TermSet::class)], ['links', $repo(Link::class)],
         ]);
         return Command::SUCCESS;
     }

@@ -1,0 +1,82 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+
+{% block body %}
+<div class="container-xl py-4">
+    <div class="page-header mb-4">
+        <div class="row align-items-center">
+            <div class="col">
+                <h1 class="page-title">Folios</h1>
+                <div class="text-muted">{{ folios|length|number_format }} portable databases registered from dataset artifacts.</div>
+            </div>
+        </div>
+    </div>
+
+    <twig:simple_datatables
+        :data="folios"
+        :columns="[
+            'dataset',
+            'provider',
+            {name: 'itemCount', title: 'Items'},
+            'rowCount',
+            'cores',
+            'size',
+            'updated',
+            {name: 'actions', title: ''},
+        ]"
+        :perPage="25"
+        :search="true"
+    >
+        {% block dataset %}
+            {% set datasetKey = row.dataset.datasetKey %}
+            {% set parts = datasetKey|split('/') %}
+            <div class="fw-semibold">
+                <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}">{{ row.dataset.label ?: datasetKey }}</a>
+            </div>
+            <div class="text-muted small font-monospace">{{ datasetKey }}</div>
+        {% endblock %}
+
+        {% block provider %}
+            <span class="badge bg-blue-lt">{{ row.dataset.aggregator ?: row.dataset.provider }}</span>
+        {% endblock %}
+
+        {% block itemCount %}
+            {{ row.dataset.itemCount|number_format }}
+        {% endblock %}
+
+        {% block rowCount %}
+            {{ row.rowCount ? row.rowCount|number_format : '' }}
+        {% endblock %}
+
+        {% block cores %}
+            {% set coreCounts = row.metadata.coreCounts|default({}) %}
+            {% if coreCounts %}
+                {% for core, count in coreCounts %}
+                    <span class="badge text-bg-light border me-1">{{ core }} {{ count|number_format }}</span>
+                {% endfor %}
+            {% else %}
+                <span class="text-muted">-</span>
+            {% endif %}
+        {% endblock %}
+
+        {% block size %}
+            {% set bytes = row.liveSize ?: row.sizeBytes %}
+            {% if bytes %}
+                {{ (bytes / 1024 / 1024)|number_format(1) }} MB
+            {% endif %}
+        {% endblock %}
+
+        {% block updated %}
+            {{ row.updatedAt ? row.updatedAt|date('Y-m-d H:i') : '' }}
+        {% endblock %}
+
+        {% block actions %}
+            {% set parts = row.dataset.datasetKey|split('/') %}
+            <div class="btn-list flex-nowrap">
+                <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="btn btn-sm btn-primary">Browse</a>
+                <a href="{{ path('survos_folio_search', {provider: parts[0], dataset: parts[1]}) }}" class="btn btn-sm btn-outline-secondary">Grid</a>
+                <a href="{{ path('survos_folio_schema', {provider: parts[0], dataset: parts[1]}) }}" class="btn btn-sm btn-outline-secondary">Schema</a>
+            </div>
+        {% endblock %}
+    </twig:simple_datatables>
+</div>
+{% endblock %}

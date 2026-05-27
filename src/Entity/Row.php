@@ -8,7 +8,10 @@ use ApiPlatform\Metadata\ApiFilter;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
+use ApiPlatform\Metadata\Link;
 use ApiPlatform\Doctrine\Orm\Filter\SearchFilter;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Survos\DataContracts\Vocabulary\ItemField;
@@ -27,14 +30,24 @@ use Symfony\Component\Serializer\Attribute\Groups;
     operations: [
         new GetCollection(
             uriTemplate: '/folios/{provider}/{dataset}/{coreCode}/rows',
-            uriVariables: ['provider', 'dataset', 'coreCode'],
+            uriVariables: [
+                'provider' => new Link(identifiers: ['provider']),
+                'dataset' => new Link(identifiers: ['dataset']),
+                'coreCode' => new Link(identifiers: ['coreCode']),
+            ],
             provider: FolioRowProvider::class,
             name: self::API_ROWS,
+            itemUriTemplate: '/folios/{provider}/{dataset}/{coreCode}/rows/{localId}',
             normalizationContext: ['groups' => ['row:read']],
         ),
         new Get(
             uriTemplate: '/folios/{provider}/{dataset}/{coreCode}/rows/{localId}',
-            uriVariables: ['provider', 'dataset', 'coreCode', 'localId'],
+            uriVariables: [
+                'provider' => new Link(identifiers: ['provider']),
+                'dataset' => new Link(identifiers: ['dataset']),
+                'coreCode' => new Link(identifiers: ['coreCode']),
+                'localId' => new Link(identifiers: ['localId']),
+            ],
             provider: FolioRowProvider::class,
             normalizationContext: ['groups' => ['row:read']],
         ),
@@ -78,6 +91,10 @@ class Row
     #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Optional raw source copy'])]
     public ?array $raw = null;
 
+    /** @var Collection<int, Claim> */
+    #[ORM\OneToMany(targetEntity: Claim::class, mappedBy: 'item')]
+    public Collection $claims;
+
     private ?string $resolvedThumbnailUrl = null;
 
     public function __construct(Core $core, string $localId)
@@ -85,6 +102,7 @@ class Row
         $this->core    = $core;
         $this->localId = $localId;
         $this->id      = self::id($core->id, $localId);
+        $this->claims  = new ArrayCollection();
     }
 
     public static function id(string $coreId, string $localId): string { return "$coreId:$localId"; }
@@ -103,8 +121,17 @@ class Row
     #[Groups(['row:read'])]
     public function getThumbnailSource(): ?string
     {
-        return $this->canonicalDtoValue(ItemField::IIIF_BASE)
-            ?? $this->canonicalDtoValue(ItemField::LARGE_IMAGE_URL)
+        $iiif = $this->canonicalDtoValue(ItemField::IIIF_BASE);
+        if ($iiif !== null) {
+            // IIIF Image API base: append path to get a fetchable image
+            // Static image URLs (already have extension) pass through as-is
+            if (!preg_match('/\.(jpe?g|png|gif|webp|tiff?)$/i', $iiif)) {
+                return rtrim($iiif, '/') . '/full/max/0/default.jpg';
+            }
+            return $iiif;
+        }
+
+        return $this->canonicalDtoValue(ItemField::LARGE_IMAGE_URL)
             ?? $this->canonicalDtoValue(ItemField::THUMBNAIL_URL);
     }
 

@@ -10,6 +10,7 @@ final readonly class FolioArchiveService
         private FolioService $folios,
         private FolioFtsIndexer $ftsIndexer,
         private FolioArchivePreparer $preparer,
+        private FolioViewBuilder $viewBuilder,
     ) {
     }
 
@@ -38,10 +39,26 @@ final readonly class FolioArchiveService
 
         $pdo = new \PDO('sqlite:' . $tmp);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-        $pdo->exec('DROP TABLE IF EXISTS item_vocab');
-        $pdo->exec('DROP TABLE IF EXISTS item_fts');
-        $pdo->exec('DROP INDEX IF EXISTS idx_item_core_dto_type');
-        $pdo->exec('DROP INDEX IF EXISTS idx_item_dto_type');
+
+        // Drop all FTS5 tables (shadow tables auto-drop with the main virtual table)
+        foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE '%fts5%'")->fetchAll(\PDO::FETCH_COLUMN) as $fts) {
+            $pdo->exec('DROP TABLE IF EXISTS ' . $this->quote($fts));
+        }
+        // Drop fts5vocab tables
+        foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE '%fts5vocab%'")->fetchAll(\PDO::FETCH_COLUMN) as $vocab) {
+            $pdo->exec('DROP TABLE IF EXISTS ' . $this->quote($vocab));
+        }
+
+        // Drop all user-created indexes (keep sqlite_autoindex_* which enforce UNIQUE constraints)
+        foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%' AND sql IS NOT NULL")->fetchAll(\PDO::FETCH_COLUMN) as $idx) {
+            $pdo->exec('DROP INDEX IF EXISTS ' . $this->quote($idx));
+        }
+
+        // Drop generated views
+        foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'view'")->fetchAll(\PDO::FETCH_COLUMN) as $view) {
+            $pdo->exec('DROP VIEW IF EXISTS ' . $this->quote($view));
+        }
+
         $pdo->exec('VACUUM');
         unset($pdo);
 
@@ -71,13 +88,53 @@ final readonly class FolioArchiveService
         }
 
         $this->gunzip($archivePath, $target);
-        $indexed = $this->ftsIndexer->rebuild($target);
+        $inflated = $this->inflate($target);
 
         return [
             'archive' => $archivePath,
             'target' => $target,
             'targetBytes' => filesize($target) ?: 0,
-            'indexedRows' => $indexed['rows'],
+            'indexedRows' => $inflated['ftsRows'],
+        ];
+    }
+
+    /**
+     * Inflate a deflated folio: recreate indexes, rebuild FTS, rebuild views.
+     * @return array{indexes:int,views:int,ftsRows:int}
+     */
+    public function inflate(string $dbFile): array
+    {
+        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+
+        // Recreate standard indexes
+        $indexDefs = [
+            'CREATE INDEX IF NOT EXISTS idx_item_label ON item(label)',
+            'CREATE INDEX IF NOT EXISTS idx_item_dto_type ON item(dto_type)',
+            'CREATE INDEX IF NOT EXISTS idx_link_left ON link(left_core, left_id)',
+            'CREATE INDEX IF NOT EXISTS idx_link_right ON link(right_core, right_id)',
+            'CREATE INDEX IF NOT EXISTS idx_term_path ON term(term_set_id, path)',
+            'CREATE INDEX IF NOT EXISTS idx_schema_property_name ON schema_property(name)',
+            'CREATE INDEX IF NOT EXISTS idx_schema_table_core ON schema_table(core_code)',
+            'CREATE INDEX IF NOT EXISTS idx_docs_type ON docs(type)',
+        ];
+        $indexes = 0;
+        foreach ($indexDefs as $sql) {
+            $pdo->exec($sql);
+            $indexes++;
+        }
+        unset($pdo);
+
+        // Rebuild views from schema_property
+        $views = $this->viewBuilder->rebuild($dbFile);
+
+        // Rebuild FTS
+        $fts = $this->ftsIndexer->rebuild($dbFile);
+
+        return [
+            'indexes' => $indexes,
+            'views' => $views['views'] ?? 0,
+            'ftsRows' => $fts['rows'] ?? 0,
         ];
     }
 
@@ -95,6 +152,11 @@ final readonly class FolioArchiveService
 
         fclose($in);
         gzclose($out);
+    }
+
+    private function quote(string $identifier): string
+    {
+        return '"' . str_replace('"', '""', $identifier) . '"';
     }
 
     private function gunzip(string $source, string $target): void

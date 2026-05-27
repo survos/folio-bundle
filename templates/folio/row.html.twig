@@ -72,11 +72,13 @@
             {% if th %}
                 <div class="card mb-3">
                     <div class="card-body text-center">
-                        {% set imageUrl = row.thumbnailUrl %}
+                        {% set imageUrl = th %}
                         {% guard filter imgproxy %}
                             {% set imageUrl = th|imgproxy('medium') %}
                         {% endguard %}
-                        <img src="{{ imageUrl }}" alt="{{ row.label ?: row.localId }}" class="img-fluid rounded" style="max-height: 360px; object-fit: contain" loading="lazy">
+                        <a href="{{ th }}" target="_blank">
+                            <img src="{{ imageUrl }}" alt="{{ row.label ?: row.localId }}" class="img-fluid rounded" style="max-height: 360px; object-fit: contain" loading="lazy">
+                        </a>
                     </div>
                 </div>
             {% endif %}
@@ -101,13 +103,57 @@
                 </div>
             </div>
 
-            {% if row.extras %}
+            {% if terms %}
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h2 class="card-title mb-0">Terms</h2>
+                    </div>
+                    <div class="list-group list-group-flush">
+                        {% for set, values in terms %}
+                            <div class="list-group-item">
+                                <div class="text-muted small text-uppercase">{{ set }}</div>
+                                {% for value in values is iterable ? values : [values] %}
+                                    <span class="badge text-bg-light border me-1">{{ value }}</span>
+                                {% endfor %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {% if links %}
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h2 class="card-title mb-0">Links</h2>
+                    </div>
+                    <div class="list-group list-group-flush">
+                        {% for link in links %}
+                            {% set target = link.row %}
+                            <div class="list-group-item">
+                                <div class="text-muted small font-monospace">{{ link.code }}</div>
+                                <div>
+                                    <span>{{ link.label ?: link.code }}</span>
+                                    {% if target %}
+                                        <a href="{{ path('survos_folio_row_show', {provider: parts[0], dataset: parts[1], coreCode: link.core, dtoType: target.dtoType ?: 'row', localId: target.localId}) }}">
+                                            {{ target.label ?: target.localId }}
+                                        </a>
+                                    {% else %}
+                                        <span class="font-monospace">{{ link.core }}/{{ link.localId }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {% if extras %}
                 <div class="card mb-3">
                     <div class="card-header">
                         <h2 class="card-title mb-0">Extras</h2>
                     </div>
                     <div class="card-body">
-                        <pre class="mb-0">{{ row.extras|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+                        <pre class="mb-0">{{ extras|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
                     </div>
                 </div>
             {% endif %}

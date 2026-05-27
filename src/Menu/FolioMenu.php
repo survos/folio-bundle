@@ -30,6 +30,7 @@ class FolioMenu extends AbstractAdminMenuSubscriber
         $menu = $event->getMenu();
         $submenu = $this->addSubmenu($menu, $this->getLabel(), $this->getGroupIcon());
 
+        $this->add($submenu, 'survos_folio_collection', label: 'Folios', icon: 'mdi:database-search');
         $this->add($submenu, 'survos_folio_schema', ['provider' => '_bootstrap', 'dataset' => '_bootstrap'], 'Bootstrap Schema', icon: 'mdi:table-cog');
     }
 }

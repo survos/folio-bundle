@@ -6,6 +6,7 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
+use Survos\DatasetBundle\Service\DataPaths;
 use Survos\FolioBundle\DBAL\FolioConnectionWrapper;
 use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Model\FolioContext;
@@ -17,21 +18,19 @@ final class FolioService
     public function __construct(
         private readonly EntityManagerInterface $folioEntityManager,
         private readonly FolioSchemaManager $schemaManager,
-        private readonly string $dbDir,
-        private readonly string $extension = 'folio.sqlite',
+        private readonly DataPaths $dataPaths,
+        private readonly string $extension = 'folio',
         private readonly ?LoggerInterface $logger = null,
     ) {}
 
     public function path(string $folioCode, bool $createDirectory = false): string
     {
-        $path = sprintf('%s/%s.%s', rtrim($this->dbDir, '/'), $folioCode, ltrim($this->extension, '.'));
-        if ($createDirectory) {
-            $dir = dirname($path);
-            if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-                throw new \RuntimeException(sprintf('Unable to create folio directory "%s".', $dir));
-            }
-        }
-        return $path;
+        return $this->dataPaths->folioFile($folioCode, $this->extension, $createDirectory);
+    }
+
+    public function rootPath(): string
+    {
+        return $this->dataPaths->folioRootDir;
     }
 
     /**
@@ -104,8 +103,7 @@ final class FolioService
 
     private function bootstrapPath(): string
     {
-        // _bootstrap lives at the root of the folio db dir.
-        return rtrim($this->dbDir, '/') . '/_bootstrap.' . ltrim($this->extension, '.');
+        return $this->dataPaths->folioBootstrapFile($this->extension);
     }
 
     private function buildBootstrap(): void

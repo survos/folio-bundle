@@ -1,0 +1,31 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+
+{% block title %}{{ ctx.folioCode }} Search{% endblock %}
+
+{% block body %}
+{% set parts = ctx.folioCode|split('/') %}
+<div class="container-xl py-3">
+    <div class="page-header mb-3">
+        <div class="row align-items-center">
+            <div class="col">
+                <h1 class="page-title">
+                    <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="text-muted">{{ ctx.folioCode }}</a>
+                    <span class="text-muted mx-1">/</span>search
+                </h1>
+            </div>
+            <div class="col-auto">
+                <div class="btn-list">
+                    {% for core in cores %}
+                        <a class="btn btn-outline-secondary" href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}">{{ core.code }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <twig:Mezcalito:UxSearch:Layout
+        :name="'folio_row'"
+        :options="{ folioCode: ctx.folioCode, hitTemplate: 'search/hits/folio_row.html.twig' }"
+    />
+</div>
+{% endblock %}

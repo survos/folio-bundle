@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
-use Survos\FolioBundle\Entity\{Core,Folio,Row};
+use Doctrine\ORM\EntityManagerInterface;
+use Survos\DatasetBundle\Service\DataPaths;
+use Survos\FolioBundle\Entity\{Core,Folio,Link,LinkType,Row};
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\FolioBundle\Service\{FolioDtoTypeResolver,FolioRegistry,FolioService,FolioSummaryService};
 use Survos\JsonlBundle\IO\JsonlReader;
@@ -23,6 +25,7 @@ final class FolioIngestCommand extends Command
         private readonly FolioRegistry $registry,
         private readonly FolioDtoTypeResolver $dtoTypeResolver,
         private readonly FolioSummaryService $summaryService,
+        private readonly DataPaths $dataPaths,
         private readonly ?EventDispatcherInterface $dispatcher = null,
     ) { parent::__construct(); }
 
@@ -59,21 +62,32 @@ final class FolioIngestCommand extends Command
         $labelField = (string) $input->getOption('label-field');
 
         foreach ($datasets as $dataset) {
+            $sources = [];
             foreach ($this->registry->cores($dataset, $coreFilter) as $core) {
                 $file = $this->registry->sourceFile($dataset, $core);
                 if ($file === null) {
                     $io->warning(sprintf('No source for %s/%s — skipping.', $dataset->datasetKey, $core));
                     continue;
                 }
+                $sources[$core] = $file;
+            }
 
-                // Restore: copy bootstrap → destination, then open fresh DB.
-                $this->folios->reset($dataset->datasetKey);
-                $ctx = $this->folios->context($dataset->datasetKey, ensureSchema: true);
+            if ($sources === []) {
+                continue;
+            }
 
-                // Update metadata the service doesn't know about.
-                $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
-                $folio->label = $dataset->label;
-                $folio->datasetKey = $dataset->datasetKey;
+            // Restore once per dataset, then ingest every selected core into the same folio.
+            $this->folios->reset($dataset->datasetKey);
+            $ctx = $this->folios->context($dataset->datasetKey, ensureSchema: true);
+
+            // Update metadata the service doesn't know about.
+            $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
+            $folio->label = $dataset->label;
+            $folio->datasetKey = $dataset->datasetKey;
+            $ctx->em->flush();
+
+            $totalCount = 0;
+            foreach ($sources as $core => $file) {
                 $coreEntity = new Core($folio, $core);
                 $ctx->em->persist($coreEntity);
                 $ctx->em->flush();
@@ -106,7 +120,7 @@ final class FolioIngestCommand extends Command
                     }
                 }
 
-                $folio->rowCount      = $count;
+                $totalCount += $count;
                 $coreEntity->rowCount = $count;
                 $coreEntity->fieldSummary = $this->registry->populatedFields($dataset, $core);
                 $ctx->em->flush();
@@ -125,9 +139,104 @@ final class FolioIngestCommand extends Command
                     $count, $dataset->datasetKey, $core, basename($file),
                 ));
             }
+
+            $linkCount = $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch);
+            if ($linkCount > 0) {
+                $io->success(sprintf(
+                    'Ingested %d link(s) → %s from link.jsonl',
+                    $linkCount,
+                    $dataset->datasetKey,
+                ));
+            }
+
+            $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
+            $folio->rowCount = $totalCount;
+            $ctx->em->flush();
         }
 
         return Command::SUCCESS;
+    }
+
+
+    private function ingestLinks(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch): int
+    {
+        $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
+        $linkTypeFile = $normalizeDir . '/linkType.jsonl';
+        $linkFile = $normalizeDir . '/link.jsonl';
+
+        if (!is_file($linkTypeFile) || !is_file($linkFile)) {
+            return 0;
+        }
+
+        $types = [];
+        foreach (JsonlReader::open($linkTypeFile) as $data) {
+            $code = $this->requiredString($data, 'code', $linkTypeFile);
+            $subjectCore = $this->requiredString($data, 'subjectCore', $linkTypeFile);
+            $objectCore = $this->requiredString($data, 'objectCore', $linkTypeFile);
+
+            $type = new LinkType($folio, $subjectCore, $code, $objectCore);
+            $type->label = is_scalar($data['forwardLabel'] ?? null) ? (string) $data['forwardLabel'] : null;
+            $type->reverseCode = is_scalar($data['reverseCode'] ?? null) ? (string) $data['reverseCode'] : null;
+            $type->reverseLabel = is_scalar($data['reverseLabel'] ?? null) ? (string) $data['reverseLabel'] : null;
+            $em->persist($type);
+            $types[$code] = $type;
+        }
+        $em->flush();
+
+        $count = 0;
+        foreach (JsonlReader::open($linkFile) as $data) {
+            $predicate = $this->requiredString($data, 'predicate', $linkFile);
+            $type = $types[$predicate] ?? null;
+            if (!$type instanceof LinkType) {
+                throw new \RuntimeException(sprintf('Unknown link predicate "%s" in %s.', $predicate, $linkFile));
+            }
+
+            $subjectCore = $this->requiredString($data, 'subjectCore', $linkFile);
+            $objectCore = $this->requiredString($data, 'objectCore', $linkFile);
+            if ($subjectCore !== $type->leftCore || $objectCore !== $type->rightCore) {
+                throw new \RuntimeException(sprintf(
+                    'Link predicate "%s" expects %s→%s, got %s→%s in %s.',
+                    $predicate,
+                    $type->leftCore,
+                    $type->rightCore,
+                    $subjectCore,
+                    $objectCore,
+                    $linkFile,
+                ));
+            }
+
+            $link = new Link(
+                $type,
+                $this->requiredString($data, 'subjectId', $linkFile),
+                $this->requiredString($data, 'objectId', $linkFile),
+            );
+            $link->extras = array_diff_key($data, array_flip([
+                'subjectCore',
+                'subjectId',
+                'predicate',
+                'objectCore',
+                'objectId',
+            ]));
+            $em->persist($link);
+
+            if (++$count % $batch === 0) {
+                $em->flush();
+            }
+        }
+        $em->flush();
+
+        return $count;
+    }
+
+    /** @param array<string,mixed> $data */
+    private function requiredString(array $data, string $field, string $file): string
+    {
+        $value = $data[$field] ?? null;
+        if (!is_scalar($value) || trim((string) $value) === '') {
+            throw new \RuntimeException(sprintf('Missing required field "%s" in %s.', $field, $file));
+        }
+
+        return trim((string) $value);
     }
 
     /**

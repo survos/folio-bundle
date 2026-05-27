@@ -22,7 +22,7 @@ final class FolioRestoreCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('archivePath', InputArgument::REQUIRED, 'Path to a .folio.sqlite.gz archive')
+            ->addArgument('archivePath', InputArgument::REQUIRED, 'Path to a .folio.gz archive')
             ->addArgument('folioCode', InputArgument::REQUIRED, 'Folio code to restore, e.g. dc/05747667f')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Replace an existing folio database');
     }

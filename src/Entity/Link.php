@@ -6,21 +6,21 @@ namespace Survos\FolioBundle\Entity;
 
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
-use Survos\FolioBundle\Repository\RelationRepository;
+use Survos\FolioBundle\Repository\LinkRepository;
 
-#[ORM\Entity(repositoryClass: RelationRepository::class)]
-#[ORM\Table(name: 'relation')]
-#[ORM\Index(name: 'idx_relation_left', columns: ['left_core', 'left_id'])]
-#[ORM\Index(name: 'idx_relation_right', columns: ['right_core', 'right_id'])]
-class Relation
+#[ORM\Entity(repositoryClass: LinkRepository::class)]
+#[ORM\Table(name: 'link')]
+#[ORM\Index(name: 'idx_link_left', columns: ['left_core', 'left_id'])]
+#[ORM\Index(name: 'idx_link_right', columns: ['right_core', 'right_id'])]
+class Link
 {
     #[ORM\Id]
     #[ORM\Column(length: 32, options: ['comment' => 'xxh128 hash of type|leftId|rightId'])]
     public string $id;
 
-    #[ORM\ManyToOne(targetEntity: RelationType::class)]
-    #[ORM\JoinColumn(name: 'relation_type_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
-    public RelationType $type;
+    #[ORM\ManyToOne(targetEntity: LinkType::class, inversedBy: 'links')]
+    #[ORM\JoinColumn(name: 'link_type_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
+    public LinkType $type;
 
     #[ORM\Column(length: 80, options: ['comment' => 'Source core code'])]
     public string $leftCore;
@@ -34,10 +34,10 @@ class Relation
     #[ORM\Column(length: 180, options: ['comment' => 'Target row local_id'])]
     public string $rightId;
 
-    #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Extra relation metadata'])]
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Extra link metadata'])]
     public ?array $extras = null;
 
-    public function __construct(RelationType $type, string $leftId, string $rightId)
+    public function __construct(LinkType $type, string $leftId, string $rightId)
     {
         $this->type = $type;
         $this->leftCore = $type->leftCore;
