@@ -22,6 +22,7 @@ final class FolioFtsIndexer
         $pdo->exec("CREATE VIRTUAL TABLE item_vocab USING fts5vocab('item_fts', 'row')");
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_core_dto_type ON item(core_id, dto_type)');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_dto_type ON item(dto_type)');
+        $this->createBrowseIndexes($pdo);
 
         $searchableProperties = $this->searchableProperties($pdo);
         $select = $pdo->query('SELECT rowid, local_id, label, dto_type, dto_data, extras FROM item ORDER BY rowid');
@@ -51,6 +52,7 @@ final class FolioFtsIndexer
         }
 
         $pdo->exec('INSERT INTO item_fts(item_fts) VALUES (\'optimize\')');
+        $this->rebuildFacetCounts($pdo);
 
         return ['rows' => $rows, 'bytes' => $bytes];
     }
@@ -60,6 +62,151 @@ final class FolioFtsIndexer
         $pdo = $this->connect($dbFile);
         $pdo->exec('DROP TABLE IF EXISTS item_vocab');
         $pdo->exec('DROP TABLE IF EXISTS item_fts');
+    }
+
+    private function createBrowseIndexes(\PDO $pdo): void
+    {
+        foreach (['creator', 'date', 'contentType', 'language'] as $field) {
+            $name = sprintf('idx_item_json_%s', strtolower(preg_replace('/[^A-Za-z0-9_]+/', '_', $field) ?? $field));
+            $path = '$.' . str_replace("'", "''", $field);
+            $pdo->exec(sprintf(
+                "CREATE INDEX IF NOT EXISTS %s ON item(json_extract(dto_data, '%s'))",
+                $name,
+                $path,
+            ));
+        }
+    }
+
+    private function rebuildFacetCounts(\PDO $pdo): void
+    {
+        $pdo->exec('DROP TABLE IF EXISTS item_facet_count');
+        $pdo->exec('DROP TABLE IF EXISTS item_facet');
+        $pdo->exec('CREATE TABLE item_facet (item_rowid INTEGER NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_facet_field_value_rowid ON item_facet(field, value, item_rowid)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_facet_rowid_field ON item_facet(item_rowid, field)');
+        $pdo->exec('CREATE TABLE item_facet_count (field TEXT NOT NULL, value TEXT NOT NULL, total INTEGER NOT NULL, PRIMARY KEY (field, value))');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_facet_count_field_total ON item_facet_count(field, total DESC)');
+
+        $fields = $this->facetFields($pdo);
+        if ($fields === []) {
+            return;
+        }
+
+        $counts = [];
+        $select = $pdo->query('SELECT rowid, core_id, dto_type, dto_data FROM item ORDER BY rowid');
+        if (!$select instanceof \PDOStatement) {
+            throw new \RuntimeException('Unable to read folio rows for facet counts.');
+        }
+
+        $insertFacet = $pdo->prepare('INSERT INTO item_facet(item_rowid, field, value) VALUES (:itemRowid, :field, :value)');
+        $insertCount = $pdo->prepare('INSERT INTO item_facet_count(field, value, total) VALUES (:field, :value, :total)');
+
+        $pdo->beginTransaction();
+        try {
+            while ($row = $select->fetch(\PDO::FETCH_ASSOC)) {
+                $data = $this->decodeJson($row['dto_data'] ?? null);
+                $itemRowid = (int) $row['rowid'];
+                foreach ($fields as $field) {
+                    foreach ($this->rowFacetValues($field, $row, is_array($data) ? $data : []) as $value) {
+                        $insertFacet->execute([
+                            'itemRowid' => $itemRowid,
+                            'field' => $field,
+                            'value' => $value,
+                        ]);
+                        $counts[$field][$value] = ($counts[$field][$value] ?? 0) + 1;
+                    }
+                }
+            }
+
+            foreach ($counts as $field => $values) {
+                foreach ($values as $value => $total) {
+                    $insertCount->execute([
+                        'field' => $field,
+                        'value' => $value,
+                        'total' => $total,
+                    ]);
+                }
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function facetFields(\PDO $pdo): array
+    {
+        $fields = ['core', 'dtoType', 'creator', 'date', 'contentType', 'language'];
+
+        try {
+            $exists = $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_property'")->fetchColumn();
+            if ($exists === 'schema_property') {
+                foreach ($pdo->query('SELECT DISTINCT name FROM schema_property WHERE visible = 1 AND (facet = 1 OR filterable = 1)')->fetchAll(\PDO::FETCH_COLUMN) ?: [] as $name) {
+                    if (is_string($name) && $name !== '') {
+                        $fields[] = $name;
+                    }
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        return array_values(array_unique($fields));
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $data
+     * @return list<string>
+     */
+    private function rowFacetValues(string $field, array $row, array $data): array
+    {
+        if ($field === 'core') {
+            $coreId = is_string($row['core_id'] ?? null) ? $row['core_id'] : '';
+            $value = str_contains($coreId, ':') ? substr($coreId, strrpos($coreId, ':') + 1) : $coreId;
+
+            return $this->validFacetValue($value) ? [$value] : [];
+        }
+
+        if ($field === 'dtoType') {
+            $value = is_scalar($row['dto_type'] ?? null) ? trim((string) $row['dto_type']) : '';
+
+            return $this->validFacetValue($value) ? [$value] : [];
+        }
+
+        return array_key_exists($field, $data) ? $this->facetValues($data[$field]) : [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function facetValues(mixed $value): array
+    {
+        if (is_array($value)) {
+            $values = [];
+            foreach ($value as $item) {
+                if (is_scalar($item)) {
+                    $values[] = trim((string) $item);
+                }
+            }
+
+            return array_values(array_unique(array_filter($values, $this->validFacetValue(...))));
+        }
+
+        if (!is_scalar($value)) {
+            return [];
+        }
+
+        $value = trim((string) $value);
+
+        return $this->validFacetValue($value) ? [$value] : [];
+    }
+
+    private function validFacetValue(string $value): bool
+    {
+        return $value !== '' && strlen($value) <= 512;
     }
 
     /**

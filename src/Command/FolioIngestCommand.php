@@ -6,7 +6,7 @@ namespace Survos\FolioBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Service\DataPaths;
-use Survos\FolioBundle\Entity\{Core,Folio,Link,LinkType,Row};
+use Survos\FolioBundle\Entity\{Core,Folio,Link,LinkType,Row,Term,TermSet};
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\FolioBundle\Service\{FolioDtoTypeResolver,FolioRegistry,FolioService,FolioSummaryService};
 use Survos\JsonlBundle\IO\JsonlReader;
@@ -140,6 +140,15 @@ final class FolioIngestCommand extends Command
                 ));
             }
 
+            $termCount = $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $batch);
+            if ($termCount > 0) {
+                $io->success(sprintf(
+                    'Ingested %d term(s) → %s from term.jsonl',
+                    $termCount,
+                    $dataset->datasetKey,
+                ));
+            }
+
             $linkCount = $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch);
             if ($linkCount > 0) {
                 $io->success(sprintf(
@@ -155,6 +164,89 @@ final class FolioIngestCommand extends Command
         }
 
         return Command::SUCCESS;
+    }
+
+
+    private function ingestTerms(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch): int
+    {
+        $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
+        $termSetFile = $normalizeDir . '/termSet.jsonl';
+        $termFile = $normalizeDir . '/term.jsonl';
+
+        if (!is_file($termSetFile) || !is_file($termFile)) {
+            return 0;
+        }
+
+        $sets = [];
+        foreach (JsonlReader::open($termSetFile) as $data) {
+            $code = $this->requiredString($data, 'code', $termSetFile);
+            $set = new TermSet($folio, $code);
+            $set->label = is_scalar($data['label'] ?? null) ? (string) $data['label'] : null;
+            $set->description = is_scalar($data['description'] ?? null) ? (string) $data['description'] : null;
+            $set->rules = is_array($data['rules'] ?? null) ? $data['rules'] : null;
+            $set->meta = is_array($data['meta'] ?? null) ? $data['meta'] : null;
+            $set->enabled = !array_key_exists('enabled', $data) || (bool) $data['enabled'];
+            $em->persist($set);
+            $sets[$code] = $set;
+        }
+        $em->flush();
+
+        $pendingParents = [];
+        $terms = [];
+        $count = 0;
+        foreach (JsonlReader::open($termFile) as $data) {
+            $setCode = $this->requiredString($data, 'termSet', $termFile);
+            $set = $sets[$setCode] ?? null;
+            if (!$set instanceof TermSet) {
+                throw new \RuntimeException(sprintf('Unknown term set "%s" in %s.', $setCode, $termFile));
+            }
+
+            $code = $this->requiredString($data, 'code', $termFile);
+            $term = new Term($set, $code);
+            $term->path = is_scalar($data['path'] ?? null) && trim((string) $data['path']) !== '' ? trim((string) $data['path']) : $code;
+            $term->label = is_scalar($data['label'] ?? null) ? (string) $data['label'] : $code;
+            $term->description = is_scalar($data['description'] ?? null) ? (string) $data['description'] : null;
+            $term->rules = is_array($data['rules'] ?? null) ? $data['rules'] : null;
+            $term->meta = is_array($data['meta'] ?? null) ? $data['meta'] : null;
+            $term->extras = array_diff_key($data, array_flip([
+                'termSet',
+                'code',
+                'path',
+                'label',
+                'description',
+                'rules',
+                'meta',
+                'enabled',
+                'sort',
+                'parent',
+                'parentCode',
+            ])) ?: null;
+            $term->enabled = !array_key_exists('enabled', $data) || (bool) $data['enabled'];
+            $term->sort = is_numeric($data['sort'] ?? null) ? (int) $data['sort'] : null;
+            $parentCode = is_scalar($data['parent'] ?? $data['parentCode'] ?? null) ? trim((string) ($data['parent'] ?? $data['parentCode'])) : '';
+            if ($parentCode !== '') {
+                $pendingParents[$term->id] = $set->id . ':' . $parentCode;
+            }
+
+            $em->persist($term);
+            $terms[$term->id] = $term;
+
+            if (++$count % $batch === 0) {
+                $em->flush();
+            }
+        }
+        $em->flush();
+
+        foreach ($pendingParents as $termId => $parentId) {
+            $term = $terms[$termId] ?? $em->find(Term::class, $termId);
+            $parent = $terms[$parentId] ?? $em->find(Term::class, $parentId);
+            if ($term instanceof Term && $parent instanceof Term) {
+                $term->parent = $parent;
+            }
+        }
+        $em->flush();
+
+        return $count;
     }
 
 

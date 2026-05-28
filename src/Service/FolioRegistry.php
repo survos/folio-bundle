@@ -10,6 +10,8 @@ use Survos\DatasetBundle\Service\DataPaths;
 
 final class FolioRegistry
 {
+    private const NON_ROW_JSONL = ['termSet', 'term', 'linkType', 'link', 'claim', 'claims'];
+
     public function __construct(
         private readonly EntityManagerInterface $defaultEntityManager,
         private readonly DataPaths $dataPaths,
@@ -107,6 +109,23 @@ final class FolioRegistry
         }
 
         $cores = $dataset->cores !== [] ? $dataset->cores : ['obj'];
+
+        $normalizeDir = $this->dataPaths->stageDir($dataset->datasetKey, 'normalized');
+        if (is_dir($normalizeDir)) {
+            foreach (new \DirectoryIterator($normalizeDir) as $file) {
+                if (!$file->isFile() || $file->getExtension() !== 'jsonl') {
+                    continue;
+                }
+
+                $name = $file->getBasename('.jsonl');
+                if (in_array($name, self::NON_ROW_JSONL, true)) {
+                    continue;
+                }
+
+                $cores[] = $name;
+            }
+        }
+
         sort($cores);
         return array_values(array_unique($cores));
     }

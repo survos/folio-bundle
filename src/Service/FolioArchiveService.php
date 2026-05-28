@@ -40,6 +40,11 @@ final readonly class FolioArchiveService
         $pdo = new \PDO('sqlite:' . $tmp);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
+        // Drop derived search/facet tables; they are recreated during inflate.
+        foreach (['item_facet', 'item_facet_count'] as $derivedTable) {
+            $pdo->exec('DROP TABLE IF EXISTS ' . $this->quote($derivedTable));
+        }
+
         // Drop all FTS5 tables (shadow tables auto-drop with the main virtual table)
         foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE '%fts5%'")->fetchAll(\PDO::FETCH_COLUMN) as $fts) {
             $pdo->exec('DROP TABLE IF EXISTS ' . $this->quote($fts));
@@ -111,6 +116,11 @@ final readonly class FolioArchiveService
         $indexDefs = [
             'CREATE INDEX IF NOT EXISTS idx_item_label ON item(label)',
             'CREATE INDEX IF NOT EXISTS idx_item_dto_type ON item(dto_type)',
+            'CREATE INDEX IF NOT EXISTS idx_item_core_dto_type ON item(core_id, dto_type)',
+            "CREATE INDEX IF NOT EXISTS idx_item_json_creator ON item(json_extract(dto_data, '$.creator'))",
+            "CREATE INDEX IF NOT EXISTS idx_item_json_date ON item(json_extract(dto_data, '$.date'))",
+            "CREATE INDEX IF NOT EXISTS idx_item_json_contenttype ON item(json_extract(dto_data, '$.contentType'))",
+            "CREATE INDEX IF NOT EXISTS idx_item_json_language ON item(json_extract(dto_data, '$.language'))",
             'CREATE INDEX IF NOT EXISTS idx_link_left ON link(left_core, left_id)',
             'CREATE INDEX IF NOT EXISTS idx_link_right ON link(right_core, right_id)',
             'CREATE INDEX IF NOT EXISTS idx_term_path ON term(term_set_id, path)',

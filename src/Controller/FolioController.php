@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Controller;
 
 use Survos\FolioBundle\Attribute\FolioContext;
-use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Row};
+use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Row,Term,TermSet};
 use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService};
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -185,6 +185,25 @@ final class FolioController extends AbstractController
         ]);
     }
 
+
+
+    #[Route('/{provider}/{dataset}/term/{setCode}/{termCode}', name: 'survos_folio_term_show')]
+    public function termShow(string $provider, string $dataset, string $setCode, string $termCode): Response
+    {
+        $folioCode = "$provider/$dataset";
+        $ctx = $this->folios->context($folioCode);
+        $termSet = $ctx->em->find(TermSet::class, "$folioCode:$setCode")
+            ?? throw $this->createNotFoundException($setCode);
+        $term = $ctx->em->find(Term::class, $termSet->id . ':' . $termCode)
+            ?? throw $this->createNotFoundException($termCode);
+
+        return $this->render('@SurvosFolioBundle/folio/term.html.twig', [
+            'ctx' => $ctx,
+            'termSet' => $termSet,
+            'term' => $term,
+        ]);
+    }
+
     #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}', name: 'survos_folio_row_show', options: ['expose' => true])]
     public function rowShow(string $provider, string $dataset, string $coreCode, string $dtoType, string $localId): Response
     {
@@ -209,12 +228,9 @@ final class FolioController extends AbstractController
         $dtoClass = is_array($schemaTable) && is_string($schemaTable['dto_class'] ?? null) ? $schemaTable['dto_class'] : $this->dtoTypeResolver->classForType($row->dtoType);
         $columns = $schemaTable ? $this->schemaColumns($ctx->em->getConnection(), (string) $schemaTable['id']) : ($dtoClass ? $this->dtoColumns($dtoClass) : []);
         $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
-        $terms = [];
+        $terms = $this->rowTerms($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
         $extras = $row->extras ?? [];
-        if (isset($extras['genreSpecific'])) {
-            $terms['genre'] = $extras['genreSpecific'];
-            unset($extras['genreSpecific']);
-        }
+        unset($extras['genreSpecific'], $extras['tec'], $extras['mat'], $extras['coll']);
         if ($links !== []) {
             unset($extras['creator']);
         }
@@ -230,6 +246,72 @@ final class FolioController extends AbstractController
             'terms' => $terms,
             'extras' => $extras,
         ]);
+    }
+
+
+    /**
+     * @param array<string,mixed> $dtoData
+     * @param array<string,mixed> $extras
+     * @return array<string,list<array{code:string,label:string,term:?Term}>>
+     */
+    private function rowTerms(\Doctrine\ORM\EntityManagerInterface $em, string $folioCode, array $dtoData, array $extras): array
+    {
+        $sources = [
+            'genre' => $dtoData['genreSpecific'] ?? $extras['genreSpecific'] ?? null,
+            'technique' => $dtoData['tec'] ?? $extras['tec'] ?? null,
+            'material' => $dtoData['mat'] ?? $extras['mat'] ?? null,
+            'collection' => $dtoData['coll'] ?? $extras['coll'] ?? null,
+        ];
+
+        $terms = [];
+        foreach ($sources as $setCode => $values) {
+            foreach ($this->termValues($values) as $label) {
+                $code = $this->termCode($label);
+                $term = $em->find(Term::class, "$folioCode:$setCode:$code");
+                $terms[$setCode][] = [
+                    'code' => $code,
+                    'label' => $label,
+                    'term' => $term instanceof Term ? $term : null,
+                ];
+            }
+        }
+
+        return $terms;
+    }
+
+    /** @return list<string> */
+    private function termValues(mixed $value): array
+    {
+        if (is_array($value)) {
+            $values = [];
+            foreach ($value as $item) {
+                if (is_array($item)) {
+                    foreach (['name', 'label', 'value', 'type'] as $key) {
+                        if (isset($item[$key]) && is_scalar($item[$key])) {
+                            $values[] = trim((string) $item[$key]);
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if (is_scalar($item)) {
+                    $values[] = trim((string) $item);
+                }
+            }
+
+            return array_values(array_unique(array_filter($values, 'strlen')));
+        }
+
+        return is_scalar($value) && trim((string) $value) !== '' ? [trim((string) $value)] : [];
+    }
+
+    private function termCode(string $label): string
+    {
+        $code = strtolower(iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $label) ?: $label);
+        $code = preg_replace('/[^a-z0-9]+/', '-', $code) ?? '';
+        $code = trim($code, '-');
+
+        return $code !== '' ? $code : hash('xxh128', $label);
     }
 
 

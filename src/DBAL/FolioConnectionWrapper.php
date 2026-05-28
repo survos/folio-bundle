@@ -33,5 +33,21 @@ final class FolioConnectionWrapper extends Connection
         $params['path'] = $this->currentPath = $path;
         /** @phpstan-ignore method.internal */
         parent::__construct($params, $this->getDriver(), $this->_config);
+
+        $this->applyPragmas();
+    }
+
+    /**
+     * busy_timeout must be re-applied on every connection — it is per-connection,
+     * not persisted in the file. Without it, concurrent writers (background workers,
+     * ingest + browse) die immediately with SQLITE_BUSY instead of waiting briefly.
+     * journal_mode = WAL is persisted in the file header but cheap to re-assert.
+     */
+    private function applyPragmas(): void
+    {
+        $this->executeStatement('PRAGMA journal_mode = WAL');
+        $this->executeStatement('PRAGMA busy_timeout = 30000');
+        $this->executeStatement('PRAGMA synchronous = NORMAL');
+        $this->executeStatement('PRAGMA foreign_keys = ON');
     }
 }

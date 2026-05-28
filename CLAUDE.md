@@ -65,3 +65,7 @@ The next phase integrates with `survos/data-bundle`:
 5. **`FolioIngestCommand`** will be rewritten to read `class` from the JSONL payload into `Row::$dtoClass`, split the payload into `dtoData` vs `extras` by reflecting DTO public properties, and use `DatasetInfo` for file resolution.
 
 Folio codes match dataset keys exactly (`mus/cleveland`, `fortepan/hu`, `dc/nv935r28t`). The folio directory (`APP_DATA_DIR/folio/`) lives alongside the data-bundle pipeline tree (`APP_DATA_DIR/work/`).
+
+## Multilingual support
+
+See [docs/intl.md](docs/intl.md) for the full design of how translatable values in `Row::$dtoData` are extracted during normalize (in harvest, for `mus/*`), pushed through `dataset:intl:push` to the lingua server, pulled back as `25_intl/tr.<locale>.jsonl`, materialized into the folio sqlite as `phrase` + `tr` tables at ingest, and resolved at read time via a `FolioPostLoadListener`. Includes the WAL/`busy_timeout` PRAGMA fix in `FolioConnectionWrapper`, which lands first as a standalone change.

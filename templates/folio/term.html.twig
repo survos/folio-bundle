@@ -1,0 +1,26 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+{% set parts = ctx.folioCode|split('/') %}
+{% block body %}
+<div class="container-xl py-3">
+    <div class="page-header mb-3">
+        <h1 class="page-title">
+            <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="text-muted">{{ ctx.folioCode }}</a>
+            <span class="text-muted mx-1">/</span>
+            <span class="text-muted">{{ termSet.code }}</span>
+            <span class="text-muted mx-1">/</span>{{ term.label ?: term.code }}
+        </h1>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h2 class="card-title mb-0">Term</h2></div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-2">Set</dt><dd class="col-sm-10 font-monospace">{{ termSet.code }}</dd>
+                <dt class="col-sm-2">Code</dt><dd class="col-sm-10 font-monospace">{{ term.code }}</dd>
+                <dt class="col-sm-2">Label</dt><dd class="col-sm-10">{{ term.label ?: term.code }}</dd>
+                {% if term.description %}<dt class="col-sm-2">Description</dt><dd class="col-sm-10">{{ term.description }}</dd>{% endif %}
+            </dl>
+        </div>
+    </div>
+</div>
+{% endblock %}

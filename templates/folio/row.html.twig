@@ -1,7 +1,20 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+{% import _self as folio_row %}
+
+{% macro render_value(value) %}
+    {% if value is iterable %}
+        <pre class="mb-0">{{ value|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+    {% elseif value is url %}
+        {{ value|urlize }}
+    {% else %}
+        {{ value }}
+    {% endif %}
+{% endmacro %}
+
 {% block body %}
 {% set parts = ctx.folioCode|split('/') %}
 {% set th = row.thumbnailSource %}
+{% set termFields = terms ? ['genreSpecific', 'tec', 'mat', 'coll'] : [] %}
 
 <div class="container-xl py-3">
     <div class="page-header mb-3">
@@ -33,30 +46,24 @@
                         <tbody>
                         {% for field in columns %}
                             {% set value = attribute(row.dtoData, field)|default(null) %}
-                            {% if value is not empty %}
+                            {% if value is not empty and field not in termFields %}
                                 <tr>
                                     <th class="w-25 font-monospace text-muted">{{ field }}</th>
                                     <td>
-                                        {% if value is iterable %}
-                                            <pre class="mb-0">{{ value|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
-                                        {% else %}
-                                            {{ value }}
-                                        {% endif %}
+                                        {{ folio_row.render_value(value) }}
                                     </td>
                                 </tr>
                             {% endif %}
                         {% else %}
                             {% for field, value in row.dtoData %}
+                                {% if field not in termFields %}
                                 <tr>
                                     <th class="w-25 font-monospace text-muted">{{ field }}</th>
                                     <td>
-                                        {% if value is iterable %}
-                                            <pre class="mb-0">{{ value|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
-                                        {% else %}
-                                            {{ value }}
-                                        {% endif %}
+                                        {{ folio_row.render_value(value) }}
                                     </td>
                                 </tr>
+                                {% endif %}
                             {% else %}
                                 <tr>
                                     <td class="text-muted">No DTO data captured.</td>
@@ -112,8 +119,12 @@
                         {% for set, values in terms %}
                             <div class="list-group-item">
                                 <div class="text-muted small text-uppercase">{{ set }}</div>
-                                {% for value in values is iterable ? values : [values] %}
-                                    <span class="badge text-bg-light border me-1">{{ value }}</span>
+                                {% for value in values %}
+                                    {% if value.term %}
+                                        <a class="badge text-bg-light border me-1 text-decoration-none" href="{{ path('survos_folio_term_show', {provider: parts[0], dataset: parts[1], setCode: set, termCode: value.code}) }}">{{ value.label }}</a>
+                                    {% else %}
+                                        <span class="badge text-bg-light border me-1">{{ value.label }}</span>
+                                    {% endif %}
                                 {% endfor %}
                             </div>
                         {% endfor %}
@@ -124,7 +135,7 @@
             {% if links %}
                 <div class="card mb-3">
                     <div class="card-header">
-                        <h2 class="card-title mb-0">Links</h2>
+                        <h2 class="card-title mb-0">Relations</h2>
                     </div>
                     <div class="list-group list-group-flush">
                         {% for link in links %}
