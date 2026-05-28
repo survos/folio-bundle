@@ -11,7 +11,7 @@ Folio rows are JSON blobs, not entity properties. Babel's `#[Translatable]` + `t
 ```
 import:convert --dataset=mus/larco --stage=normalize    [in harvest]
   └→ 20_normalize/obj.jsonl                  (rows)
-  └→ 25_intl/strings.jsonl                   (extracted phrases, written by event listener)
+  └→ 25_intl/phrases.jsonl                   (extracted phrases, written by event listener)
 
 dataset:intl:extract mus/larco               (idempotent rebuild from 20_normalize + 30_terms)
 dataset:intl:push    mus/larco               (POST phrases to lingua.survos.com)
@@ -39,6 +39,8 @@ Direction of every dependency:
 On the DTO classes in `survos/data-contracts`:
 
 ```php
+use Survos\Lingua\Contracts\Attribute\Translatable;
+
 abstract class BaseItemDto {
     #[Translatable] public ?string $title = null;
     #[Translatable] public ?string $description = null;
@@ -47,9 +49,11 @@ abstract class BaseItemDto {
 }
 ```
 
-The `Translatable` attribute moves from babel-bundle to data-contracts; babel-bundle retains a `class_alias` for backward compatibility. The attribute is pure metadata — both babel and folio read it but apply different storage strategies.
+The `Translatable` attribute lives in `survos/lingua-contracts` alongside the request/response DTOs for the Lingua server — `lingua-contracts` is the canonical home for anything that defines the contract between a marking ("this string ships to lingua") and the server itself. `lingua-core` owns the matching identity function (`HashUtil`). `data-contracts` depends on `lingua-contracts` for the attribute; nothing depends back the other way.
 
-`TranslatableReflector::fieldsFor($dtoClass)` is the canonical lookup: a public static helper in data-contracts that returns the list of translatable property names for a DTO class, cached for the process lifetime.
+The attribute is pure metadata. Both babel-bundle and folio-bundle reflect for it but apply different storage strategies — babel uses property-hook storage on entity columns, folio resolves JSON-blob fields at postLoad. No `class_alias` or backward-compat shim; consumers of the older `Survos\BabelBundle\Attribute\Translatable` were updated in the same change that moved the canonical attribute.
+
+`TranslatableReflector::fieldsFor($dtoClass)` in `lingua-contracts` is the canonical lookup: a public static helper returning the list of translatable property names for a class, cached for the process lifetime.
 
 ## Pipeline artifacts (25_intl/)
 
@@ -59,14 +63,14 @@ The `25_intl/` stage directory under each dataset holds the translation work-in-
 data/<provider>/<dataset>/
   20_normalize/obj.jsonl
   25_intl/
-    strings.jsonl            # { code, locale, text, sources[] } — one row per unique source phrase
+    phrases.jsonl            # { code, locale, text, sources[] } — one row per unique source phrase
     tr.en.jsonl              # { code, locale, text, engine }    — one row per known translation
     tr.es.jsonl
     tr.de.jsonl
   30_terms/
 ```
 
-`strings.jsonl` is the union of:
+`phrases.jsonl` is the union of:
 - Translatable property values from normalized rows (one extractor pass over `20_normalize/*.jsonl`).
 - Term labels from `30_terms/*.jsonl` (so 'oil' and 'canvas' get translated once per source language and shared across all rows that reference those terms).
 
@@ -166,9 +170,9 @@ In `survos/dataset-bundle`, exposed as method-level `#[AsCommand]` on `DatasetIn
 
 | Command | Reads | Writes | Network |
 |---------|-------|--------|---------|
-| `dataset:intl:extract <dataset>` | `20_normalize/*.jsonl`, `30_terms/*.jsonl` | `25_intl/strings.jsonl` | No |
-| `dataset:intl:push <dataset>` | `25_intl/strings.jsonl` | — | Yes (lingua) |
-| `dataset:intl:pull <dataset>` | `25_intl/strings.jsonl` | `25_intl/tr.<locale>.jsonl` | Yes (lingua) |
+| `dataset:intl:extract <dataset>` | `20_normalize/*.jsonl`, `30_terms/*.jsonl` | `25_intl/phrases.jsonl` | No |
+| `dataset:intl:push <dataset>` | `25_intl/phrases.jsonl` | — | Yes (lingua) |
+| `dataset:intl:pull <dataset>` | `25_intl/phrases.jsonl` | `25_intl/tr.<locale>.jsonl` | Yes (lingua) |
 | `dataset:intl:status <dataset>` | `25_intl/*` | — | No |
 
 `folio:ingest` calls `FolioIntlImporter` after row ingest, populating `phrase` + `tr` from `25_intl/`. No `folio:intl:*` command surface — if folio translations go stale, re-ingest.
@@ -186,8 +190,8 @@ To avoid re-requesting hashes that have already been pulled for a previous datas
 Each step is independently shippable.
 
 1. **PRAGMA fix in `FolioConnectionWrapper`.** Four lines. Unblocks the background-job lock crash regardless of whether intl ships. Land first.
-2. **Move `Translatable` to data-contracts, add `TranslatableReflector`.** Babel-bundle adds `class_alias` for compat. Pure metadata move.
-3. **`TranslatableExtractor` + convert-time event listener in dataset-bundle.** End-to-end testable by running `import:convert --dataset=mus/cleveland --stage=normalize` and inspecting `25_intl/strings.jsonl`. No folio writes, no network.
+2. **Move `Translatable` to `lingua-contracts`, add `TranslatableReflector`.** Refactor all consumers across mono + apps in the same change; delete the old babel attribute file. No compat shim.
+3. **`PhraseExtractor` + `ConvertExtractPhraseListener` in dataset-bundle.** End-to-end testable by running `import:convert --dataset=mus/cleveland --stage=normalize` and inspecting `25_intl/phrases.jsonl`. No folio writes, no network. Stage comparisons go through the new `Survos\DatasetBundle\Enum\Stage` enum, not magic strings.
 4. **`phrase` + `tr` entities, `FolioIntlImporter`, `folio:ingest` integration.** Pre-translation, the importer writes only `phrase` rows. Folio behavior for source-language readers is unchanged.
 5. **`DatasetIntlService::push` / `pull` / `status`.** Network-touching. Defer until 1–4 are confirmed in the harvest deployment.
 6. **`FolioPostLoadListener` + `Row::$resolvedDtoData`.** Display-time translation. Bring online once real `tr` rows exist in a folio.
