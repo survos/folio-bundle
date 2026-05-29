@@ -129,22 +129,29 @@ final readonly class FolioArchiveService
             'CREATE INDEX IF NOT EXISTS idx_docs_type ON docs(type)',
         ];
         $indexes = 0;
+        $tIndexes = microtime(true);
         foreach ($indexDefs as $sql) {
             $pdo->exec($sql);
             $indexes++;
         }
+        $indexesTime = microtime(true) - $tIndexes;
         unset($pdo);
 
         // Rebuild views from schema_property
+        $tViews = microtime(true);
         $views = $this->viewBuilder->rebuild($dbFile);
+        $viewsTime = microtime(true) - $tViews;
 
         // Rebuild FTS
+        $tFts = microtime(true);
         $fts = $this->ftsIndexer->rebuild($dbFile);
+        $ftsTime = microtime(true) - $tFts;
 
         return [
             'indexes' => $indexes,
             'views' => $views['views'] ?? 0,
             'ftsRows' => $fts['rows'] ?? 0,
+            'timing' => ['indexes' => $indexesTime, 'views' => $viewsTime, 'fts' => $ftsTime],
         ];
     }
 

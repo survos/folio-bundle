@@ -33,6 +33,12 @@ final class FolioService
         return $this->dataPaths->folioRootDir;
     }
 
+    /** Path to the index-free distributable archive, e.g. <root>/folio-archive/<provider>/<code>.folio.gz. */
+    public function archivePath(string $folioCode, bool $createDirectory = false): string
+    {
+        return $this->dataPaths->folioArchiveFile($folioCode, $this->extension . '.gz', $createDirectory);
+    }
+
     /**
      * Wipe a folio and restore it from the bootstrap template.
      * The bootstrap is created on first use if it does not exist.

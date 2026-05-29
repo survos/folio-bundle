@@ -6,12 +6,12 @@ namespace Survos\FolioBundle;
 
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
-use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand};
+use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand};
 use Survos\FolioBundle\EventListener\{FolioContextListener,FolioFtsIndexListener};
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\{FolioCollectionController,FolioController,FolioSearchController};
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatPromptSuggester,FolioChatService,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
+use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatPromptSuggester,FolioChatService,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
 use Survos\FolioBundle\State\FolioRowProvider;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\{ContainerBuilder,ContainerInterface,Reference};
@@ -29,6 +29,10 @@ final class SurvosFolioBundle extends AbstractBundle
         $definition->rootNode()->children()
             ->scalarNode('extension')->defaultValue('folio')->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
+            ->scalarNode('folio_server')
+                ->info('Base URL of the app that hosts the full folio UX. Null = this app. Used to build browse links (e.g. harvest -> https://zm.example).')
+                ->defaultNull()
+            ->end()
         ->end();
     }
 
@@ -55,6 +59,7 @@ final class SurvosFolioBundle extends AbstractBundle
         $services->set(FolioDocsBuilder::class)->autowire()->autoconfigure()->public();
         $services->set(FolioArchivePreparer::class)->autowire()->autoconfigure()->public();
         $services->set(FolioArchiveService::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioIngestService::class)->autowire()->autoconfigure()->public();
         $services->set(FolioAiArtifactPaths::class)->autowire()->autoconfigure()->public();
         $services->set(FolioAiPromptBuilder::class)->autowire()->autoconfigure()->public();
         $services->set(FolioAiBatchPreparer::class)->autowire()->autoconfigure()->public();
@@ -66,6 +71,9 @@ final class SurvosFolioBundle extends AbstractBundle
         $services->set(FolioService::class)->autowire()->autoconfigure()->public()->args([
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
             '$extension' => $config['extension'],
+        ]);
+        $services->set(FolioBuildCommand::class)->autowire()->autoconfigure()->public()->args([
+            '$folioServer' => $config['folio_server'],
         ]);
         foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioCollectionController::class, FolioController::class, FolioSearchController::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
