@@ -9,7 +9,6 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\Process\Process;
 
 #[AsCommand('folio:pull', 'Download folio archives from Hugging Face and inflate')]
 final class FolioPullCommand
@@ -58,15 +57,8 @@ final class FolioPullCommand
             }
 
             $remoteFile = $code . '.folio.gz';
-            $localGz = $tmpDir . '/' . str_replace('/', '_', $code) . '.folio.gz';
-
-            $process = new Process(['hf', 'download', $repo, $remoteFile, '--type', 'dataset', '--local-dir', $tmpDir]);
-            $process->setTimeout(120);
-            $process->run();
-
-            $downloadedFile = $tmpDir . '/' . $remoteFile;
-            if (!$process->isSuccessful() || !is_file($downloadedFile)) {
-                $io->error(sprintf('Download failed: %s', $process->getErrorOutput() ?: 'file not found'));
+            $downloadedFile = $this->download($io, $repo, $remoteFile, $tmpDir);
+            if ($downloadedFile === null) {
                 continue;
             }
 
@@ -83,7 +75,6 @@ final class FolioPullCommand
             $pulled++;
         }
 
-        // Cleanup
         $this->rmdir($tmpDir);
 
         $io->success(sprintf('Pulled %d folio(s)', $pulled));
@@ -97,34 +88,125 @@ final class FolioPullCommand
             return [$dataset];
         }
 
-        // List files in the HF repo to discover available folios
-        $process = new Process(['hf', 'datasets', 'list', $repo, '--files', '--type', 'dataset']);
-        $process->setTimeout(30);
-        $process->run();
-
-        if (!$process->isSuccessful()) {
-            // Fallback: try hf download with glob pattern — but simpler to just list
-            $io->warning('Could not list repo files. Specify --dataset explicitly.');
+        if (!$all && ($provider === null || $provider === '')) {
             return [];
         }
 
+        $files = $this->listRepoFiles($io, $repo);
         $codes = [];
-        foreach (explode("\n", $process->getOutput()) as $line) {
-            $line = trim($line);
-            if (!str_ends_with($line, '.folio.gz')) {
+        foreach ($files as $file) {
+            if (!str_ends_with($file, '.folio.gz')) {
                 continue;
             }
-            $code = substr($line, 0, -strlen('.folio.gz'));
-            if ($provider !== null && !str_starts_with($code, $provider . '/')) {
+            $code = substr($file, 0, -strlen('.folio.gz'));
+            if ($provider !== null && $provider !== '' && !str_starts_with($code, $provider . '/')) {
                 continue;
             }
-            if ($all || $provider !== null) {
-                $codes[] = $code;
-            }
+            $codes[] = $code;
         }
 
         sort($codes);
         return $codes;
+    }
+
+    /** @return list<string> */
+    private function listRepoFiles(SymfonyStyle $io, string $repo): array
+    {
+        $url = sprintf('https://huggingface.co/api/datasets/%s/tree/main?recursive=true', $repo);
+        $json = $this->fetch($url);
+        if ($json === null) {
+            $io->warning('Could not list repo files. Specify --dataset explicitly.');
+            return [];
+        }
+
+        $entries = json_decode($json, true);
+        if (!is_array($entries)) {
+            $io->warning('Could not parse repo file list. Specify --dataset explicitly.');
+            return [];
+        }
+
+        $files = [];
+        foreach ($entries as $entry) {
+            if (!is_array($entry) || ($entry['type'] ?? null) !== 'file' || !is_string($entry['path'] ?? null)) {
+                continue;
+            }
+            $files[] = $entry['path'];
+        }
+
+        return $files;
+    }
+
+    private function download(SymfonyStyle $io, string $repo, string $remoteFile, string $tmpDir): ?string
+    {
+        $downloadedFile = $tmpDir . '/' . $remoteFile;
+        $downloadedDir = dirname($downloadedFile);
+        if (!is_dir($downloadedDir) && !mkdir($downloadedDir, 0775, true) && !is_dir($downloadedDir)) {
+            throw new \RuntimeException(sprintf('Unable to create temporary download directory "%s".', $downloadedDir));
+        }
+
+        $url = sprintf(
+            'https://huggingface.co/datasets/%s/resolve/main/%s',
+            $repo,
+            implode('/', array_map(rawurlencode(...), explode('/', $remoteFile))),
+        );
+        $io->text('Downloading: ' . $url);
+
+        $source = $this->open($url);
+        if (!is_resource($source)) {
+            $io->error('Download failed.');
+            return null;
+        }
+
+        $target = @fopen($downloadedFile, 'wb');
+        if (!is_resource($target)) {
+            fclose($source);
+            throw new \RuntimeException(sprintf('Unable to write downloaded folio archive "%s".', $downloadedFile));
+        }
+
+        stream_copy_to_stream($source, $target);
+        fclose($source);
+        fclose($target);
+
+        if (!is_file($downloadedFile) || filesize($downloadedFile) === 0) {
+            $io->error('Download failed.');
+            return null;
+        }
+
+        return $downloadedFile;
+    }
+
+    private function fetch(string $url): ?string
+    {
+        $source = $this->open($url);
+        if (!is_resource($source)) {
+            return null;
+        }
+
+        $contents = stream_get_contents($source);
+        fclose($source);
+
+        return is_string($contents) && $contents !== '' ? $contents : null;
+    }
+
+    /** @return resource|null */
+    private function open(string $url)
+    {
+        $headers = [];
+        $token = getenv('HF_TOKEN') ?: getenv('HUGGING_FACE_HUB_TOKEN') ?: null;
+        if (is_string($token) && $token !== '') {
+            $headers[] = 'Authorization: Bearer ' . $token;
+        }
+
+        $context = stream_context_create([
+            'http' => [
+                'follow_location' => 1,
+                'header' => $headers,
+                'timeout' => 120,
+            ],
+        ]);
+
+        $source = @fopen($url, 'rb', false, $context);
+        return is_resource($source) ? $source : null;
     }
 
     private function rmdir(string $dir): void
