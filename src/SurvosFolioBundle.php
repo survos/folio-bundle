@@ -74,6 +74,7 @@ final class SurvosFolioBundle extends AbstractBundle
         ]);
         $services->set(FolioBuildCommand::class)->autowire()->autoconfigure()->public()->args([
             '$folioServer' => $config['folio_server'],
+            '$kernelDebug' => '%kernel.debug%',
         ]);
         foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioCollectionController::class, FolioController::class, FolioSearchController::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();

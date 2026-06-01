@@ -15,24 +15,24 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 #[AsCommand(
     name: 'folio:build',
-    description: 'Build folio artifacts from normalized JSONL: an index-free .gz archive and/or an inflated working folio.',
+    description: 'Build a working folio from normalized JSONL (and, with --gz, a compressed index-free archive for upload).',
     help: <<<'END'
         Producer: builds folio artifacts from normalized JSONL.
 
           1. ingest rows into a row-only SQLite (no indexes/FTS/views)
-          2. snapshot the index-free archive  -> folio-archive/<provider>/<code>.folio.gz   (--archive, default)
-          3. inflate a working copy           -> folio/<provider>/<code>.folio              (--inflate, default)
+          2. inflate a working copy           -> folio/<provider>/<code>.folio              (--inflate, default)
+          3. with --gz: snapshot a compressed index-free archive -> folio-archive/<provider>/<code>.folio.gz
 
-        The archive is taken from the row-only database BEFORE any indexing, so nothing is
-        built only to be thrown away. A build/upload box can pass --no-inflate to skip the
-        working copy entirely; a local dev can pass --no-archive to only get something searchable.
+        By default only the working folio is built. Compression is slow and only needed to ship to
+        S3/HF, so the .gz archive is opt-in via --gz (taken from the row-only DB BEFORE indexing, so
+        nothing is built only to be thrown away). A build/upload box can pass --gz --no-inflate.
 
         Registration is NOT done here: folio:build only writes files. Run "dataset:scan --folio"
         to upsert the DatasetInfo/Artifact records that index the folios on disk.
 
-          folio:build --dataset=mus/walters --inflate     build archive + working, print a browse link
-          folio:build --provider=dc --no-inflate          archive every dc folio for upload, no indexes
-          folio:build --all --dry-run                      show what would be (re)built
+          folio:build --dataset=mus/walters       build the working folio, print a browse link
+          folio:build --provider=dc --gz --no-inflate   compress every dc folio for upload, no working copy
+          folio:build --all --dry-run             show what would be (re)built
         END,
 )]
 final class FolioBuildCommand
@@ -44,6 +44,7 @@ final class FolioBuildCommand
         private readonly FolioArchiveService $archiveService,
         private readonly FolioArchivePreparer $preparer,
         private readonly UrlGeneratorInterface $urlGenerator,
+        private readonly bool $kernelDebug = false,
         private readonly ?string $folioServer = null,
     ) {}
 
@@ -59,8 +60,8 @@ final class FolioBuildCommand
         #[Option('Build all datasets for a provider')]
         ?string $provider = null,
 
-        #[Option('Write the index-free .gz archive (default; --no-archive to skip)')]
-        ?bool $archive = null,
+        #[Option('Also write the compressed index-free .gz archive (for S3/HF upload; slow, off by default)')]
+        bool $gz = false,
 
         #[Option('Build the inflated working folio with indexes + FTS + views (default; --no-inflate to skip)')]
         ?bool $inflate = null,
@@ -87,10 +88,9 @@ final class FolioBuildCommand
         int $batch = 500,
     ): int {
         $startedAt = microtime(true);
-        $archive ??= true;
         $inflate ??= true;
-        if (!$archive && !$inflate) {
-            $io->error('Nothing to build: --no-archive and --no-inflate together would produce no durable artifact.');
+        if (!$gz && !$inflate) {
+            $io->error('Nothing to build: pass --gz and/or keep --inflate so something is produced.');
             return Command::INVALID;
         }
 
@@ -113,6 +113,10 @@ final class FolioBuildCommand
 
         $io->title(sprintf('Building %d folio(s)%s', count($datasets), $dryRun ? ' — dry run' : ''));
 
+        if ($this->kernelDebug) {
+            $io->warning('Debug mode is on — ingest is much slower. Re-run with --no-debug for a large speedup.');
+        }
+
         $built = 0;
         $skipped = 0;
         $archiveBytesTotal = 0;
@@ -132,7 +136,7 @@ final class FolioBuildCommand
             $workingPath = $this->folios->path($code);
             $archivePath = $this->folios->archivePath($code);
 
-            if (!$force && $this->isFresh($sources, $archive ? $archivePath : null, $inflate ? $workingPath : null)) {
+            if (!$force && $this->isFresh($sources, $gz ? $archivePath : null, $inflate ? $workingPath : null)) {
                 $io->writeln('  ✓ up to date — skipping (use --force to rebuild)');
                 $skipped++;
                 continue;
@@ -143,7 +147,7 @@ final class FolioBuildCommand
                 $io->writeln(sprintf(
                     '  %s → %s',
                     $exists ? 'would rebuild' : 'would build',
-                    implode(' + ', array_filter([$archive ? 'archive' : null, $inflate ? 'working' : null])),
+                    implode(' + ', array_filter([$inflate ? 'working' : null, $gz ? 'archive (.gz)' : null])),
                 ));
                 continue;
             }
@@ -164,9 +168,9 @@ final class FolioBuildCommand
                 }
             }
 
-            // Step 2: snapshot the index-free archive (archive() also writes the schema snapshot
-            // onto the working folio, which inflate() needs for its views).
-            if ($archive) {
+            // Step 2 (--gz only): snapshot the compressed index-free archive (archive() also writes the
+            // schema snapshot onto the working folio, which inflate() needs for its views).
+            if ($gz) {
                 $io->writeln('  compressing archive…');
                 $t = microtime(true);
                 $res = $this->archiveService->archive($code, $archivePath);

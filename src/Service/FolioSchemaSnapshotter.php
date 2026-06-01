@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
-use Survos\DataContracts\Attribute\{ClassMeta,PropertyMeta};
-use Survos\DataContracts\Vocabulary\ItemField;
+use Survos\DataContracts\Attribute\{ClassMeta,PropertyMeta,VocabTerm};
+use Survos\DataContracts\Vocabulary\{ItemField,MuseumVocab};
 use Survos\FieldBundle\Attribute\Field;
 use Survos\JsonlBundle\Service\JsonlProfilerInterface;
 
@@ -97,7 +97,33 @@ final readonly class FolioSchemaSnapshotter
             }
         }
 
+        // Term sets are facets by definition: any property named after a #[VocabTerm(termSet: true)]
+        // MuseumVocab code (cul, med, pla, dept, …) is exposed as a filterable facet, even though it is
+        // observed data rather than a typed DTO property. (Runtime, not the compile-time MeiliIndexPass —
+        // that only sees DTO-declared fields on Doctrine-entity indexes, never a folio's observed fields.)
+        $termSetCodes = $this->termSetCodes();
+        if ($termSetCodes !== []) {
+            $placeholders = implode(',', array_fill(0, count($termSetCodes), '?'));
+            $pdo->prepare("UPDATE schema_property SET facet = 1, filterable = 1 WHERE name IN ($placeholders)")
+                ->execute($termSetCodes);
+        }
+
         return ['tables' => $tables, 'properties' => $properties];
+    }
+
+    /** @return list<string> MuseumVocab codes flagged #[VocabTerm(termSet: true)] — always facets. */
+    private function termSetCodes(): array
+    {
+        $codes = [];
+        foreach ((new \ReflectionClass(MuseumVocab::class))->getReflectionConstants() as $const) {
+            foreach ($const->getAttributes(VocabTerm::class) as $attribute) {
+                if ($attribute->newInstance()->termSet) {
+                    $codes[] = (string) $const->getValue();
+                }
+            }
+        }
+
+        return $codes;
     }
 
     private function connect(string $dbFile): \PDO

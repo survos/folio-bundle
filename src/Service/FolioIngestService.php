@@ -75,6 +75,14 @@ final class FolioIngestService
         $this->folios->reset($dataset->datasetKey);
         $ctx = $this->folios->context($dataset->datasetKey, ensureSchema: true);
 
+        // Bulk load into a freshly-reset, rebuildable folio we are the sole writer of: trade durability
+        // for speed. One transaction (no per-batch commits, no mid-ingest WAL checkpoints) +
+        // synchronous=OFF (no fsync). If this throws, the CLI exits, the next run resets the folio, and
+        // the pragma resets on reconnect; restored explicitly on success.
+        $conn = $ctx->em->getConnection();
+        $conn->executeStatement('PRAGMA synchronous = OFF');
+        $conn->beginTransaction();
+
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
         $folio->label = $dataset->label;
         $folio->datasetKey = $dataset->datasetKey;
@@ -169,6 +177,9 @@ final class FolioIngestService
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
         $folio->rowCount = $totalCount;
         $ctx->em->flush();
+
+        $conn->commit();
+        $conn->executeStatement('PRAGMA synchronous = NORMAL');
 
         return ['rows' => $totalCount, 'terms' => $termCount, 'links' => $linkCount, 'cores' => $coreResults];
     }

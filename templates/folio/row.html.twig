@@ -90,6 +90,22 @@
                 </div>
             {% endif %}
 
+            {% guard function dim_render %}
+                {% set dimsArr   = attribute(row.dtoData, 'dimensions') %}
+                {% set weightArr = attribute(row.dtoData, 'weight') %}
+                {% set dimsRaw   = attribute(row.dtoData, 'dimensionsRaw') %}
+                {% if dimsArr or weightArr or dimsRaw %}
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h2 class="card-title mb-0">Dimensions</h2>
+                        </div>
+                        <div class="card-body">
+                            {{ dim_render(dimsArr, weightArr, dimsRaw) }}
+                        </div>
+                    </div>
+                {% endif %}
+            {% endguard %}
+
             <div class="card mb-3">
                 <div class="card-header">
                     <h2 class="card-title mb-0">Row</h2>
@@ -160,11 +176,15 @@
 
             {% if extras %}
                 <div class="card mb-3">
-                    <div class="card-header">
+                    <div class="card-header d-flex justify-content-between align-items-center">
                         <h2 class="card-title mb-0">Extras</h2>
+                        <button type="button" class="btn btn-sm btn-outline-secondary"
+                                onclick="navigator.clipboard.writeText(this.closest('.card').querySelector('pre').innerText).then(() => { const t = this.innerText; this.innerText = 'Copied!'; setTimeout(() => this.innerText = t, 1200); })">
+                            Copy
+                        </button>
                     </div>
                     <div class="card-body">
-                        <pre class="mb-0">{{ extras|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word; user-select: all;">{{ extras|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
                     </div>
                 </div>
             {% endif %}
