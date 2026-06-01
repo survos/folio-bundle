@@ -7,13 +7,14 @@ namespace Survos\FolioBundle\Service;
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DatasetBundle\Service\DataPaths;
+use Symfony\Component\DependencyInjection\Attribute\Target;
 
 final class FolioRegistry
 {
     private const NON_ROW_JSONL = ['termSet', 'term', 'linkType', 'link', 'claim', 'claims'];
 
     public function __construct(
-        private readonly EntityManagerInterface $defaultEntityManager,
+        #[Target('default')] private readonly EntityManagerInterface $defaultEntityManager,
         private readonly DataPaths $dataPaths,
     ) {}
 
