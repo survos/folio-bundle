@@ -164,14 +164,43 @@ End-to-end per provider:
 ```
 [harvest | md]  normalize (app listeners)                 → 20_normalize/*.jsonl   (full: import:convert --limit 0)
 [zm]            dataset:scan                               → register in DatasetInfo
-[zm]            folio:build --provider <p>                 → folio-archive/<p>/*.folio.gz  (+ folio/<p>/*.folio)
+[zm]            folio:build --provider <p> --gz            → folio-archive/<p>/*.folio.gz  (+ folio/<p>/*.folio)
 [zm]            folio:publish --provider <p>               → hf upload  (fast internet)
+[production]    folio:pull --provider <p> --force          → download .folio.gz, restore, inflate working folio
 ```
 
 - **"Not limited"** = `import:convert --limit 0` upstream + `folio:build` (no row cap) = full data.
 - **"No translations"** = build reads `20_normalize`, not the `25_intl/tr.<locale>.jsonl`
   stage produced by `dataset:intl:pull`. As long as intl is not merged in, folios carry
   no translations. (See [intl.md](intl.md).)
+
+## Current operational workflow (2026-06)
+
+`folio:build` builds the working `.folio` by default, but the distributable `.folio.gz` archive is opt-in. If production needs to pull from Hugging Face, build with `--gz` before publishing.
+
+```bash
+# Rebuild one folio and its uploadable archive
+APP_DATA_DIR=/media/tac/x10a php bin/console folio:build --dataset fortepan/hu --gz --force --no-debug
+php bin/console folio:publish --dataset fortepan/hu --repo museado/folios
+
+# Rebuild and publish a provider
+APP_DATA_DIR=/media/tac/x10a php bin/console folio:build --provider mus --gz --force --no-debug
+php bin/console folio:publish --provider mus --repo museado/folios
+```
+
+Remote servers do not need the `hf` CLI for pulls. `folio:pull` lists public Hugging Face dataset files over HTTPS, downloads matching `<provider>/<code>.folio.gz` files, restores them to `${APP_DATA_DIR}/folio/<provider>/<code>.folio`, and inflates indexes, FTS, facets, and views.
+
+```bash
+# Pull one refreshed folio
+APP_DATA_DIR=/platform php bin/console folio:pull --dataset fortepan/hu --force -vv
+
+# Pull all folios for one provider
+APP_DATA_DIR=/platform php bin/console folio:pull --provider mus --force -vv
+```
+
+A search error such as `no such table: item_facet_count` means the selected working `.folio` is stale or was not inflated with the current bundle. Repair by force-pulling the `.folio.gz` again. If the working file is otherwise correct and only derived tables are missing, `folio:fts:rebuild <provider>/<code>` recreates `item_fts`, `item_facet`, and `item_facet_count`.
+
+After pulling into an app, run `dataset:scan --reset` (or the app-specific scan command) when the homepage/artifact registry needs to reflect the pulled folios.
 
 ## Current state (2026-05) — operational notes
 
