@@ -14,8 +14,8 @@ final class FolioRegistry
     private const NON_ROW_JSONL = ['termSet', 'term', 'linkType', 'link', 'claim', 'claims'];
 
     public function __construct(
-        #[Target('default')] private readonly EntityManagerInterface $defaultEntityManager,
         private readonly DataPaths $dataPaths,
+        #[Target('default.entity_manager')] private readonly ?EntityManagerInterface $defaultEntityManager=null,
     ) {}
 
     /** @return list<DatasetInfo> */
