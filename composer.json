@@ -20,7 +20,9 @@
     "symfony/framework-bundle": "^8.1",
     "symfony/http-kernel": "^8.1",
     "symfony/routing": "^8.1",
-    "voku/stop-words": "^2.0"
+    "voku/stop-words": "^2.0",
+    "ext-sqlite3": "*",
+    "ext-pdo_sqlite": "*"
   },
   "suggest": {
     "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios."

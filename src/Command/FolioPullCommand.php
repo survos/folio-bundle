@@ -36,34 +36,37 @@ final class FolioPullCommand
         #[Option('Replace existing folio files')]
         bool $force = false,
     ): int {
-        $folioCodes = $this->resolveCodes($io, $repo, $dataset, $provider, $all);
-        if ($folioCodes === []) {
+        $remotes = $this->resolveRemotes($io, $repo, $dataset, $provider, $all);
+        if ($remotes === []) {
             $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
             return Command::SUCCESS;
         }
 
-        $io->title(sprintf('Pulling %d folio(s) from %s', count($folioCodes), $repo));
+        $io->title(sprintf('Syncing %d folio(s) from %s', count($remotes), $repo));
         $tmpDir = sys_get_temp_dir() . '/folio_pull_' . uniqid();
         mkdir($tmpDir, 0775, true);
 
         $pulled = 0;
-        foreach ($folioCodes as $code) {
+        $skipped = 0;
+        foreach ($remotes as $remote) {
+            $code = $remote['code'];
             $io->section($code);
 
             $target = $this->folios->path($code);
-            if (is_file($target) && !$force) {
-                $io->text('Already exists, skipping (use --force to replace)');
+            if (is_file($target) && !$force && $this->isCurrent($target, $remote)) {
+                $io->text('Current, skipping');
+                $skipped++;
                 continue;
             }
 
-            $remoteFile = $code . '.folio.gz';
-            $downloadedFile = $this->download($io, $repo, $remoteFile, $tmpDir);
+            $downloadedFile = $this->download($io, $repo, $remote['path'], $tmpDir);
             if ($downloadedFile === null) {
                 continue;
             }
 
-            $result = $this->archiveService->restore($downloadedFile, $code, $force);
+            $result = $this->archiveService->restore($downloadedFile, $code, true);
             $inflated = $this->archiveService->inflate($result['target']);
+            $this->writeSyncMetadata($result['target'], $repo, $remote);
 
             $io->text(sprintf(
                 'Restored: %s (%d indexes, %d views, %d FTS rows)',
@@ -77,40 +80,47 @@ final class FolioPullCommand
 
         $this->rmdir($tmpDir);
 
-        $io->success(sprintf('Pulled %d folio(s)', $pulled));
+        $io->success(sprintf('Pulled %d folio(s), skipped %d current folio(s)', $pulled, $skipped));
         return Command::SUCCESS;
     }
 
-    /** @return list<string> */
-    private function resolveCodes(SymfonyStyle $io, string $repo, ?string $dataset, ?string $provider, bool $all): array
+    /**
+     * @return list<array{code:string,path:string,size:int|null,oid:string|null,lfsOid:string|null,xetHash:string|null}>
+     */
+    private function resolveRemotes(SymfonyStyle $io, string $repo, ?string $dataset, ?string $provider, bool $all): array
     {
         if ($dataset !== null && $dataset !== '') {
-            return [$dataset];
+            $path = $dataset . '.folio.gz';
+            return [$this->remoteFromPath($path)];
         }
 
         if (!$all && ($provider === null || $provider === '')) {
             return [];
         }
 
-        $files = $this->listRepoFiles($io, $repo);
-        $codes = [];
-        foreach ($files as $file) {
-            if (!str_ends_with($file, '.folio.gz')) {
+        $entries = $this->listRepoEntries($io, $repo);
+        $remotes = [];
+        foreach ($entries as $entry) {
+            if (($entry['type'] ?? null) !== 'file' || !is_string($entry['path'] ?? null)) {
                 continue;
             }
-            $code = substr($file, 0, -strlen('.folio.gz'));
+            $path = $entry['path'];
+            if (!str_ends_with($path, '.folio.gz')) {
+                continue;
+            }
+            $code = substr($path, 0, -strlen('.folio.gz'));
             if ($provider !== null && $provider !== '' && !str_starts_with($code, $provider . '/')) {
                 continue;
             }
-            $codes[] = $code;
+            $remotes[] = $this->remoteFromEntry($entry);
         }
 
-        sort($codes);
-        return $codes;
+        usort($remotes, static fn (array $a, array $b): int => $a['code'] <=> $b['code']);
+        return $remotes;
     }
 
-    /** @return list<string> */
-    private function listRepoFiles(SymfonyStyle $io, string $repo): array
+    /** @return list<array<string,mixed>> */
+    private function listRepoEntries(SymfonyStyle $io, string $repo): array
     {
         $url = sprintf('https://huggingface.co/api/datasets/%s/tree/main?recursive=true', $repo);
         $json = $this->fetch($url);
@@ -125,15 +135,74 @@ final class FolioPullCommand
             return [];
         }
 
-        $files = [];
-        foreach ($entries as $entry) {
-            if (!is_array($entry) || ($entry['type'] ?? null) !== 'file' || !is_string($entry['path'] ?? null)) {
-                continue;
-            }
-            $files[] = $entry['path'];
+        return array_values(array_filter($entries, is_array(...)));
+    }
+
+    /** @param array<string,mixed> $entry */
+    private function remoteFromEntry(array $entry): array
+    {
+        $path = (string) $entry['path'];
+        $lfs = is_array($entry['lfs'] ?? null) ? $entry['lfs'] : [];
+
+        return [
+            'code' => substr($path, 0, -strlen('.folio.gz')),
+            'path' => $path,
+            'size' => isset($entry['size']) ? (int) $entry['size'] : null,
+            'oid' => is_string($entry['oid'] ?? null) ? $entry['oid'] : null,
+            'lfsOid' => is_string($lfs['oid'] ?? null) ? $lfs['oid'] : null,
+            'xetHash' => is_string($entry['xetHash'] ?? null) ? $entry['xetHash'] : null,
+        ];
+    }
+
+    private function remoteFromPath(string $path): array
+    {
+        return [
+            'code' => substr($path, 0, -strlen('.folio.gz')),
+            'path' => $path,
+            'size' => null,
+            'oid' => null,
+            'lfsOid' => null,
+            'xetHash' => null,
+        ];
+    }
+
+    /** @param array<string,mixed> $remote */
+    private function isCurrent(string $target, array $remote): bool
+    {
+        $metadataFile = $this->metadataFile($target);
+        if (!is_file($metadataFile)) {
+            return false;
         }
 
-        return $files;
+        $metadata = json_decode((string) file_get_contents($metadataFile), true);
+        if (!is_array($metadata)) {
+            return false;
+        }
+
+        foreach (['path', 'size', 'oid', 'lfsOid', 'xetHash'] as $key) {
+            if ($remote[$key] !== null && ($metadata[$key] ?? null) !== $remote[$key]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @param array<string,mixed> $remote */
+    private function writeSyncMetadata(string $target, string $repo, array $remote): void
+    {
+        file_put_contents($this->metadataFile($target), json_encode(
+            $remote + [
+                'repo' => $repo,
+                'syncedAt' => gmdate(DATE_ATOM),
+            ],
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+        ));
+    }
+
+    private function metadataFile(string $target): string
+    {
+        return $target . '.hf.json';
     }
 
     private function download(SymfonyStyle $io, string $repo, string $remoteFile, string $tmpDir): ?string

@@ -4,6 +4,7 @@ doctrine:
 
     connections:
       default:
+          schema_filter: '~^(?!(?:_timescaledb_|timescaledb_|toolkit_))~'
         url: '%env(resolve:DATABASE_URL)%'
         profiling_collect_backtrace: '%kernel.debug%'
 
