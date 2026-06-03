@@ -81,7 +81,7 @@
                     <div class="card-body text-center">
                         {% set imageUrl = th %}
                         {% guard filter imgproxy %}
-                            {% set imageUrl = th|imgproxy('medium') %}
+                            {% set imageUrl = th|imgproxy('display') %}
                         {% endguard %}
                         <a href="{{ th }}" target="_blank">
                             <img src="{{ imageUrl }}" alt="{{ row.label ?: row.localId }}" class="img-fluid rounded" style="max-height: 360px; object-fit: contain" loading="lazy">
