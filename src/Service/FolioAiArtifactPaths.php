@@ -18,10 +18,8 @@ final class FolioAiArtifactPaths
 
     public function aiDir(string $datasetKey): string
     {
-        $root = $this->datasetRootFromRegistry($datasetKey) ?? $this->dataPaths->datasetDir($datasetKey);
-        $aiStage = basename($this->dataPaths->stageDir($datasetKey, 'ai'));
-
-        return rtrim($root, '/') . '/' . $aiStage;
+        // AI artifacts live in the durable vault (vault/<provider>/<code>/ai), not the work tree.
+        return $this->dataPaths->aiDir($datasetKey);
     }
 
     public function inputPath(string $datasetKey, string $coreCode, string $task): string
