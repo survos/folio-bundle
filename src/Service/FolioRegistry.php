@@ -6,6 +6,7 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
+use Survos\DatasetBundle\Enum\Stage;
 use Survos\DatasetBundle\Service\DataPaths;
 use Symfony\Component\DependencyInjection\Attribute\Target;
 
@@ -80,7 +81,8 @@ final class FolioRegistry
      */
     public function populatedFields(DatasetInfo $dataset, string $core = 'obj'): ?array
     {
-        $profilePath = $this->dataPaths->stageDir($dataset->datasetKey, 'profile') . "/$core.profile.json";
+        // Profile is a sidecar next to the normalized JSONL (norm/<core>.profile.json).
+        $profilePath = $this->dataPaths->stageDir($dataset->datasetKey, Stage::Normalize) . "/$core.profile.json";
         if (!is_file($profilePath) && $core === 'obj' && $dataset->profilePath !== null && is_file($dataset->profilePath)) {
             $profilePath = $dataset->profilePath;
         }
