@@ -13,20 +13,27 @@ use Survos\FolioBundle\Controller\{FolioCollectionController,FolioController,Fol
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,TermRepository,TermSetRepository};
 use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatPromptSuggester,FolioChatService,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
 use Survos\FolioBundle\State\FolioRowProvider;
+use Survos\Kit\Traits\HasConfigurableRoutes;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\{ContainerBuilder,ContainerInterface,Reference};
 use Symfony\Component\DependencyInjection\Kernel\RequiredBundle;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
-use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
 #[RequiredBundle(SurvosIiifBundle::class, ignoreOnInvalid: true)]
 #[RequiredBundle(SurvosImgproxyBundle::class, ignoreOnInvalid: true)]
 final class SurvosFolioBundle extends AbstractBundle
 {
+    use HasConfigurableRoutes;
+
     public function configure(DefinitionConfigurator $definition): void
     {
-        $definition->rootNode()->children()
+        $children = $definition->rootNode()->children();
+        $this->addRouteOptions($children, '');
+        $children
+            ->booleanNode('admin_navbar_menu')->defaultTrue()
+                ->info('Set false to disable this bundle\'s admin navbar menu entries.')
+            ->end()
             ->scalarNode('extension')->defaultValue('folio')->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
             ->scalarNode('folio_server')
@@ -36,8 +43,14 @@ final class SurvosFolioBundle extends AbstractBundle
         ->end();
     }
 
+    public function build(ContainerBuilder $container): void
+    {
+        $this->addRouteLoaderCompilerPass($container);
+    }
+
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
+        $this->captureRouteConfig($config);
         $services = $container->services();
         foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');
@@ -76,15 +89,21 @@ final class SurvosFolioBundle extends AbstractBundle
             '$folioServer' => $config['folio_server'],
             '$kernelDebug' => '%kernel.debug%',
         ]);
-        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioCollectionController::class, FolioController::class, FolioSearchController::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
+        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
+        }
+        if ($config['routes_enabled']) {
+            foreach ([FolioCollectionController::class, FolioController::class, FolioSearchController::class] as $class) {
+                $services->set($class)->autowire()->autoconfigure()->public();
+            }
         }
         if (interface_exists(\ApiPlatform\State\ProviderInterface::class)) {
             $services->set(FolioRowProvider::class)->autowire()->autoconfigure()->public();
         }
-        if (class_exists(\Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber::class)) {
+        if ($config['admin_navbar_menu'] && class_exists(\Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber::class)) {
             $services->set(FolioMenu::class)->autowire()->autoconfigure()->public();
         }
+        $this->registerRouteLoader($builder);
         $services->set(FolioFtsIndexListener::class)
             ->autowire()
             ->autoconfigure()
@@ -103,8 +122,4 @@ final class SurvosFolioBundle extends AbstractBundle
         }
     }
 
-    public function configureRoutes(RoutingConfigurator $routes): void
-    {
-        $routes->import(dirname(__DIR__) . '/src/Controller/', 'attribute');
-    }
 }
