@@ -1,31 +1,78 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
 
-{% block title %}{{ ctx.folioCode }} Search{% endblock %}
+{% set parts = ctx.folioCode|split('/') %}
+{% set provider = parts[0] %}
+{% set dataset = parts[1] %}
+{% set folioLabel = folio and folio.label ? folio.label : ctx.folioCode %}
+{% set hitOptions = { folioCode: ctx.folioCode, hitTemplate: 'search/hits/folio_row.html.twig' } %}
+
+{% block page_pretitle %}Folio search{% endblock %}
+{% block page_title %}{{ folioLabel }}{% endblock %}
+{% block page_subtitle %}
+    <span class="font-monospace">{{ ctx.folioCode }}</span>
+    {% if folio and folio.rowCount %}
+        <span class="mx-1 text-muted">&middot;</span>{{ folio.rowCount|number_format }} records
+    {% endif %}
+{% endblock %}
+{% block title %}{{ folioLabel }} Search{% endblock %}
 
 {% block body %}
-{% set parts = ctx.folioCode|split('/') %}
-<div class="container-xl py-3">
-    <div class="page-header mb-3">
-        <div class="row align-items-center">
-            <div class="col">
-                <h1 class="page-title">
-                    <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="text-muted">{{ ctx.folioCode }}</a>
-                    <span class="text-muted mx-1">/</span>search
-                </h1>
-            </div>
-            <div class="col-auto">
-                <div class="btn-list">
-                    {% for core in cores %}
-                        <a class="btn btn-outline-secondary" href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}">{{ core.code }}</a>
-                    {% endfor %}
+<div class="folio-search-page">
+    <div class="folio-search-header mb-3">
+        <div class="d-flex flex-column flex-lg-row align-items-lg-start justify-content-between gap-3">
+            <div class="min-w-0">
+                <nav class="d-flex flex-wrap align-items-center gap-2 small text-secondary mb-2" aria-label="Breadcrumb">
+                    <a href="{{ path('app_homepage') }}" class="text-secondary text-decoration-none d-inline-flex align-items-center gap-1">
+                        {{ ux_icon('tabler:home') }} Home
+                    </a>
+                    <span>/</span>
+                    <a href="{{ path('survos_folio_show', {provider: provider, dataset: dataset}) }}" class="text-secondary text-decoration-none d-inline-flex align-items-center gap-1">
+                        {{ ux_icon('tabler:album') }} Overview
+                    </a>
+                    <span>/</span>
+                    <span>Search</span>
+                </nav>
+
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <h1 class="page-title mb-0 text-truncate">{{ folioLabel }}</h1>
+                    <span class="badge bg-secondary-lt text-secondary font-monospace">{{ ctx.folioCode }}</span>
                 </div>
             </div>
+
+            <div class="folio-search-actions d-flex flex-wrap justify-content-lg-end gap-2">
+                <a href="{{ path('survos_folio_show', {provider: provider, dataset: dataset}) }}" class="btn btn-outline-secondary d-inline-flex align-items-center gap-1">
+                    {{ ux_icon('tabler:layout-dashboard') }} Overview
+                </a>
+                <a href="{{ path('survos_folio_schema', {provider: provider, dataset: dataset}) }}" class="btn btn-outline-secondary d-inline-flex align-items-center gap-1">
+                    {{ ux_icon('tabler:database') }} Schema
+                </a>
+                <a href="{{ path('survos_folio_chat', {provider: provider, dataset: dataset}) }}" class="btn btn-outline-secondary d-inline-flex align-items-center gap-1">
+                    {{ ux_icon('tabler:message-chatbot') }} Chat
+                </a>
+                <button type="button" class="btn btn-outline-secondary d-inline-flex align-items-center gap-1" disabled>
+                    {{ ux_icon('tabler:slideshow') }} Slideshow
+                </button>
+                <button type="button" class="btn btn-outline-secondary d-inline-flex align-items-center gap-1" disabled>
+                    {{ ux_icon('tabler:shopping-bag') }} Bookbag
+                </button>
+            </div>
         </div>
+
+        {% if cores|length > 0 %}
+            <div class="folio-search-core-nav d-flex flex-wrap align-items-center gap-2 mt-3 pt-3 border-top">
+                <span class="text-secondary small">Cores</span>
+                {% for core in cores %}
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ path('survos_folio_core', {provider: provider, dataset: dataset, coreCode: core.code}) }}">
+                        {{ core.label ?: core.code }}{% if core.rowCount %} &middot; {{ core.rowCount|number_format }}{% endif %}
+                    </a>
+                {% endfor %}
+            </div>
+        {% endif %}
     </div>
 
     <twig:Mezcalito:UxSearch:Layout
-        :name="'folio_row'"
-        :options="{ folioCode: ctx.folioCode, hitTemplate: 'search/hits/folio_row.html.twig' }"
+        name="folio_row"
+        :options="hitOptions"
     />
 </div>
 {% endblock %}

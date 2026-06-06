@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Controller;
 
 use Survos\FolioBundle\Entity\Core;
+use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Service\FolioService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
@@ -24,6 +25,7 @@ final class FolioSearchController extends AbstractController
 
         return $this->render('@SurvosFolioBundle/folio/search.html.twig', [
             'ctx' => $ctx,
+            'folio' => $ctx->em->find(Folio::class, $ctx->folioCode),
             'cores' => $ctx->em->getRepository(Core::class)->findBy([], ['code' => 'ASC']),
         ]);
     }
