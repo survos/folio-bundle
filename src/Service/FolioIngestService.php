@@ -11,7 +11,6 @@ use Survos\FolioBundle\Entity\{Core,Folio,Link,LinkType,Row,Term,TermSet};
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\JsonlBundle\IO\JsonlReader;
 use Survos\JsonlBundle\Service\JsonlCountService;
-use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
@@ -91,23 +90,8 @@ final class FolioIngestService
         // Seed the bar from sidecar row counts (no full scan) when an $io is supplied. It spans every
         // row-bearing phase — cores, terms, links — so one bar covers the whole ingest. (claims and
         // translations will join this list; the per-phase ingest calls below all advance the same bar.)
-        $progress = null;
         if ($io !== null) {
-            $normalizeDir = $this->dataPaths->stageDir($dataset->datasetKey, 'normalize');
-            $expected = 0;
-            foreach ($sources as $sourceFile) {
-                $expected += $this->counter->rows($sourceFile);
-            }
-            foreach (['term.jsonl', 'link.jsonl'] as $phaseFile) {
-                $path = $normalizeDir . '/' . $phaseFile;
-                if (is_file($path)) {
-                    $expected += $this->counter->rows($path);
-                }
-            }
-            $progress = $io->createProgressBar($expected);
-            $progress->setFormat(" %current%/%max% [%bar%] %percent:3s%%  %elapsed:6s%/%estimated:-6s%  %memory:6s%");
-            $progress->setRedrawFrequency(max(1, $batch));
-            $progress->start();
+            $this->startIngestProgress($io, $this->expectedRows($dataset->datasetKey, $sources));
         }
 
         $coreResults = [];
@@ -142,7 +126,7 @@ final class FolioIngestService
                     // Re-attach after clear — fresh DB so find() is fast.
                     $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
                     $coreEntity = $ctx->em->find(Core::class, $coreEntity->id);
-                    $progress?->advance($batch);
+                    $this->advanceIngestProgress($io, $batch);
                 }
             }
 
@@ -150,7 +134,7 @@ final class FolioIngestService
             $coreEntity->rowCount = $count;
             $coreEntity->fieldSummary = $this->registry->populatedFields($dataset, $core);
             $ctx->em->flush();
-            $progress?->advance($count % $batch);
+            $this->advanceIngestProgress($io, $count % $batch);
 
             if ($dispatchFinished) {
                 $summary = $this->summaryService->summarize($ctx->path);
@@ -166,13 +150,10 @@ final class FolioIngestService
             $coreResults[$core] = ['count' => $count, 'file' => $file];
         }
 
-        $termCount = $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $batch, $progress);
-        $linkCount = $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $progress);
+        $termCount = $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $batch, $io);
+        $linkCount = $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $io);
 
-        $progress?->finish();
-        if ($io !== null) {
-            $io->newLine(2);
-        }
+        $this->finishIngestProgress($io);
 
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
         $folio->rowCount = $totalCount;
@@ -184,7 +165,54 @@ final class FolioIngestService
         return ['rows' => $totalCount, 'terms' => $termCount, 'links' => $linkCount, 'cores' => $coreResults];
     }
 
-    private function ingestTerms(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch, ?ProgressBar $progress = null): int
+    /**
+     * @param array<string,string> $sources
+     */
+    private function expectedRows(string $datasetKey, array $sources): int
+    {
+        $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
+        $expected = 0;
+        foreach ($sources as $sourceFile) {
+            $expected += $this->counter->rows($sourceFile);
+        }
+        foreach (['term.jsonl', 'link.jsonl'] as $phaseFile) {
+            $path = $normalizeDir . '/' . $phaseFile;
+            if (is_file($path)) {
+                $expected += $this->counter->rows($path);
+            }
+        }
+
+        return $expected;
+    }
+
+    private function startIngestProgress(SymfonyStyle $io, int $expected): void
+    {
+        $format = $expected > 0
+            ? ' %current%/%max% [%bar%] %percent:3s%% elapsed:%elapsed:6s% estimated:%estimated:-6s% memory:%memory:6s%'
+            : ' %current% [%bar%] elapsed:%elapsed:6s% memory:%memory:6s%';
+
+        $io->progressStart($expected, $format);
+    }
+
+    private function advanceIngestProgress(?SymfonyStyle $io, int $steps): void
+    {
+        if ($io === null || $steps <= 0) {
+            return;
+        }
+
+        $io->progressAdvance($steps);
+    }
+
+    private function finishIngestProgress(?SymfonyStyle $io): void
+    {
+        if ($io === null) {
+            return;
+        }
+
+        $io->progressFinish();
+    }
+
+    private function ingestTerms(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch, ?SymfonyStyle $io = null): int
     {
         $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
         $termSetFile = $normalizeDir . '/termSet.jsonl';
@@ -250,11 +278,11 @@ final class FolioIngestService
 
             if (++$count % $batch === 0) {
                 $em->flush();
-                $progress?->advance($batch);
+                $this->advanceIngestProgress($io, $batch);
             }
         }
         $em->flush();
-        $progress?->advance($count % $batch);
+        $this->advanceIngestProgress($io, $count % $batch);
 
         foreach ($pendingParents as $termId => $parentId) {
             $term = $terms[$termId] ?? $em->find(Term::class, $termId);
@@ -268,7 +296,7 @@ final class FolioIngestService
         return $count;
     }
 
-    private function ingestLinks(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch, ?ProgressBar $progress = null): int
+    private function ingestLinks(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch, ?SymfonyStyle $io = null): int
     {
         $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
         $linkTypeFile = $normalizeDir . '/linkType.jsonl';
@@ -331,11 +359,11 @@ final class FolioIngestService
 
             if (++$count % $batch === 0) {
                 $em->flush();
-                $progress?->advance($batch);
+                $this->advanceIngestProgress($io, $batch);
             }
         }
         $em->flush();
-        $progress?->advance($count % $batch);
+        $this->advanceIngestProgress($io, $count % $batch);
 
         return $count;
     }
