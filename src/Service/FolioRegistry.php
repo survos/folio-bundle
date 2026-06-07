@@ -16,7 +16,7 @@ final class FolioRegistry
 
     public function __construct(
         private readonly DataPaths $dataPaths,
-        #[Target('default.entity_manager')] private readonly ?EntityManagerInterface $defaultEntityManager=null,
+        #[Target('dataset.entity_manager')] private readonly EntityManagerInterface $datasetEntityManager,
     ) {}
 
     /** @return list<DatasetInfo> */
@@ -26,7 +26,7 @@ final class FolioRegistry
         bool $all = false,
         bool $requireSource = false,
     ): array {
-        $repo = $this->defaultEntityManager->getRepository(DatasetInfo::class);
+        $repo = $this->datasetEntityManager->getRepository(DatasetInfo::class);
 
         if ($datasetKey !== null && $datasetKey !== '') {
             // DatasetInfo PKs use slash (e.g. "mus/aust"); sanitizeDatasetKey() returns dash format.

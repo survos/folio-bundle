@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
+use Survos\DatasetBundle\Entity\Artifact;
+use Survos\DatasetBundle\Event\DatasetArtifactUpdatedEvent;
 use Survos\FolioBundle\Service\{FolioArchivePreparer,FolioArchiveService,FolioIngestService,FolioRegistry,FolioService};
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -12,6 +14,7 @@ use Symfony\Component\Console\Helper\Helper;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 #[AsCommand(
     name: 'folio:build',
@@ -27,8 +30,8 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
         S3/HF, so the .gz archive is opt-in via --gz (taken from the row-only DB BEFORE indexing, so
         nothing is built only to be thrown away). A build/upload box can pass --gz --no-inflate.
 
-        Registration is NOT done here: folio:build only writes files. Run "dataset:scan --folio"
-        to upsert the DatasetInfo/Artifact records that index the folios on disk.
+        Registry updates are event-driven: folio:build dispatches artifact events that dataset-bundle
+        listens to, so DatasetInfo/Artifact rows are updated without running dataset:scan after each build.
 
           folio:build --dataset=mus/walters       build the working folio, print a browse link
           folio:build --provider=dc --gz --no-inflate   compress every dc folio for upload, no working copy
@@ -44,6 +47,7 @@ final class FolioBuildCommand
         private readonly FolioArchiveService $archiveService,
         private readonly FolioArchivePreparer $preparer,
         private readonly UrlGeneratorInterface $urlGenerator,
+        private readonly ?EventDispatcherInterface $dispatcher = null,
         private readonly bool $kernelDebug = false,
         private readonly ?string $folioServer = null,
     ) {}
@@ -177,6 +181,18 @@ final class FolioBuildCommand
                 $archiveBytesTotal += $res['archiveBytes'];
                 $ratio = $res['sourceBytes'] > 0 ? (int) round(100 * (1 - $res['archiveBytes'] / $res['sourceBytes'])) : 0;
                 $io->writeln(sprintf('  archive  %s  (%d%% smaller, %s)  %s', $this->humanBytes($res['archiveBytes']), $ratio, $this->fmtSecs(microtime(true) - $t), $archivePath));
+                $this->dispatchArtifactUpdated(
+                    datasetKey: $code,
+                    type: Artifact::TYPE_FOLIO_ARCHIVE,
+                    uri: $archivePath,
+                    rowCount: (int) $result['rows'],
+                    dtoCounts: null,
+                    metadata: [
+                        'compressed' => true,
+                        'sourceBytes' => $res['sourceBytes'],
+                        'archiveBytes' => $res['archiveBytes'],
+                    ],
+                );
             } else {
                 // inflate-only: still need the schema snapshot for view generation.
                 $this->preparer->prepare($workingPath, ['builtAt' => gmdate(DATE_ATOM)]);
@@ -205,6 +221,19 @@ final class FolioBuildCommand
                     ));
                 }
                 $io->writeln('  browse   ' . $this->browseLink($code));
+                $this->dispatchArtifactUpdated(
+                    datasetKey: $code,
+                    type: Artifact::TYPE_FOLIO,
+                    uri: $workingPath,
+                    rowCount: (int) $result['rows'],
+                    dtoCounts: $this->dtoCounts($result['cores']),
+                    metadata: [
+                        'cores' => $this->coreMetadata($result['cores']),
+                        'coreCounts' => $this->coreCounts($result['cores']),
+                        'terms' => (int) $result['terms'],
+                        'links' => (int) $result['links'],
+                    ],
+                );
             } elseif (is_file($workingPath)) {
                 unlink($workingPath);
             }
@@ -221,9 +250,62 @@ final class FolioBuildCommand
             $archiveBytesTotal > 0 ? ' · archives ' . $this->humanBytes($archiveBytesTotal) : '',
             Helper::formatTime(microtime(true) - $startedAt),
         ));
-        $io->writeln('<comment>Register with: dataset:scan --folio</comment>');
-
         return Command::SUCCESS;
+    }
+
+    /** @param array<string,array{count:int,classCounts?:array<string,int>}> $cores */
+    private function dtoCounts(array $cores): ?array
+    {
+        $counts = [];
+        foreach ($cores as $core) {
+            foreach (($core['classCounts'] ?? []) as $class => $count) {
+                $counts[$class] = ($counts[$class] ?? 0) + (int) $count;
+            }
+        }
+
+        arsort($counts);
+        return $counts ?: null;
+    }
+
+    /** @param array<string,array{count:int,classCounts?:array<string,int>}> $cores */
+    private function coreCounts(array $cores): array
+    {
+        $counts = [];
+        foreach ($cores as $code => $info) {
+            $counts[(string) $code] = (int) $info['count'];
+        }
+
+        return $counts;
+    }
+
+    /** @param array<string,array{count:int,classCounts?:array<string,int>}> $cores */
+    private function coreMetadata(array $cores): array
+    {
+        $metadata = [];
+        foreach ($cores as $code => $info) {
+            $metadata[] = [
+                'code' => (string) $code,
+                'rowCount' => (int) $info['count'],
+            ];
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param array<string,int>|null $dtoCounts
+     * @param array<string,mixed> $metadata
+     */
+    private function dispatchArtifactUpdated(string $datasetKey, string $type, string $uri, ?int $rowCount, ?array $dtoCounts, array $metadata): void
+    {
+        $this->dispatcher?->dispatch(new DatasetArtifactUpdatedEvent(
+            datasetKey: $datasetKey,
+            type: $type,
+            uri: $uri,
+            rowCount: $rowCount,
+            dtoCounts: $dtoCounts,
+            metadata: $metadata,
+        ));
     }
 
     /** All requested artifacts exist and are newer than the newest source file. */
