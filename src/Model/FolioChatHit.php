@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Model;
 
+use Survos\IiifBundle\Service\IiifUrl;
+
 final readonly class FolioChatHit
 {
     /**
@@ -53,7 +55,7 @@ final readonly class FolioChatHit
     {
         $iiifBase = $this->stringValue('iiif_base');
         if ($iiifBase) {
-            return rtrim($iiifBase, '/') . '/full/!300,300/0/default.jpg';
+            return IiifUrl::imageUrl($iiifBase, '!300,300');
         }
 
         return $this->stringValue('thumbnail_url')

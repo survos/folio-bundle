@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Survos\IiifBundle\Service\IiifUrl;
+
 final class FolioAiPromptBuilder
 {
     public const IMAGE_ENRICH = 'image_enrich';
@@ -49,11 +51,7 @@ final class FolioAiPromptBuilder
         foreach (['iiifBase', 'largeImageUrl', 'thumbnailUrl', 'imageUrl'] as $field) {
             $value = $dtoData[$field] ?? null;
             if (is_string($value) && $value !== '') {
-                if ($field === 'iiifBase' && preg_match('/\.(jpe?g|png|gif|webp|tiff?)$/i', $value) !== 1) {
-                    return rtrim($value, '/') . '/full/max/0/default.jpg';
-                }
-
-                return $value;
+                return $field === 'iiifBase' ? IiifUrl::imageUrl($value) : $value;
             }
         }
 

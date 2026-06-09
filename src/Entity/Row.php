@@ -18,6 +18,7 @@ use Survos\DataContracts\Vocabulary\ItemField;
 use Survos\FieldBundle\Attribute\EntityMeta;
 use Survos\FolioBundle\Repository\RowRepository;
 use Survos\FolioBundle\State\FolioRowProvider;
+use Survos\IiifBundle\Service\IiifUrl;
 use Symfony\Component\Serializer\Attribute\Groups;
 
 #[EntityMeta(icon: 'mdi:table-row', group: 'Folio', label: 'Folio Rows', adminBrowsable: false)]
@@ -123,12 +124,7 @@ class Row
     {
         $iiif = $this->canonicalDtoValue(ItemField::IIIF_BASE);
         if ($iiif !== null) {
-            // IIIF Image API base: append path to get a fetchable image
-            // Static image URLs (already have extension) pass through as-is
-            if (!preg_match('/\.(jpe?g|png|gif|webp|tiff?)$/i', $iiif)) {
-                return rtrim($iiif, '/') . '/full/max/0/default.jpg';
-            }
-            return $iiif;
+            return IiifUrl::imageUrl($iiif);
         }
 
         return $this->canonicalDtoValue(ItemField::LARGE_IMAGE_URL)

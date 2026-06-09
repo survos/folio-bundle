@@ -5,7 +5,7 @@
   "license": "MIT",
   "prefer-stable": true,
   "require": {
-    "php": "^8.4",
+    "php": "^8.5",
     "doctrine/dbal": "^4.4",
     "doctrine/doctrine-bundle": "^2.14|^3.0",
     "doctrine/orm": "^3.4",
