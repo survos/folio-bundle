@@ -101,7 +101,9 @@ final class SurvosFolioBundle extends AbstractBundle
             $services->set(FolioRowProvider::class)->autowire()->autoconfigure()->public();
         }
         if ($config['admin_navbar_menu'] && class_exists(\Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber::class)) {
-            $services->set(FolioMenu::class)->autowire()->autoconfigure()->public();
+            $services->set(FolioMenu::class)->autowire()->autoconfigure()->public()->args([
+                '$folioServer' => $config['folio_server'],
+            ]);
         }
         $this->registerRouteLoader($builder);
         $services->set(FolioFtsIndexListener::class)
