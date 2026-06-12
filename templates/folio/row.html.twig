@@ -41,12 +41,14 @@
                 <div class="card-header">
                     <h2 class="card-title mb-0">DTO Data</h2>
                 </div>
+                {# Source image URLs are noise once the folio serves its own imgproxy/IIIF renditions. #}
+                {% set imageFields = ['thumbnailUrl', 'largeImageUrl', 'iiifBase', 'iiifManifest', 'iiifInfo', 'imageCount', 'hasImages', 'sourceUrl'] %}
                 <div class="table-responsive">
                     <table class="table table-vcenter card-table">
                         <tbody>
                         {% for field in columns %}
                             {% set value = attribute(row.dtoData, field)|default(null) %}
-                            {% if value is not empty and field not in termFields %}
+                            {% if value is not empty and field not in termFields and field not in imageFields %}
                                 <tr>
                                     <th class="w-25 font-monospace text-muted">{{ field }}</th>
                                     <td>
@@ -56,7 +58,7 @@
                             {% endif %}
                         {% else %}
                             {% for field, value in row.dtoData %}
-                                {% if field not in termFields %}
+                                {% if field not in termFields and field not in imageFields %}
                                 <tr>
                                     <th class="w-25 font-monospace text-muted">{{ field }}</th>
                                     <td>
@@ -73,6 +75,22 @@
                         </tbody>
                     </table>
                 </div>
+                {% set imageMetaFields = imageFields|filter(field => attribute(row.dtoData, field)|default(null) is not empty) %}
+                {% if imageMetaFields is not empty %}
+                    <details class="px-3 pb-3">
+                        <summary class="text-muted small" style="cursor: pointer">Source image fields ({{ imageMetaFields|length }})</summary>
+                        <table class="table table-sm card-table mt-2 mb-0">
+                            <tbody>
+                            {% for field in imageMetaFields %}
+                                <tr>
+                                    <th class="w-25 font-monospace text-muted small">{{ field }}</th>
+                                    <td class="small text-break">{{ folio_row.render_value(attribute(row.dtoData, field)) }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </details>
+                {% endif %}
             </div>
         </div>
         <div class="col-lg-4">
