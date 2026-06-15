@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Controller;
 
+use Doctrine\DBAL\Connection;
 use Survos\FolioBundle\Attribute\FolioContext;
 use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Row,Term,TermSet};
 use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService};
@@ -31,7 +32,7 @@ final class FolioController extends AbstractController
     {
         $ctx = $this->folios->context("$provider/$dataset");
         $conn = $ctx->em->getConnection();
-        $cores = $ctx->em->getRepository(Core::class)->findBy([], ['code' => 'ASC']);
+        $cores = $ctx->em->getRepository(Core::class)->findBy([], ['rowCount' => 'DESC', 'code' => 'ASC']);
 
         // Every core is first-class — no single "object" core is the centre. Each card gets its own
         // row count and DTO-type breakdown so the dashboard links straight into any core (obj, doc,
@@ -233,6 +234,7 @@ final class FolioController extends AbstractController
         $schemaTable = $this->schemaTable($ctx->em->getConnection(), $coreCode, $row->dtoType);
         $dtoClass = is_array($schemaTable) && is_string($schemaTable['dto_class'] ?? null) ? $schemaTable['dto_class'] : $this->dtoTypeResolver->classForType($row->dtoType);
         $columns = $schemaTable ? $this->schemaColumns($ctx->em->getConnection(), (string) $schemaTable['id']) : ($dtoClass ? $this->dtoColumns($dtoClass) : []);
+        $pageTableExists = $this->tableExists($ctx->em->getConnection(), 'page');
         $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
         $terms = $this->rowTerms($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
         $extras = $row->extras ?? [];
@@ -249,6 +251,7 @@ final class FolioController extends AbstractController
             'dtoClass' => $dtoClass,
             'columns' => $columns,
             'schemaTable' => $schemaTable,
+            'pageTableExists' => $pageTableExists,
             'links' => $links,
             'terms' => $terms,
             'extras' => $extras,
@@ -275,15 +278,17 @@ final class FolioController extends AbstractController
             UrlGeneratorInterface::ABSOLUTE_URL,
         );
 
-        // Pages are the canonical imagery — one canvas per page, in seq order.
         $images = [];
-        foreach ($row->pages as $page) {
-            $images[] = [
-                'url' => $page->url,
-                'width' => $page->width ?? 1000,
-                'height' => $page->height ?? 1000,
-                'format' => 'image/jpeg',
-            ];
+        if ($this->tableExists($ctx->em->getConnection(), 'page')) {
+            // Pages are the canonical imagery — one canvas per page, in seq order.
+            foreach ($row->pages as $page) {
+                $images[] = [
+                    'url' => $page->url,
+                    'width' => $page->width ?? 1000,
+                    'height' => $page->height ?? 1000,
+                    'format' => 'image/jpeg',
+                ];
+            }
         }
         if ($images === []) {
             // No pages: fall back to the row's own image.
@@ -432,7 +437,6 @@ final class FolioController extends AbstractController
         return $code !== '' ? $code : hash('xxh128', $label);
     }
 
-
     /**
      * @return list<array{direction:string, label:?string, code:string, core:string, localId:string, row:?Row}>
      */
@@ -508,6 +512,16 @@ final class FolioController extends AbstractController
             'schemaTable' => $schemaTable,
         ]);
     }
+
+    private function tableExists(Connection $conn, string $table): bool
+    {
+        try {
+            return $conn->createSchemaManager()->tablesExist([$table]);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
 
     /**
      * @param array<int,array<string,mixed>> $stats

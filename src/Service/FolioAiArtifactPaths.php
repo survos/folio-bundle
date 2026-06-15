@@ -49,7 +49,7 @@ final class FolioAiArtifactPaths
             return null;
         }
 
-        foreach ([$dataset->normalizedPath, $dataset->profilePath, $dataset->rawPath, $dataset->metaPath] as $path) {
+        foreach ([$dataset->profilePath, $dataset->rawPath, $dataset->metaPath] as $path) {
             $root = $this->rootFromRegisteredPath($path);
             if ($root !== null) {
                 return $root;

@@ -38,20 +38,40 @@
     <div class="row row-cards">
         <div class="col-lg-8">
             {# Pages — the canonical imagery of a row (a list of jpgs, or a PDF's pages). #}
-            {% set pages = row.pages %}
+            {% set pages = pageTableExists ? row.pages : [] %}
 
-            {# Multi-page document viewer (diva.js): an explicit iiifManifest field, or
-               a manifest generated from the row's pages. #}
-            {% set manifestUrl = attribute(row.dtoData, 'iiifManifest')|default(null) %}
-            {% if not manifestUrl and pages|length > 0 %}
-                {% set manifestUrl = path('survos_folio_iiif_manifest', {provider: parts[0], dataset: parts[1], coreCode: core.code, localId: row.localId}) %}
-            {% endif %}
-            {% if manifestUrl %}
-                <div class="card mb-3">
+            {# Multi-page document viewer: OpenSeadragon paging through the page images,
+               sized via imgproxy for zoom quality. We feed plain image URLs (we control
+               them), so no IIIF Image API / info.json tile server is needed.
+               (diva.js was the prior attempt — disabled until v7 ships on npm; see
+               iiif-bundle docs/diva-viewer.md and DDMAL/diva.js#555.) #}
+            {% if pages|length > 0 %}
+                {% set viewerImages = [] %}
+                {% for page in pages %}
+                    {% set pageImg = page.url %}
+                    {# Reuse the gallery's cached 'thumb' rendition for instant paging.
+                       TODO: progressively swap in a higher-res image on page select/zoom. #}
+                    {% guard filter imgproxy %}{% set pageImg = page.url|imgproxy('thumb') %}{% endguard %}
+                    {% set viewerImages = viewerImages|merge([pageImg]) %}
+                {% endfor %}
+                <div id="doc-viewer" class="card mb-3">
                     <div class="card-body p-0">
-                        <twig:iiif:viewer viewer="diva" manifestUrl="{{ manifestUrl }}" :height="600" :showLinks="true" />
+                        <twig:iiif:viewer :images="viewerImages" :height="600" :showLinks="false" />
+                    </div>
+                    {# Per-page status — listens for the viewer's iiif-viewer:page event.
+                       Placeholder until per-page OCR (Page.text) is wired in. #}
+                    <div id="doc-page-status" class="card-footer py-2 small text-muted">
+                        Page 1 of {{ viewerImages|length }} — OCR not wired yet
                     </div>
                 </div>
+                <script>
+                    document.addEventListener('iiif-viewer:page', function (e) {
+                        var el = document.getElementById('doc-page-status');
+                        if (el) {
+                            el.textContent = 'Now on page ' + (e.detail.index + 1) + ' of ' + e.detail.total + ' — no OCR';
+                        }
+                    });
+                </script>
             {% endif %}
 
             {# Image listing — every page as a thumbnail gallery. #}
@@ -59,11 +79,9 @@
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>
-                        {% if manifestUrl %}
-                            <a href="{{ manifestUrl }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
-                                <i class="ti ti-book"></i> Diva viewer
-                            </a>
-                        {% endif %}
+                        <a href="#doc-viewer" class="btn btn-sm btn-outline-primary">
+                            <i class="ti ti-book"></i> Open viewer
+                        </a>
                     </div>
                     <div class="card-body">
                         <div class="row g-2">
@@ -80,7 +98,7 @@
                             {% endfor %}
                         </div>
                         {% if pages|length > 60 %}
-                            <div class="text-muted small mt-2">Showing first 60 of {{ pages|length }} — use the viewer above for all pages.</div>
+                            <div class="text-muted small mt-2">Showing first 60 of {{ pages|length }} pages.</div>
                         {% endif %}
                     </div>
                 </div>

@@ -30,7 +30,7 @@ class Core
     #[ORM\Column(options: ['default' => 0, 'comment' => 'Number of rows in this core'])]
     public int $rowCount = 0;
 
-    #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Populated field names from normalized profile'])]
+    #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Populated field names from source SQLite sidecar'])]
     public ?array $fieldSummary = null;
 
     public function __construct(Folio $folio, string $code)

@@ -6,8 +6,8 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
-use Survos\DatasetBundle\Enum\Stage;
 use Survos\DatasetBundle\Service\DataPaths;
+use Survos\JsonlBundle\Sqlite\SidecarDb;
 use Symfony\Component\DependencyInjection\Attribute\Target;
 
 final class FolioRegistry
@@ -63,10 +63,6 @@ final class FolioRegistry
             return $enriched;
         }
 
-        if ($core === 'obj' && $dataset->normalizedPath !== null && is_file($dataset->normalizedPath)) {
-            return $dataset->normalizedPath;
-        }
-
         $normalized = $this->dataPaths->stageDir($dataset->datasetKey, 'normalized') . '/' . $core . '.jsonl';
         if (is_file($normalized)) {
             return $normalized;
@@ -76,28 +72,31 @@ final class FolioRegistry
     }
 
     /**
-     * Returns field names that have at least one non-null value in the normalized profile.
-     * @return string[]|null null if no profile found
+     * Returns field names that have at least one non-null value in the source SQLite sidecar.
+     *
+     * @return string[]|null null if no readable sidecar stats exist
      */
     public function populatedFields(DatasetInfo $dataset, string $core = 'obj'): ?array
     {
-        // Profile is a sidecar next to the normalized JSONL (norm/<core>.profile.json).
-        $profilePath = $this->dataPaths->stageDir($dataset->datasetKey, Stage::Normalize) . "/$core.profile.json";
-        if (!is_file($profilePath) && $core === 'obj' && $dataset->profilePath !== null && is_file($dataset->profilePath)) {
-            $profilePath = $dataset->profilePath;
-        }
-        if (!is_file($profilePath)) {
+        $source = $this->sourceFile($dataset, $core);
+        if ($source === null) {
             return null;
         }
+
+        $dbPath = $source . '.db';
+        if (!is_file($dbPath)) {
+            return null;
+        }
+
         try {
-            $profile     = json_decode(file_get_contents($profilePath), true, 512, JSON_THROW_ON_ERROR);
-            $recordCount = (int) ($profile['recordCount'] ?? 0);
-            $populated   = [];
-            foreach ($profile['fields'] ?? [] as $name => $stats) {
-                if ($recordCount > 0 && ((int) ($stats['nulls'] ?? $recordCount)) < $recordCount) {
+            $populated = [];
+            foreach ((new SidecarDb($dbPath))->loadFieldStats() as $stats) {
+                $name = $stats['path'] ?? null;
+                if (is_string($name) && $name !== '' && (int) ($stats['non_null'] ?? 0) > 0) {
                     $populated[] = $name;
                 }
             }
+
             return $populated ?: null;
         } catch (\Throwable) {
             return null;
