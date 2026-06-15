@@ -52,12 +52,79 @@ final class FolioService
         }
 
         $target = $this->path($folioCode, createDirectory: true);
+
+        // Close any open handle and drop a prior run's -wal/-shm/-journal BEFORE overwriting.
+        // A stale WAL left by an aborted ingest would otherwise be replayed onto the fresh
+        // bootstrap on next open and corrupt it. reset() means "start clean" — that WAL is discarded.
+        $this->invalidateConnection();
+        $this->removeSidecars($target);
+
         if (!copy($bootstrap, $target)) {
             throw new \RuntimeException(sprintf('Failed to copy bootstrap to "%s".', $target));
         }
 
-        $this->invalidateConnection();
         $this->logger?->info('Folio reset from bootstrap', ['folio' => $folioCode, 'path' => $target]);
+    }
+
+    /**
+     * Abort the active folio connection: roll back any in-flight ingest transaction and close the
+     * file cleanly so a killed build leaves no half-written WAL behind. Safe to call from a signal
+     * handler. Uncommitted work is intentionally discarded — a reset + rebuild restores it.
+     */
+    public function closeActive(): void
+    {
+        $conn = $this->folioEntityManager->getConnection();
+        if (!$conn instanceof FolioConnectionWrapper) {
+            return;
+        }
+
+        try {
+            if ($conn->isTransactionActive()) {
+                $conn->rollBack();
+            }
+        } catch (\Throwable) {
+            // best effort — we are tearing down
+        }
+        try {
+            if ($conn->isConnected()) {
+                $conn->close(); // a clean close checkpoints + removes the -wal/-shm
+            }
+        } catch (\Throwable) {
+            // best effort
+        }
+        $conn->currentPath = '';
+    }
+
+    /**
+     * Has this folio been fully built? The inflate step creates the `item_fts` table last, so its
+     * absence marks a folio whose build was aborted mid-ingest — even if the file exists and looks
+     * recent. Read with a standalone PDO handle so we never disturb the shared EM connection.
+     */
+    public function isInflated(string $path): bool
+    {
+        if (!is_file($path)) {
+            return false;
+        }
+
+        try {
+            $pdo = new \PDO('sqlite:' . $path);
+
+            return $pdo
+                ->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='item_fts' LIMIT 1")
+                ->fetchColumn() !== false;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function removeSidecars(string $target): void
+    {
+        foreach (['-wal', '-shm', '-journal'] as $suffix) {
+            $sidecar = $target . $suffix;
+            if (is_file($sidecar)) {
+                @unlink($sidecar);
+            }
+        }
     }
 
     public function switch(string $folioCode): EntityManagerInterface

@@ -6,11 +6,11 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
-use Survos\FolioBundle\Entity\{Claim,Core,Doc,Folio,Link,LinkType,Row,SchemaProperty,SchemaTable,Term,TermSet};
+use Survos\FolioBundle\Entity\{Claim,Core,Doc,Folio,Link,LinkType,Page,Row,SchemaProperty,SchemaTable,Term,TermSet};
 
 final class FolioSchemaManager
 {
-    private const array ENTITIES = [Folio::class, Core::class, Row::class, Claim::class, SchemaTable::class, SchemaProperty::class, Doc::class, TermSet::class, Term::class, LinkType::class, Link::class];
+    private const array ENTITIES = [Folio::class, Core::class, Row::class, Page::class, Claim::class, SchemaTable::class, SchemaProperty::class, Doc::class, TermSet::class, Term::class, LinkType::class, Link::class];
 
     public function update(EntityManagerInterface $em): void
     {

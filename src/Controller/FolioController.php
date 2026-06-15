@@ -11,8 +11,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\UX\Chartjs\Builder\ChartBuilderInterface;
-use Symfony\UX\Chartjs\Model\Chart;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
 #[Route('/folio')]
 #[FolioContext]
@@ -24,7 +23,6 @@ final class FolioController extends AbstractController
         private readonly FolioChatService $chat,
         private readonly FolioChatPromptSuggester $promptSuggester,
         private readonly FolioWordCloudService $wordCloud,
-        private readonly ?ChartBuilderInterface $chartBuilder = null,
     ) {}
 
 
@@ -32,32 +30,40 @@ final class FolioController extends AbstractController
     public function show(string $provider, string $dataset): Response
     {
         $ctx = $this->folios->context("$provider/$dataset");
+        $conn = $ctx->em->getConnection();
         $cores = $ctx->em->getRepository(Core::class)->findBy([], ['code' => 'ASC']);
-        $objectCore = $this->objectCore($cores);
-        $dtoChoices = $objectCore ? $this->dtoChoices($ctx->em->getConnection()->executeQuery(
-            'SELECT dto_type, COUNT(*) AS cnt FROM item WHERE core_id = ? GROUP BY dto_type ORDER BY cnt DESC',
-            [$objectCore->id],
-        )->fetchAllAssociative()) : [];
 
-        $schemaTables = $ctx->em->getConnection()->executeQuery(
+        // Every core is first-class — no single "object" core is the centre. Each card gets its own
+        // row count and DTO-type breakdown so the dashboard links straight into any core (obj, doc,
+        // image, aut/people, …) rather than privileging objects.
+        $coreSummaries = [];
+        foreach ($cores as $core) {
+            $coreSummaries[] = [
+                'core' => $core,
+                'dtoChoices' => $this->dtoChoices($conn->executeQuery(
+                    'SELECT dto_type, COUNT(*) AS cnt FROM item WHERE core_id = ? GROUP BY dto_type ORDER BY cnt DESC',
+                    [$core->id],
+                )->fetchAllAssociative()),
+            ];
+        }
+
+        $schemaTables = $conn->executeQuery(
             "SELECT name, kind, core_code, dto_type, label, row_count FROM schema_table ORDER BY kind, name"
         )->fetchAllAssociative();
-        $views = $ctx->em->getConnection()->executeQuery(
+        $views = $conn->executeQuery(
             "SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'dto_%' ORDER BY name"
         )->fetchFirstColumn();
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
 
         return $this->render('@SurvosFolioBundle/folio/show.html.twig', [
-            'ctx'              => $ctx,
-            'cores'            => $cores,
-            'objectCore'       => $objectCore,
-            'supportingCores'  => array_values(array_filter($cores, static fn (Core $core): bool => $objectCore === null || $core->id !== $objectCore->id)),
-            'dtoChoices'       => $dtoChoices,
-            'dtoBreakdownChart' => $this->dtoBreakdownChart($dtoChoices),
-            'docs'             => $ctx->em->getRepository(Doc::class)->findBy([], ['position' => 'ASC']),
-            'schemaTables'     => $schemaTables,
-            'views'            => $views,
-            'linkTypes'        => $folio?->linkTypes ?? [],
+            'ctx'           => $ctx,
+            'cores'         => $cores,
+            'coreSummaries' => $coreSummaries,
+            'totalRows'     => array_reduce($cores, static fn (int $sum, Core $core): int => $sum + $core->rowCount, 0),
+            'docs'          => $ctx->em->getRepository(Doc::class)->findBy([], ['position' => 'ASC']),
+            'schemaTables'  => $schemaTables,
+            'views'         => $views,
+            'linkTypes'     => $folio?->linkTypes ?? [],
         ]);
     }
 
@@ -230,7 +236,8 @@ final class FolioController extends AbstractController
         $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
         $terms = $this->rowTerms($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
         $extras = $row->extras ?? [];
-        unset($extras['genreSpecific'], $extras['tec'], $extras['mat'], $extras['coll']);
+        // Structural fields shown elsewhere (link/header/facets) — not display "extras".
+        unset($extras['genreSpecific'], $extras['tec'], $extras['mat'], $extras['coll'], $extras['url']);
         if ($links !== []) {
             unset($extras['creator']);
         }
@@ -248,6 +255,117 @@ final class FolioController extends AbstractController
         ]);
     }
 
+    /**
+     * IIIF Presentation v3 manifest built from the row's pages — one canvas per
+     * page, in seq order. Feeds the diva.js viewer on the doc page. Higher priority
+     * than {@see rowShow()} so `…/{localId}/manifest.json` isn't swallowed by the
+     * generic `…/{dtoType}/{localId}` row route.
+     */
+    #[Route('/{provider}/{dataset}/{coreCode}/{localId}/manifest.json', name: 'survos_folio_iiif_manifest', priority: 10)]
+    public function iiifManifest(string $provider, string $dataset, string $coreCode, string $localId): Response
+    {
+        $folioCode = "$provider/$dataset";
+        $ctx = $this->folios->context($folioCode);
+        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode)) ?? throw $this->createNotFoundException($coreCode);
+        $row = $ctx->em->find(Row::class, Row::id($core->id, $localId)) ?? throw $this->createNotFoundException($localId);
+
+        $manifestUrl = $this->generateUrl(
+            'survos_folio_iiif_manifest',
+            compact('provider', 'dataset', 'coreCode', 'localId'),
+            UrlGeneratorInterface::ABSOLUTE_URL,
+        );
+
+        // Pages are the canonical imagery — one canvas per page, in seq order.
+        $images = [];
+        foreach ($row->pages as $page) {
+            $images[] = [
+                'url' => $page->url,
+                'width' => $page->width ?? 1000,
+                'height' => $page->height ?? 1000,
+                'format' => 'image/jpeg',
+            ];
+        }
+        if ($images === []) {
+            // No pages: fall back to the row's own image.
+            $data = $row->dtoData ?? [];
+            $url = $data['largeImageUrl'] ?? $data['thumbnailUrl'] ?? null;
+            if (is_string($url) && $url !== '') {
+                $images = [['url' => $url, 'width' => (int) ($data['width'] ?? 1000), 'height' => (int) ($data['height'] ?? 1000), 'format' => 'image/jpeg']];
+            }
+        }
+
+        $canvases = [];
+        $seq = 0;
+        foreach ($images as $img) {
+            ++$seq;
+            $canvasId = $manifestUrl.'/canvas/'.$seq;
+            $canvases[] = [
+                'id' => $canvasId,
+                'type' => 'Canvas',
+                'label' => ['none' => ['p. '.$seq]],
+                'height' => $img['height'],
+                'width' => $img['width'],
+                'items' => [[
+                    'id' => $canvasId.'/page',
+                    'type' => 'AnnotationPage',
+                    'items' => [[
+                        'id' => $canvasId.'/annotation',
+                        'type' => 'Annotation',
+                        'motivation' => 'painting',
+                        'target' => $canvasId,
+                        'body' => [
+                            'id' => $img['url'],
+                            'type' => 'Image',
+                            'format' => $img['format'],
+                            'height' => $img['height'],
+                            'width' => $img['width'],
+                        ],
+                    ]],
+                ]],
+            ];
+        }
+
+        return $this->json([
+            '@context' => 'http://iiif.io/api/presentation/3/context.json',
+            'id' => $manifestUrl,
+            'type' => 'Manifest',
+            'label' => ['none' => [$row->label ?: $localId]],
+            'items' => $canvases,
+        ]);
+    }
+
+    /**
+     * Image-core rows linked to a doc, in sequence order, with a paint URL.
+     *
+     * @return list<array{url:string,width:int,height:int,format:string,localId:string,sequence:int}>
+     */
+    private function linkedImageRows(\Doctrine\ORM\EntityManagerInterface $em, string $folioCode, string $coreCode, string $localId): array
+    {
+        $rows = [];
+        foreach ($this->rowLinks($em, $folioCode, $coreCode, $localId) as $link) {
+            $target = $link['row'];
+            if ($link['core'] !== 'image' || !$target instanceof Row) {
+                continue;
+            }
+            $data = $target->dtoData ?? [];
+            $url = $data['largeImageUrl'] ?? $data['url'] ?? $data['thumbnailUrl'] ?? null;
+            if (!is_string($url) || $url === '') {
+                continue;
+            }
+            $isPdf = stripos((string) ($data['objectType'] ?? ''), 'pdf') !== false;
+            $rows[] = [
+                'url' => $url,
+                'width' => (int) ($data['width'] ?? 1000),
+                'height' => (int) ($data['height'] ?? 1000),
+                'format' => $isPdf ? 'application/pdf' : 'image/jpeg',
+                'localId' => (string) $link['localId'],
+                'sequence' => (int) ($data['sequence'] ?? 0),
+            ];
+        }
+        usort($rows, static fn (array $a, array $b): int => $a['sequence'] <=> $b['sequence']);
+
+        return $rows;
+    }
 
     /**
      * @param array<string,mixed> $dtoData
@@ -392,20 +510,6 @@ final class FolioController extends AbstractController
     }
 
     /**
-     * @param Core[] $cores
-     */
-    private function objectCore(array $cores): ?Core
-    {
-        foreach ($cores as $core) {
-            if ($core->code === 'obj') {
-                return $core;
-            }
-        }
-
-        return $cores[0] ?? null;
-    }
-
-    /**
      * @param array<int,array<string,mixed>> $stats
      * @return list<array{type: string|null, label: string, count: int}>
      */
@@ -423,41 +527,6 @@ final class FolioController extends AbstractController
 
         return $choices;
     }
-
-    /**
-     * @param list<array{type: string|null, label: string, count: int}> $dtoChoices
-     */
-    private function dtoBreakdownChart(array $dtoChoices): ?Chart
-    {
-        if ($this->chartBuilder === null || $dtoChoices === []) {
-            return null;
-        }
-
-        $chart = $this->chartBuilder->createChart(count($dtoChoices) <= 6 ? Chart::TYPE_DOUGHNUT : Chart::TYPE_BAR);
-        $chart->setData([
-            'labels' => array_map(static fn (array $choice): string => $choice['label'], $dtoChoices),
-            'datasets' => [[
-                'label' => 'Rows',
-                'backgroundColor' => array_slice([
-                    '#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2',
-                    '#4b5563', '#be123c', '#65a30d', '#9333ea', '#0f766e', '#ea580c',
-                ], 0, count($dtoChoices)),
-                'data' => array_map(static fn (array $choice): int => $choice['count'], $dtoChoices),
-            ]],
-        ]);
-        $chart->setOptions([
-            'maintainAspectRatio' => false,
-            'plugins' => [
-                'legend' => ['position' => 'bottom'],
-            ],
-            'scales' => count($dtoChoices) > 6 ? [
-                'y' => ['beginAtZero' => true],
-            ] : [],
-        ]);
-
-        return $chart;
-    }
-
 
     private function schemaTable(\Doctrine\DBAL\Connection $connection, string $coreCode, ?string $dtoType): ?array
     {

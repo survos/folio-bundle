@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DatasetBundle\Service\DataPaths;
-use Survos\FolioBundle\Entity\{Core,Folio,Link,LinkType,Row,Term,TermSet};
+use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Term,TermSet};
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\JsonlBundle\IO\JsonlReader;
 use Survos\JsonlBundle\Service\JsonlCountService;
@@ -24,6 +25,24 @@ use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
  */
 final class FolioIngestService
 {
+    /**
+     * Commit and reopen the ingest transaction after this many rows. SQLite cannot checkpoint the
+     * WAL while a write transaction is open, so a single transaction spanning the whole ingest lets
+     * the -wal file (and page cache) grow without bound on large collections. reset() rebuilds the
+     * folio from bootstrap on every run, so a partial commit is safe — a failed build is simply reset
+     * and re-ingested.
+     */
+    private const CHECKPOINT_ROWS = 50_000;
+
+    /**
+     * Physical `item`/`link` columns in bind order for the raw bulk-insert path. These mirror the
+     * Row/Link entity mappings (snake_case via the underscore naming strategy). The ORM is bypassed
+     * here on purpose — see {@see FolioBulkInserter} — so if the entity mapping changes, update these.
+     */
+    private const ITEM_COLUMNS = ['id', 'core_id', 'local_id', 'label', 'dto_type', 'dto_data', 'extras', 'raw'];
+    private const LINK_COLUMNS = ['id', 'link_type_id', 'left_core', 'left_id', 'right_core', 'right_id', 'extras'];
+    private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'url', 'media_id', 'text', 'dense_summary', 'ledger', 'layout', 'width', 'height'];
+
     public function __construct(
         private readonly FolioService $folios,
         private readonly FolioRegistry $registry,
@@ -53,7 +72,7 @@ final class FolioIngestService
     }
 
     /**
-     * @return array{rows:int,terms:int,links:int,cores:array<string,array{count:int,file:string}>}
+     * @return array{rows:int,skipped:int,terms:int,links:int,cores:array<string,array{count:int,file:string}>}
      */
     public function ingestDataset(
         DatasetInfo $dataset,
@@ -87,6 +106,12 @@ final class FolioIngestService
         $folio->datasetKey = $dataset->datasetKey;
         $ctx->em->flush();
 
+        // #2: drop non-unique secondary indexes for the duration of the load. Maintaining them per-row
+        // across millions of inserts is a large slice of ingest cost; we rebuild each in a single
+        // sorted pass once the data is in (far cheaper). Self-contained: the same DDL is replayed
+        // before we return, so every caller (folio:build, folio:ingest) ends with the full index set.
+        $deferredIndexes = $this->deferSecondaryIndexes($conn);
+
         // Seed the bar from sidecar row counts (no full scan) when an $io is supplied. It spans every
         // row-bearing phase — cores, terms, links — so one bar covers the whole ingest. (claims and
         // translations will join this list; the per-phase ingest calls below all advance the same bar.)
@@ -96,10 +121,16 @@ final class FolioIngestService
 
         $coreResults = [];
         $totalCount = 0;
+        $sinceCommit = 0;
+        // Hot path: write rows straight to the `item` table via FolioBulkInserter — no ORM identity
+        // map, no per-row hydration, flat memory. One inserter is reused across every core (same
+        // table, varying core_id). Low-volume metadata (folio, core) stays on the ORM by design.
+        $items = new FolioBulkInserter($conn, 'item', self::ITEM_COLUMNS);
         foreach ($sources as $core => $file) {
             $coreEntity = new Core($folio, $core);
             $ctx->em->persist($coreEntity);
             $ctx->em->flush();
+            $coreId = $coreEntity->id;
 
             $count = 0;
             foreach (JsonlReader::open($file) as $data) {
@@ -108,28 +139,36 @@ final class FolioIngestService
                     throw new \RuntimeException(sprintf('Missing id near row %d in %s.', $count + 1, $file));
                 }
 
-                $row = new Row($coreEntity, $localId);
-                $row->label = isset($data[$labelField])
+                $label = isset($data[$labelField])
                     ? (string) $data[$labelField]
                     : (isset($data['title']) ? (string) $data['title'] : $localId);
-                $row->dtoType = $this->dtoTypeResolver->typeFromPayload($data);
+                $dtoType = $this->dtoTypeResolver->typeFromPayload($data);
                 try {
-                    [$row->dtoData, $row->extras] = $this->splitDtoData($row->dtoType, $data);
+                    [$dtoData, $extras] = $this->splitDtoData($dtoType, $data);
                 } catch (\TypeError) {
-                    $row->dtoData = $data;
+                    $dtoData = $data;
+                    $extras = null;
                 }
-                $ctx->em->persist($row);
+
+                // Order must match self::ITEM_COLUMNS. raw is not populated during ingest.
+                $items->add([
+                    Row::id($coreId, $localId),
+                    $coreId,
+                    $localId,
+                    $label,
+                    $dtoType,
+                    $this->encodeJson($dtoData),
+                    $this->encodeJson($extras),
+                    null,
+                ]);
 
                 if (++$count % $batch === 0) {
-                    $ctx->em->flush();
-                    $ctx->em->clear();
-                    // Re-attach after clear — fresh DB so find() is fast.
-                    $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
-                    $coreEntity = $ctx->em->find(Core::class, $coreEntity->id);
+                    $sinceCommit = $this->maybeCheckpoint($conn, $sinceCommit + $batch, $items);
                     $this->advanceIngestProgress($io, $batch);
                 }
             }
 
+            $items->flush();
             $totalCount += $count;
             $coreEntity->rowCount = $count;
             $coreEntity->fieldSummary = $this->registry->populatedFields($dataset, $core);
@@ -151,9 +190,13 @@ final class FolioIngestService
         }
 
         $termCount = $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $batch, $io);
-        $linkCount = $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $io);
+        $linkResult = $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $sinceCommit, $io);
+        $pageResult = $this->ingestPages($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
 
         $this->finishIngestProgress($io);
+
+        // #2: rebuild the deferred indexes now that every row is loaded (one bulk pass each).
+        $this->rebuildIndexes($conn, $deferredIndexes, $io);
 
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
         $folio->rowCount = $totalCount;
@@ -162,7 +205,125 @@ final class FolioIngestService
         $conn->commit();
         $conn->executeStatement('PRAGMA synchronous = NORMAL');
 
-        return ['rows' => $totalCount, 'terms' => $termCount, 'links' => $linkCount, 'cores' => $coreResults];
+        return [
+            'rows' => $totalCount,
+            'skipped' => $items->skipped() + $linkResult['skipped'],
+            'terms' => $termCount,
+            'links' => $linkResult['count'],
+            'pages' => $pageResult['count'],
+            'cores' => $coreResults,
+        ];
+    }
+
+    /**
+     * Ingest page.jsonl → the `page` table. Each entry references its parent row by
+     * {coreCode, localId}; per-page AI fields (text/denseSummary/ledger/layout) are
+     * folded in by the enriched build and carried straight through here.
+     *
+     * @return array{count:int}
+     */
+    private function ingestPages(EntityManagerInterface $em, string $datasetKey, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
+    {
+        $pageFile = $this->dataPaths->stageDir($datasetKey, 'normalize') . '/page.jsonl';
+        if (!is_file($pageFile)) {
+            return ['count' => 0];
+        }
+
+        $conn = $em->getConnection();
+        $pages = new FolioBulkInserter($conn, 'page', self::PAGE_COLUMNS);
+        $count = 0;
+
+        foreach (JsonlReader::open($pageFile) as $data) {
+            $coreCode = $this->requiredString($data, 'coreCode', $pageFile);
+            $localId  = $this->requiredString($data, 'localId', $pageFile);
+            $url      = $this->requiredString($data, 'url', $pageFile);
+            $seq      = (int) ($data['seq'] ?? ($count + 1));
+            $rowId    = Row::id($datasetKey . ':' . $coreCode, $localId);
+
+            // Order must match self::PAGE_COLUMNS.
+            $pages->add([
+                Page::id($rowId, $seq),
+                $rowId,
+                $seq,
+                (int) ($data['pageIndex'] ?? 0),
+                $url,
+                is_scalar($data['mediaId'] ?? null) ? (string) $data['mediaId'] : null,
+                is_scalar($data['text'] ?? null) ? (string) $data['text'] : null,
+                is_scalar($data['denseSummary'] ?? null) ? (string) $data['denseSummary'] : null,
+                $this->encodeJson(is_array($data['ledger'] ?? null) ? $data['ledger'] : null),
+                $this->encodeJson(is_array($data['layout'] ?? null) ? $data['layout'] : null),
+                isset($data['width']) ? (int) $data['width'] : null,
+                isset($data['height']) ? (int) $data['height'] : null,
+            ]);
+
+            if (++$count % $batch === 0) {
+                $sinceCommit = $this->maybeCheckpoint($conn, $sinceCommit + $batch, $pages);
+                $this->advanceIngestProgress($io, $batch);
+            }
+        }
+        $pages->flush();
+
+        return ['count' => $count];
+    }
+
+    /**
+     * Bound WAL growth during a long ingest: once $sinceCommit crosses the threshold, commit and
+     * reopen the transaction so SQLite can checkpoint the -wal file (it cannot while a write
+     * transaction is open). Any pending bulk-insert buffer is flushed first so it lands in the
+     * committed transaction. Returns the running counter (reset to 0 when a commit happens).
+     */
+    private function maybeCheckpoint(Connection $conn, int $sinceCommit, ?FolioBulkInserter $inserter = null): int
+    {
+        if ($sinceCommit < self::CHECKPOINT_ROWS) {
+            return $sinceCommit;
+        }
+
+        $inserter?->flush();
+        $conn->commit();
+        $conn->beginTransaction();
+
+        return 0;
+    }
+
+    /** Encode a JSON column value the way the read path expects: null stays null, arrays become text. */
+    private function encodeJson(?array $value): ?string
+    {
+        return $value === null ? null : json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * Drop every non-unique secondary index, returning its CREATE DDL for later replay. PK and UNIQUE
+     * indexes are kept — they enforce constraints, and the bulk upsert's ON CONFLICT(id) depends on
+     * the primary key. Auto-indexes (sql IS NULL) are skipped; only user/ORM-declared indexes match.
+     *
+     * @return list<string>
+     */
+    private function deferSecondaryIndexes(Connection $conn): array
+    {
+        $indexes = $conn->fetchAllAssociative(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL AND UPPER(sql) NOT LIKE '%UNIQUE%'"
+        );
+
+        $ddl = [];
+        foreach ($indexes as $index) {
+            $ddl[] = (string) $index['sql'];
+            $conn->executeStatement(sprintf('DROP INDEX %s', $index['name']));
+        }
+
+        return $ddl;
+    }
+
+    /** @param list<string> $ddl CREATE INDEX statements captured by {@see deferSecondaryIndexes()} */
+    private function rebuildIndexes(Connection $conn, array $ddl, ?SymfonyStyle $io): void
+    {
+        if ($ddl === []) {
+            return;
+        }
+
+        $io?->writeln(sprintf('  rebuilding %d deferred index(es)…', count($ddl)));
+        foreach ($ddl as $sql) {
+            $conn->executeStatement($sql);
+        }
     }
 
     /**
@@ -237,8 +398,9 @@ final class FolioIngestService
         $em->flush();
 
         $pendingParents = [];
-        $terms = [];
         $count = 0;
+        $sinceCommit = 0;
+        $conn = $em->getConnection();
         foreach (JsonlReader::open($termFile) as $data) {
             $setCode = $this->requiredString($data, 'termSet', $termFile);
             $set = $sets[$setCode] ?? null;
@@ -274,10 +436,16 @@ final class FolioIngestService
             }
 
             $em->persist($term);
-            $terms[$term->id] = $term;
 
             if (++$count % $batch === 0) {
                 $em->flush();
+                // Don't retain every Term in the UnitOfWork; parents are resolved by find() below.
+                $em->clear();
+                // Re-attach the small term-set list so new Terms keep a managed parent after clear.
+                foreach ($sets as $setCode => $set) {
+                    $sets[$setCode] = $em->find(TermSet::class, $set->id);
+                }
+                $sinceCommit = $this->maybeCheckpoint($conn, $sinceCommit + $batch);
                 $this->advanceIngestProgress($io, $batch);
             }
         }
@@ -285,8 +453,8 @@ final class FolioIngestService
         $this->advanceIngestProgress($io, $count % $batch);
 
         foreach ($pendingParents as $termId => $parentId) {
-            $term = $terms[$termId] ?? $em->find(Term::class, $termId);
-            $parent = $terms[$parentId] ?? $em->find(Term::class, $parentId);
+            $term = $em->find(Term::class, $termId);
+            $parent = $em->find(Term::class, $parentId);
             if ($term instanceof Term && $parent instanceof Term) {
                 $term->parent = $parent;
             }
@@ -296,14 +464,17 @@ final class FolioIngestService
         return $count;
     }
 
-    private function ingestLinks(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch, ?SymfonyStyle $io = null): int
+    /**
+     * @return array{count:int,skipped:int}
+     */
+    private function ingestLinks(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
     {
         $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
         $linkTypeFile = $normalizeDir . '/linkType.jsonl';
         $linkFile = $normalizeDir . '/link.jsonl';
 
         if (!is_file($linkTypeFile) || !is_file($linkFile)) {
-            return 0;
+            return ['count' => 0, 'skipped' => 0];
         }
 
         $types = [];
@@ -321,6 +492,10 @@ final class FolioIngestService
         }
         $em->flush();
 
+        // Same raw-insert hot path as rows: link tables routinely dwarf the row count, so this is
+        // where the ORM hurt most. Link types (above) stay on the ORM — a handful of rows.
+        $conn = $em->getConnection();
+        $links = new FolioBulkInserter($conn, 'link', self::LINK_COLUMNS);
         $count = 0;
         foreach (JsonlReader::open($linkFile) as $data) {
             $predicate = $this->requiredString($data, 'predicate', $linkFile);
@@ -343,29 +518,36 @@ final class FolioIngestService
                 ));
             }
 
-            $link = new Link(
-                $type,
-                $this->requiredString($data, 'subjectId', $linkFile),
-                $this->requiredString($data, 'objectId', $linkFile),
-            );
-            $link->extras = array_diff_key($data, array_flip([
+            $subjectId = $this->requiredString($data, 'subjectId', $linkFile);
+            $objectId = $this->requiredString($data, 'objectId', $linkFile);
+            $extras = array_diff_key($data, array_flip([
                 'subjectCore',
                 'subjectId',
                 'predicate',
                 'objectCore',
                 'objectId',
             ]));
-            $em->persist($link);
+
+            // Order must match self::LINK_COLUMNS. Id mirrors the Link entity's xxh128 hash.
+            $links->add([
+                hash('xxh128', implode('|', [$type->id, $subjectId, $objectId])),
+                $type->id,
+                $type->leftCore,
+                $subjectId,
+                $type->rightCore,
+                $objectId,
+                $this->encodeJson($extras),
+            ]);
 
             if (++$count % $batch === 0) {
-                $em->flush();
+                $sinceCommit = $this->maybeCheckpoint($conn, $sinceCommit + $batch, $links);
                 $this->advanceIngestProgress($io, $batch);
             }
         }
-        $em->flush();
+        $links->flush();
         $this->advanceIngestProgress($io, $count % $batch);
 
-        return $count;
+        return ['count' => $count, 'skipped' => $links->skipped()];
     }
 
     /** @param array<string,mixed> $data */

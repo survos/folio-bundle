@@ -12,7 +12,7 @@ use Symfony\Component\DependencyInjection\Attribute\Target;
 
 final class FolioRegistry
 {
-    private const NON_ROW_JSONL = ['termSet', 'term', 'linkType', 'link', 'claim', 'claims'];
+    private const NON_ROW_JSONL = ['termSet', 'term', 'linkType', 'link', 'claim', 'claims', 'page'];
 
     public function __construct(
         private readonly DataPaths $dataPaths,

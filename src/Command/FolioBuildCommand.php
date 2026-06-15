@@ -10,6 +10,7 @@ use Survos\FolioBundle\Service\{FolioArchivePreparer,FolioArchiveService,FolioIn
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Command\SignalableCommandInterface;
 use Symfony\Component\Console\Helper\Helper;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
@@ -38,7 +39,7 @@ use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
           folio:build --all --dry-run             show what would be (re)built
         END,
 )]
-final class FolioBuildCommand
+final class FolioBuildCommand implements SignalableCommandInterface
 {
     public function __construct(
         private readonly FolioIngestService $ingest,
@@ -160,6 +161,9 @@ final class FolioBuildCommand
             // Pass $io so the service renders a progress bar seeded from sidecar row counts.
             $result = $this->ingest->ingestDataset($info, $coreFilter, $idField, $labelField, $batch, dispatchFinished: false, io: $io);
             $io->writeln(sprintf('  rows     %s', number_format($result['rows'])));
+            if (($result['skipped'] ?? 0) > 0) {
+                $io->writeln(sprintf('  <comment>skipped  %s duplicate-id row(s) (first occurrence kept)</comment>', number_format($result['skipped'])));
+            }
             if ($io->isVerbose()) {
                 foreach ($result['cores'] as $coreCode => $coreInfo) {
                     $io->writeln(sprintf('  · core %s: %s rows', $coreCode, number_format($coreInfo['count'])));
@@ -333,6 +337,12 @@ final class FolioBuildCommand
             }
         }
 
+        // A working folio that exists and looks recent but was never inflated (build killed
+        // mid-ingest) is not actually done — rebuild it rather than skipping it as "fresh".
+        if ($workingPath !== null && !$this->folios->isInflated($workingPath)) {
+            return false;
+        }
+
         return true;
     }
 
@@ -371,5 +381,22 @@ final class FolioBuildCommand
         }
 
         return round($bytes / 1024, 1) . ' KB';
+    }
+
+    // --- SignalableCommandInterface -------------------------------------------------------------
+    // On Ctrl-C / kill, roll back the in-flight ingest transaction and close the SQLite file so we
+    // never leave a giant orphaned -wal or a half-written folio. The aborted folio's mtime may look
+    // current, but isInflated() will see it has no FTS and rebuild it on the next run.
+
+    public function getSubscribedSignals(): array
+    {
+        return \defined('SIGINT') && \defined('SIGTERM') ? [\SIGINT, \SIGTERM] : [];
+    }
+
+    public function handleSignal(int $signal, false|int $previousExitCode = 0): int|false
+    {
+        $this->folios->closeActive();
+
+        return \defined('SIGINT') && $signal === \SIGINT ? 130 : 143;
     }
 }

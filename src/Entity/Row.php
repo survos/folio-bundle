@@ -96,6 +96,11 @@ class Row
     #[ORM\OneToMany(targetEntity: Claim::class, mappedBy: 'item')]
     public Collection $claims;
 
+    /** @var Collection<int, Page> Ordered viewable pages — the canonical imagery for this row. */
+    #[ORM\OneToMany(targetEntity: Page::class, mappedBy: 'row')]
+    #[ORM\OrderBy(['seq' => 'ASC'])]
+    public Collection $pages;
+
     private ?string $resolvedThumbnailUrl = null;
 
     public function __construct(Core $core, string $localId)
@@ -104,6 +109,7 @@ class Row
         $this->localId = $localId;
         $this->id      = self::id($core->id, $localId);
         $this->claims  = new ArrayCollection();
+        $this->pages   = new ArrayCollection();
     }
 
     public static function id(string $coreId, string $localId): string { return "$coreId:$localId"; }

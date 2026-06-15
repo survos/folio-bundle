@@ -37,12 +37,63 @@
 
     <div class="row row-cards">
         <div class="col-lg-8">
+            {# Pages — the canonical imagery of a row (a list of jpgs, or a PDF's pages). #}
+            {% set pages = row.pages %}
+
+            {# Multi-page document viewer (diva.js): an explicit iiifManifest field, or
+               a manifest generated from the row's pages. #}
+            {% set manifestUrl = attribute(row.dtoData, 'iiifManifest')|default(null) %}
+            {% if not manifestUrl and pages|length > 0 %}
+                {% set manifestUrl = path('survos_folio_iiif_manifest', {provider: parts[0], dataset: parts[1], coreCode: core.code, localId: row.localId}) %}
+            {% endif %}
+            {% if manifestUrl %}
+                <div class="card mb-3">
+                    <div class="card-body p-0">
+                        <twig:iiif:viewer viewer="diva" manifestUrl="{{ manifestUrl }}" :height="600" :showLinks="true" />
+                    </div>
+                </div>
+            {% endif %}
+
+            {# Image listing — every page as a thumbnail gallery. #}
+            {% if pages|length > 0 %}
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>
+                        {% if manifestUrl %}
+                            <a href="{{ manifestUrl }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                                <i class="ti ti-book"></i> Diva viewer
+                            </a>
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2">
+                            {% for page in pages|slice(0, 60) %}
+                                {% set src = page.url %}
+                                {% set thumb = src %}
+                                {% guard filter imgproxy %}{% set thumb = src|imgproxy('thumb') %}{% endguard %}
+                                <div class="col-4 col-md-3 col-lg-2">
+                                    <a href="{{ src }}" target="_blank" rel="noopener" title="p. {{ page.seq }}">
+                                        <img src="{{ thumb }}" alt="p. {{ page.seq }}" class="img-fluid rounded border"
+                                             style="aspect-ratio: 1; object-fit: cover" loading="lazy">
+                                    </a>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        {% if pages|length > 60 %}
+                            <div class="text-muted small mt-2">Showing first 60 of {{ pages|length }} — use the viewer above for all pages.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title mb-0">DTO Data</h2>
                 </div>
                 {# Source image URLs are noise once the folio serves its own imgproxy/IIIF renditions. #}
                 {% set imageFields = ['thumbnailUrl', 'largeImageUrl', 'iiifBase', 'iiifManifest', 'iiifInfo', 'imageCount', 'hasImages', 'sourceUrl'] %}
+                {# Long-form fields rendered in their own panels, not the field table. #}
+                {% set longFields = ['ocrText'] %}
                 <div class="table-responsive">
                     <table class="table table-vcenter card-table">
                         <tbody>
@@ -92,6 +143,23 @@
                     </details>
                 {% endif %}
             </div>
+
+            {# Transcription is folded in from claims.jsonl as the ocrText field (no DB claim table). #}
+            {% set ocrText = attribute(row.dtoData, 'ocrText')|default(null) %}
+            {% set pageCount = attribute(row.dtoData, 'pageCount')|default(null) %}
+            {% if ocrText %}
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h2 class="card-title mb-0">Transcription</h2>
+                        {% if pageCount %}
+                            <span class="text-muted small">{{ pageCount }} pages</span>
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">{{ ocrText }}</div>
+                    </div>
+                </div>
+            {% endif %}
         </div>
         <div class="col-lg-4">
             {% if th %}
@@ -166,13 +234,15 @@
                 </div>
             {% endif %}
 
-            {% if links %}
+            {# Image links are shown in the gallery above, so list only other relations here. #}
+            {% set otherLinks = links|filter(l => l.core != 'image') %}
+            {% if otherLinks %}
                 <div class="card mb-3">
                     <div class="card-header">
                         <h2 class="card-title mb-0">Relations</h2>
                     </div>
                     <div class="list-group list-group-flush">
-                        {% for link in links %}
+                        {% for link in otherLinks %}
                             {% set target = link.row %}
                             <div class="list-group-item">
                                 <div class="text-muted small font-monospace">{{ link.code }}</div>
