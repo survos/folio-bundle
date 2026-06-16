@@ -9,6 +9,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DatasetBundle\Service\DataPaths;
 use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Term,TermSet};
+use Survos\FolioBundle\Dto\PageRow;
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\JsonlBundle\IO\JsonlReader;
 use Survos\JsonlBundle\Service\JsonlCountService;
@@ -224,7 +225,7 @@ final class FolioIngestService
      */
     private function ingestPages(EntityManagerInterface $em, string $datasetKey, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
     {
-        $pageFile = $this->dataPaths->stageDir($datasetKey, 'normalize') . '/page.jsonl';
+        $pageFile = $this->dataPaths->stageDir($datasetKey, 'normalize') . '/' . PageRow::FILENAME;
         if (!is_file($pageFile)) {
             return ['count' => 0];
         }
