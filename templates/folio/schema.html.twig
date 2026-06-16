@@ -1,42 +1,49 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+
+{% set folioLabel = 'Folio ' ~ ctx.folioCode %}
+
 {% block stylesheets %}
     {{ parent() }}
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 {% endblock %}
+
+{% block body_class %}folio-layout{% endblock %}
+
+{% block page_pretitle %}Folio Schema{% endblock %}
+
+{% block page_title %}
+    {{ folioLabel }}
+{% endblock %}
+
+{% block page_subtitle %}
+    <span class="font-monospace">{{ ctx.folioCode }}</span>
+    <span class="mx-1 text-muted">&middot;</span>
+    {{ tables|length }} tables
+    <span class="mx-1 text-muted">&middot;</span>
+    {{ views|length }} views
+{% endblock %}
+
+{% block title %}Schema: {{ ctx.folioCode }}{% endblock %}
+
 {% block body %}
-{% set parts = ctx.folioCode|split('/') %}
-
-<div class="container-xl py-4">
-    <div class="page-header mb-4">
-        <div class="row align-items-center">
-            <div class="col">
-                <h1 class="page-title">Schema: {{ ctx.folioCode }}</h1>
-                <div class="text-muted">{{ tables|length }} tables · {{ views|length }} views</div>
-            </div>
-            <div class="col-auto">
-                {% if ctx is not null and parts|length > 1 and parts[0] != '_bootstrap' %}
-                    <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="btn btn-outline-secondary">
-                        Back to Folio
-                    </a>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
     <div class="row">
         <div class="col-3">
             <div class="nav flex-column nav-pills" role="tablist" aria-orientation="vertical">
                 <a class="nav-link active" data-bs-toggle="pill" href="#tab-diagram" role="tab">
                     Diagram
                 </a>
+
                 <hr class="my-2">
+
                 {% for table in tables %}
                     <a class="nav-link font-monospace" data-bs-toggle="pill" href="#table-{{ table.name }}" role="tab">
                         {{ table.name }}
                     </a>
                 {% endfor %}
+
                 {% if views %}
                     <hr class="my-2">
+
                     {% for view in views %}
                         <a class="nav-link font-monospace text-muted" data-bs-toggle="pill" href="#view-{{ view.name }}" role="tab">
                             {{ view.name }}
@@ -45,6 +52,7 @@
                 {% endif %}
             </div>
         </div>
+
         <div class="col-9">
             <div class="tab-content">
                 <div class="tab-pane fade show active" id="tab-diagram" role="tabpanel">
@@ -52,6 +60,7 @@
                         <div class="card-header">
                             <h2 class="card-title mb-0">Entity-Linkship Diagram</h2>
                         </div>
+
                         <div class="card-body text-center">
                             {{ source('@SurvosFolioBundle/folio/_er-diagram.svg')|raw }}
                         </div>
@@ -62,8 +71,11 @@
                     <div class="tab-pane fade" id="table-{{ table.name }}" role="tabpanel">
                         <div class="card">
                             <div class="card-header">
-                                <h2 class="card-title mb-0 font-monospace">{{ table.name }}</h2>
+                                <h2 class="card-title mb-0 font-monospace">
+                                    {{ table.name }}
+                                </h2>
                             </div>
+
                             <div class="card-body">
                                 {% if ddl[table.name] is defined %}
                                     <pre class="rounded"><code class="language-sql">{{ ddl[table.name] }};</code></pre>
@@ -71,9 +83,14 @@
 
                                 {% if table.indexes %}
                                     <h3 class="h6 mt-3">Indexes</h3>
+
                                     <table class="table table-sm table-vcenter">
                                         <thead>
-                                            <tr><th>Name</th><th>Columns</th><th>Unique</th></tr>
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Columns</th>
+                                                <th>Unique</th>
+                                            </tr>
                                         </thead>
                                         <tbody>
                                             {% for idx in table.indexes %}
@@ -95,8 +112,11 @@
                     <div class="tab-pane fade" id="view-{{ view.name }}" role="tabpanel">
                         <div class="card">
                             <div class="card-header">
-                                <h2 class="card-title mb-0 font-monospace">{{ view.name }}</h2>
+                                <h2 class="card-title mb-0 font-monospace">
+                                    {{ view.name }}
+                                </h2>
                             </div>
+
                             <div class="card-body">
                                 <pre class="rounded"><code class="language-sql">{{ view.sql }};</code></pre>
                             </div>
@@ -106,8 +126,7 @@
             </div>
         </div>
     </div>
-</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script>hljs.highlightAll();</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
 {% endblock %}

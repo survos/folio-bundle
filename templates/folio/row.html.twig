@@ -1,4 +1,5 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+
 {% import _self as folio_row %}
 
 {% macro render_value(value) %}
@@ -11,59 +12,76 @@
     {% endif %}
 {% endmacro %}
 
-{% block body %}
 {% set parts = ctx.folioCode|split('/') %}
+{% set provider = parts[0] %}
+{% set dataset = parts[1] %}
 {% set th = row.thumbnailSource %}
 {% set termFields = terms ? ['genreSpecific', 'tec', 'mat', 'coll'] : [] %}
 
-<div class="container-xl py-3">
-    <div class="page-header mb-3">
-        <div class="row align-items-center">
-            <div class="col">
-                <h1 class="page-title">
-                    <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="text-muted">{{ ctx.folioCode }}</a>
-                    <span class="text-muted mx-1">/</span>
-                    <a href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}" class="text-muted">{{ core.code }}</a>
-                    {% if row.dtoType %}
-                        <span class="text-muted mx-1">/</span>
-                        <a href="{{ path('survos_folio_core_dto', {provider: parts[0], dataset: parts[1], coreCode: core.code, dtoType: row.dtoType}) }}" class="text-muted">{{ row.dtoType }}</a>
-                    {% endif %}
-                    <span class="text-muted mx-1">/</span>{{ row.localId }}
-                </h1>
-                <div class="text-muted">{{ row.label ?: row.localId }}</div>
-            </div>
-        </div>
-    </div>
+{% block body_class %}folio-layout{% endblock %}
 
+{% block page_pretitle %}Folio Row{% endblock %}
+
+{% block page_title %}
+    {{ row.label ?: row.localId }}
+{% endblock %}
+
+{% block page_subtitle %}
+    <span class="font-monospace">{{ ctx.folioCode }}</span>
+    <span class="mx-1 text-muted">&middot;</span>
+    <span class="font-monospace">{{ core.code }}</span>
+
+    {% if row.dtoType %}
+        <span class="mx-1 text-muted">&middot;</span>
+        {{ row.dtoType }}
+    {% endif %}
+
+    <span class="mx-1 text-muted">&middot;</span>
+    <span class="font-monospace">{{ row.localId }}</span>
+{% endblock %}
+
+{% block title %}
+    {{ row.label ?: row.localId }} · {{ ctx.folioCode }}
+{% endblock %}
+
+{% block body %}
     <div class="row row-cards">
         <div class="col-lg-8">
             {# Pages — the canonical imagery of a row (a list of jpgs, or a PDF's pages). #}
             {% set pages = pageTableExists ? row.pages : [] %}
 
-            {# Multi-page document viewer: OpenSeadragon paging through the page images,
-               sized via imgproxy for zoom quality. We feed plain image URLs (we control
-               them), so no IIIF Image API / info.json tile server is needed.
-               (diva.js was the prior attempt — disabled until v7 ships on npm; see
-               iiif-bundle docs/diva-viewer.md and DDMAL/diva.js#555.) #}
+            {# Multi-page document viewer #}
             {% if pages|length > 0 %}
                 {% set viewerImages = [] %}
+                {% set viewerHires = [] %}
                 {% for page in pages %}
                     {% set pageImg = page.url %}
-                    {# Reuse the gallery's cached 'thumb' rendition for instant paging.
-                       TODO: progressively swap in a higher-res image on page select/zoom. #}
-                    {% guard filter imgproxy %}{% set pageImg = page.url|imgproxy('thumb') %}{% endguard %}
+                    {% set pageHires = page.url %}
+                    {# Page with the cached 'thumb' rendition for instant flipping; the
+                       viewer overlays the readable 'archive' rendition on zoom. #}
+                    {% guard filter imgproxy %}
+                        {% set pageImg = page.url|imgproxy('thumb') %}
+                        {% set pageHires = page.url|imgproxy('archive') %}
+                    {% endguard %}
                     {% set viewerImages = viewerImages|merge([pageImg]) %}
+                    {% set viewerHires = viewerHires|merge([pageHires]) %}
                 {% endfor %}
+
                 <div id="doc-viewer" class="card mb-3">
                     <div class="card-body p-0">
-                        <twig:iiif:viewer :images="viewerImages" :height="600" :showLinks="false" />
+                        <twig:iiif:viewer
+                            :images="viewerImages"
+                            :hiresImages="viewerHires"
+                            :height="600"
+                            :showLinks="false"
+                        />
                     </div>
-                    {# Per-page status — listens for the viewer's iiif-viewer:page event.
-                       Placeholder until per-page OCR (Page.text) is wired in. #}
+
                     <div id="doc-page-status" class="card-footer py-2 small text-muted">
                         Page 1 of {{ viewerImages|length }} — OCR not wired yet
                     </div>
                 </div>
+
                 <script>
                     document.addEventListener('iiif-viewer:page', function (e) {
                         var el = document.getElementById('doc-page-status');
@@ -79,26 +97,47 @@
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>
-                        <a href="#doc-viewer" class="btn btn-sm btn-outline-primary">
-                            <i class="ti ti-book"></i> Open viewer
-                        </a>
+                        <div class="btn-list">
+                            {# AI demo button — only when the app wires folioAiRoute (e.g. zm → mediary). #}
+                            {% if folioAiRoute|default(null) and pages|length > 0 %}
+                                <a href="{{ path(folioAiRoute, {url: (pages|first).url, task: 'ocr_mistral'}) }}"
+                                   target="_blank" rel="noopener" class="btn btn-sm btn-outline-purple">
+                                    <i class="ti ti-sparkles"></i> AI
+                                </a>
+                            {% endif %}
+                            <a href="#doc-viewer" class="btn btn-sm btn-outline-primary">
+                                <i class="ti ti-book"></i> Open viewer
+                            </a>
+                        </div>
                     </div>
+
                     <div class="card-body">
                         <div class="row g-2">
                             {% for page in pages|slice(0, 60) %}
                                 {% set src = page.url %}
                                 {% set thumb = src %}
-                                {% guard filter imgproxy %}{% set thumb = src|imgproxy('thumb') %}{% endguard %}
+                                {% guard filter imgproxy %}
+                                    {% set thumb = src|imgproxy('thumb') %}
+                                {% endguard %}
+
                                 <div class="col-4 col-md-3 col-lg-2">
                                     <a href="{{ src }}" target="_blank" rel="noopener" title="p. {{ page.seq }}">
-                                        <img src="{{ thumb }}" alt="p. {{ page.seq }}" class="img-fluid rounded border"
-                                             style="aspect-ratio: 1; object-fit: cover" loading="lazy">
+                                        <img
+                                            src="{{ thumb }}"
+                                            alt="p. {{ page.seq }}"
+                                            class="img-fluid rounded border"
+                                            style="aspect-ratio: 1; object-fit: cover"
+                                            loading="lazy"
+                                        >
                                     </a>
                                 </div>
                             {% endfor %}
                         </div>
+
                         {% if pages|length > 60 %}
-                            <div class="text-muted small mt-2">Showing first 60 of {{ pages|length }} pages.</div>
+                            <div class="text-muted small mt-2">
+                                Showing first 60 of {{ pages|length }} pages.
+                            </div>
                         {% endif %}
                     </div>
                 </div>
@@ -108,77 +147,85 @@
                 <div class="card-header">
                     <h2 class="card-title mb-0">DTO Data</h2>
                 </div>
-                {# Source image URLs are noise once the folio serves its own imgproxy/IIIF renditions. #}
+
                 {% set imageFields = ['thumbnailUrl', 'largeImageUrl', 'iiifBase', 'iiifManifest', 'iiifInfo', 'imageCount', 'hasImages', 'sourceUrl'] %}
-                {# Long-form fields rendered in their own panels, not the field table. #}
                 {% set longFields = ['ocrText'] %}
+
                 <div class="table-responsive">
                     <table class="table table-vcenter card-table">
                         <tbody>
-                        {% for field in columns %}
-                            {% set value = attribute(row.dtoData, field)|default(null) %}
-                            {% if value is not empty and field not in termFields and field not in imageFields %}
-                                <tr>
-                                    <th class="w-25 font-monospace text-muted">{{ field }}</th>
-                                    <td>
-                                        {{ folio_row.render_value(value) }}
-                                    </td>
-                                </tr>
-                            {% endif %}
-                        {% else %}
-                            {% for field, value in row.dtoData %}
-                                {% if field not in termFields and field not in imageFields %}
-                                <tr>
-                                    <th class="w-25 font-monospace text-muted">{{ field }}</th>
-                                    <td>
-                                        {{ folio_row.render_value(value) }}
-                                    </td>
-                                </tr>
+                            {% for field in columns %}
+                                {% set value = attribute(row.dtoData, field)|default(null) %}
+                                {% if value is not empty and field not in termFields and field not in imageFields %}
+                                    <tr>
+                                        <th class="w-25 font-monospace text-muted">{{ field }}</th>
+                                        <td>{{ folio_row.render_value(value) }}</td>
+                                    </tr>
                                 {% endif %}
                             {% else %}
-                                <tr>
-                                    <td class="text-muted">No DTO data captured.</td>
-                                </tr>
+                                {% for field, value in row.dtoData %}
+                                    {% if field not in termFields and field not in imageFields %}
+                                        <tr>
+                                            <th class="w-25 font-monospace text-muted">{{ field }}</th>
+                                            <td>{{ folio_row.render_value(value) }}</td>
+                                        </tr>
+                                    {% endif %}
+                                {% else %}
+                                    <tr>
+                                        <td class="text-muted">No DTO data captured.</td>
+                                    </tr>
+                                {% endfor %}
                             {% endfor %}
-                        {% endfor %}
                         </tbody>
                     </table>
                 </div>
+
                 {% set imageMetaFields = imageFields|filter(field => attribute(row.dtoData, field)|default(null) is not empty) %}
+
                 {% if imageMetaFields is not empty %}
                     <details class="px-3 pb-3">
-                        <summary class="text-muted small" style="cursor: pointer">Source image fields ({{ imageMetaFields|length }})</summary>
+                        <summary class="text-muted small" style="cursor: pointer">
+                            Source image fields ({{ imageMetaFields|length }})
+                        </summary>
+
                         <table class="table table-sm card-table mt-2 mb-0">
                             <tbody>
-                            {% for field in imageMetaFields %}
-                                <tr>
-                                    <th class="w-25 font-monospace text-muted small">{{ field }}</th>
-                                    <td class="small text-break">{{ folio_row.render_value(attribute(row.dtoData, field)) }}</td>
-                                </tr>
-                            {% endfor %}
+                                {% for field in imageMetaFields %}
+                                    <tr>
+                                        <th class="w-25 font-monospace text-muted small">{{ field }}</th>
+                                        <td class="small text-break">
+                                            {{ folio_row.render_value(attribute(row.dtoData, field)) }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
                             </tbody>
                         </table>
                     </details>
                 {% endif %}
             </div>
 
-            {# Transcription is folded in from claims.jsonl as the ocrText field (no DB claim table). #}
             {% set ocrText = attribute(row.dtoData, 'ocrText')|default(null) %}
             {% set pageCount = attribute(row.dtoData, 'pageCount')|default(null) %}
+
             {% if ocrText %}
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h2 class="card-title mb-0">Transcription</h2>
+
                         {% if pageCount %}
                             <span class="text-muted small">{{ pageCount }} pages</span>
                         {% endif %}
                     </div>
+
                     <div class="card-body">
-                        <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">{{ ocrText }}</div>
+                        <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+                            {{ ocrText }}
+                        </div>
                     </div>
                 </div>
             {% endif %}
         </div>
+
         <div class="col-lg-4">
             {% if th %}
                 <div class="card mb-3">
@@ -187,22 +234,31 @@
                         {% guard filter imgproxy %}
                             {% set imageUrl = th|imgproxy('display') %}
                         {% endguard %}
+
                         <a href="{{ th }}" target="_blank">
-                            <img src="{{ imageUrl }}" alt="{{ row.label ?: row.localId }}" class="img-fluid rounded" style="max-height: 360px; object-fit: contain" loading="lazy">
+                            <img
+                                src="{{ imageUrl }}"
+                                alt="{{ row.label ?: row.localId }}"
+                                class="img-fluid rounded"
+                                style="max-height: 360px; object-fit: contain"
+                                loading="lazy"
+                            >
                         </a>
                     </div>
                 </div>
             {% endif %}
 
             {% guard function dim_render %}
-                {% set dimsArr   = attribute(row.dtoData, 'dimensions') %}
+                {% set dimsArr = attribute(row.dtoData, 'dimensions') %}
                 {% set weightArr = attribute(row.dtoData, 'weight') %}
-                {% set dimsRaw   = attribute(row.dtoData, 'dimensionsRaw') %}
+                {% set dimsRaw = attribute(row.dtoData, 'dimensionsRaw') %}
+
                 {% if dimsArr or weightArr or dimsRaw %}
                     <div class="card mb-3">
                         <div class="card-header">
                             <h2 class="card-title mb-0">Dimensions</h2>
                         </div>
+
                         <div class="card-body">
                             {{ dim_render(dimsArr, weightArr, dimsRaw) }}
                         </div>
@@ -214,17 +270,25 @@
                 <div class="card-header">
                     <h2 class="card-title mb-0">Row</h2>
                 </div>
+
                 <div class="card-body">
                     <dl class="mb-0">
                         <dt>ID</dt>
                         <dd class="font-monospace">{{ row.localId }}</dd>
+
                         <dt>Type</dt>
                         <dd>{{ row.dtoType ?: '(none)' }}</dd>
+
                         <dt>DTO Class</dt>
                         <dd class="font-monospace small">{{ dtoClass ?: '(generic)' }}</dd>
+
                         {% if row.citationUrl %}
                             <dt>Original</dt>
-                            <dd><a href="{{ row.citationUrl }}" target="_blank" rel="noopener">Citation record</a></dd>
+                            <dd>
+                                <a href="{{ row.citationUrl }}" target="_blank" rel="noopener">
+                                    Citation record
+                                </a>
+                            </dd>
                         {% endif %}
                     </dl>
                 </div>
@@ -235,15 +299,29 @@
                     <div class="card-header">
                         <h2 class="card-title mb-0">Terms</h2>
                     </div>
+
                     <div class="list-group list-group-flush">
                         {% for set, values in terms %}
                             <div class="list-group-item">
                                 <div class="text-muted small text-uppercase">{{ set }}</div>
+
                                 {% for value in values %}
                                     {% if value.term %}
-                                        <a class="badge text-bg-light border me-1 text-decoration-none" href="{{ path('survos_folio_term_show', {provider: parts[0], dataset: parts[1], setCode: set, termCode: value.code}) }}">{{ value.label }}</a>
+                                        <a
+                                            class="badge text-bg-light border me-1 text-decoration-none"
+                                            href="{{ path('survos_folio_term_show', {
+                                                provider: provider,
+                                                dataset: dataset,
+                                                setCode: set,
+                                                termCode: value.code
+                                            }) }}"
+                                        >
+                                            {{ value.label }}
+                                        </a>
                                     {% else %}
-                                        <span class="badge text-bg-light border me-1">{{ value.label }}</span>
+                                        <span class="badge text-bg-light border me-1">
+                                            {{ value.label }}
+                                        </span>
                                     {% endif %}
                                 {% endfor %}
                             </div>
@@ -252,26 +330,38 @@
                 </div>
             {% endif %}
 
-            {# Image links are shown in the gallery above, so list only other relations here. #}
             {% set otherLinks = links|filter(l => l.core != 'image') %}
+
             {% if otherLinks %}
                 <div class="card mb-3">
                     <div class="card-header">
                         <h2 class="card-title mb-0">Relations</h2>
                     </div>
+
                     <div class="list-group list-group-flush">
                         {% for link in otherLinks %}
                             {% set target = link.row %}
+
                             <div class="list-group-item">
                                 <div class="text-muted small font-monospace">{{ link.code }}</div>
+
                                 <div>
                                     <span>{{ link.label ?: link.code }}</span>
+
                                     {% if target %}
-                                        <a href="{{ path('survos_folio_row_show', {provider: parts[0], dataset: parts[1], coreCode: link.core, dtoType: target.dtoType ?: 'row', localId: target.localId}) }}">
+                                        <a href="{{ path('survos_folio_row_show', {
+                                            provider: provider,
+                                            dataset: dataset,
+                                            coreCode: link.core,
+                                            dtoType: target.dtoType ?: 'row',
+                                            localId: target.localId
+                                        }) }}">
                                             {{ target.label ?: target.localId }}
                                         </a>
                                     {% else %}
-                                        <span class="font-monospace">{{ link.core }}/{{ link.localId }}</span>
+                                        <span class="font-monospace">
+                                            {{ link.core }}/{{ link.localId }}
+                                        </span>
                                     {% endif %}
                                 </div>
                             </div>
@@ -284,11 +374,16 @@
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h2 class="card-title mb-0">Extras</h2>
-                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                onclick="navigator.clipboard.writeText(this.closest('.card').querySelector('pre').innerText).then(() => { const t = this.innerText; this.innerText = 'Copied!'; setTimeout(() => this.innerText = t, 1200); })">
+
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-outline-secondary"
+                            onclick="navigator.clipboard.writeText(this.closest('.card').querySelector('pre').innerText).then(() => { const t = this.innerText; this.innerText = 'Copied!'; setTimeout(() => this.innerText = t, 1200); })"
+                        >
                             Copy
                         </button>
                     </div>
+
                     <div class="card-body">
                         <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word; user-select: all;">{{ extras|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
                     </div>
@@ -296,5 +391,4 @@
             {% endif %}
         </div>
     </div>
-</div>
 {% endblock %}

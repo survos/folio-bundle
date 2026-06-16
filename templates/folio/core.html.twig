@@ -1,69 +1,126 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
-{% block body %}
+
 {% set parts = ctx.folioCode|split('/') %}
-{% set apiUrl = path('folio_rows', {provider: parts[0], dataset: parts[1], coreCode: core.code}) %}
+{% set provider = parts[0] %}
+{% set dataset = parts[1] %}
+{% set apiUrl = path('folio_rows', {
+    provider: provider,
+    dataset: dataset,
+    coreCode: core.code
+}) %}
 
-{# Build api-grid column list: use dtoData.* dot-notation when a DTO is selected #}
-{% set apiColumns = [
-    {
-        name: 'thumbnailUrl',
-        title: '',
-        width: '88px',
-        twigTemplate: '{% if data %}<img src="{{ data }}" alt="" loading="lazy" style="width:72px;height:72px;object-fit:contain">{% endif %}'
-    },
-    {name: 'localId', title: 'Row', route: 'survos_folio_row_show', sortable: true, width: '16rem'}
-] %}
-{% if selectedDto and columns %}
-    {% for col in columns %}
-        {% if col != 'id' %}
-            {% set apiColumns = apiColumns|merge([{name: 'dtoData.' ~ col, title: col}]) %}
-        {% endif %}
-    {% endfor %}
-{% else %}
-    {% set apiColumns = apiColumns|merge([
-        {name: 'label',    title: 'Label',   searchable: true},
-        {name: 'dtoType',  title: 'Type',    searchable: false},
-    ]) %}
-{% endif %}
+{% block body_class %}folio-layout{% endblock %}
 
-<div class="container-xl py-3">
+{% block page_pretitle %}Folio Core{% endblock %}
 
-    <div class="page-header mb-3">
-        <div class="row align-items-center">
-            <div class="col">
-                <h1 class="page-title">
-                    <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}" class="text-muted">{{ ctx.folioCode }}</a>
-                    <span class="text-muted mx-1">/</span>{{ core.code }}
-                    {% if selectedDto %}
-                        <span class="text-muted mx-1">/</span>{{ selectedDto }}
-                    {% endif %}
-                </h1>
-                <div class="text-muted">{{ core.rowCount|number_format }} rows in {{ core.code }}</div>
-            </div>
-        </div>
-    </div>
+{% block page_title %}
+    {{ core.label ?: core.code }}
+    {% if selectedDto %}
+        / {{ selectedDto }}
+    {% endif %}
+{% endblock %}
+
+{% block page_subtitle %}
+    <span class="font-monospace">{{ ctx.folioCode }}</span>
+    <span class="mx-1 text-muted">&middot;</span>
+    {{ core.rowCount|number_format }} rows in {{ core.code }}
+{% endblock %}
+
+{% block title %}
+    {{ core.code }}{% if selectedDto %} / {{ selectedDto }}{% endif %} · {{ ctx.folioCode }}
+{% endblock %}
+
+{% block body %}
+    {# Build api-grid column list: use dtoData.* dot-notation when a DTO is selected #}
+    {% set apiColumns = [
+        {
+            name: 'thumbnailUrl',
+            title: '',
+            width: '88px',
+            twigTemplate: '{% if data %}<img src="{{ data }}" alt="" loading="lazy" style="width:72px;height:72px;object-fit:contain">{% endif %}'
+        },
+        {
+            name: 'localId',
+            title: 'Row',
+            route: 'survos_folio_row_show',
+            sortable: true,
+            width: '16rem'
+        },
+        {
+            name: 'dtoData.imageCount',
+            title: 'Images',
+            sortable: true,
+            width: '7rem'
+        }
+    ] %}
+
+    {% if selectedDto and columns %}
+        {% for col in columns %}
+            {% if col != 'id' %}
+                {% set apiColumns = apiColumns|merge([
+                    {
+                        name: 'dtoData.' ~ col,
+                        title: col
+                    }
+                ]) %}
+            {% endif %}
+        {% endfor %}
+    {% else %}
+        {% set apiColumns = apiColumns|merge([
+            {
+                name: 'label',
+                title: 'Label',
+                searchable: true
+            },
+            {
+                name: 'dtoType',
+                title: 'Type',
+                searchable: false
+            }
+        ]) %}
+    {% endif %}
 
     {% if dtoStats %}
-    <div class="mb-3">
-        <ul class="nav nav-pills flex-wrap gap-2">
-                <li class="nav-item">
-                    <a class="nav-link d-flex align-items-center gap-2 {{ not selectedDto ? 'active' }}"
-                       href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}">
-                        <span>All</span>
-                        <span class="badge {{ not selectedDto ? 'bg-white text-primary' : 'bg-secondary text-white' }}">{{ core.rowCount|number_format }}</span>
-                    </a>
-                </li>
-                {% for dto in dtoChoices %}
+        <div class="card mb-3">
+            <div class="card-body py-2">
+                <ul class="nav nav-pills flex-wrap gap-2 mb-0">
                     <li class="nav-item">
-                        <a class="nav-link d-flex align-items-center gap-2 {{ selectedDto == dto.type ? 'active' }}"
-                           href="{{ path('survos_folio_core_dto', {provider: parts[0], dataset: parts[1], coreCode: core.code, dtoType: dto.type}) }}">
-                            <span>{{ dto.label }}</span>
-                            <span class="badge {{ selectedDto == dto.type ? 'bg-white text-primary' : 'bg-secondary text-white' }}">{{ dto.count|number_format }}</span>
+                        <a
+                            class="nav-link d-flex align-items-center gap-2 {{ not selectedDto ? 'active' }}"
+                            href="{{ path('survos_folio_core', {
+                                provider: provider,
+                                dataset: dataset,
+                                coreCode: core.code
+                            }) }}"
+                        >
+                            <span>All</span>
+                            <span class="badge {{ not selectedDto ? 'bg-white text-primary' : 'bg-secondary text-white' }}">
+                                {{ core.rowCount|number_format }}
+                            </span>
                         </a>
                     </li>
-                {% endfor %}
-        </ul>
-    </div>
+
+                    {% for dto in dtoChoices %}
+                        <li class="nav-item">
+                            <a
+                                class="nav-link d-flex align-items-center gap-2 {{ selectedDto == dto.type ? 'active' }}"
+                                href="{{ path('survos_folio_core_dto', {
+                                    provider: provider,
+                                    dataset: dataset,
+                                    coreCode: core.code,
+                                    dtoType: dto.type
+                                }) }}"
+                            >
+                                <span>{{ dto.label }}</span>
+                                <span class="badge {{ selectedDto == dto.type ? 'bg-white text-primary' : 'bg-secondary text-white' }}">
+                                    {{ dto.count|number_format }}
+                                </span>
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
     {% endif %}
 
     <twig:api_grid
@@ -74,6 +131,4 @@
         :pageLength="50"
         :search="true"
     />
-
-</div>
 {% endblock %}

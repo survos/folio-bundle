@@ -1,35 +1,34 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
-{% block body %}
+
 {% set parts = ctx.folioCode|split('/') %}
+{% set provider = parts[0] %}
+{% set dataset = parts[1] %}
+{% set folioLabel = 'Folio ' ~ ctx.folioCode %}
 
-<div class="container-xl py-4">
-    <div class="page-header mb-4">
-        <div class="row align-items-center">
-            <div class="col">
-                <h1 class="page-title">Folio {{ ctx.folioCode }}</h1>
-                <div class="text-muted">{{ cores|length }} cores · {{ totalRows|number_format }} rows</div>
-            </div>
-            <div class="col-auto">
-                <div class="btn-list">
-                    {# General search — every core, nothing pre-selected. #}
-                    <a href="{{ path('survos_folio_search', {provider: parts[0], dataset: parts[1]}) }}" class="btn btn-primary">
-                        Search all cores
-                    </a>
-                    <a href="{{ path('survos_folio_schema', {provider: parts[0], dataset: parts[1]}) }}" class="btn btn-outline-secondary">
-                        Schema
-                    </a>
-                    <a href="{{ path('survos_folio_chat', {provider: parts[0], dataset: parts[1]}) }}" class="btn btn-outline-secondary">
-                        Chat
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
+{% block body_class %}folio-layout{% endblock %}
 
+{% block page_pretitle %}Folio Overview{% endblock %}
+
+{% block page_title %}
+    {{ folioLabel }}
+{% endblock %}
+
+{% block page_subtitle %}
+    <span class="font-monospace">{{ ctx.folioCode }}</span>
+    <span class="mx-1 text-muted">&middot;</span>
+    {{ cores|length }} cores
+    <span class="mx-1 text-muted">&middot;</span>
+    {{ totalRows|number_format }} rows
+{% endblock %}
+
+{% block title %}{{ folioLabel }}{% endblock %}
+
+{% block body %}
     {# Cores — each is first-class, with its own links and counts. #}
     <div class="row row-cards mb-4">
         {% for summary in coreSummaries %}
             {% set core = summary.core %}
+
             <div class="col-sm-6 col-lg-4">
                 <div class="card h-100">
                     <div class="card-body">
@@ -38,31 +37,52 @@
                                 <div class="h3 mb-0 text-truncate">{{ core.label ?: core.code }}</div>
                                 <div class="text-muted font-monospace small">{{ core.code }}</div>
                             </div>
-                            <span class="badge text-bg-secondary fw-semibold px-2">{{ core.rowCount|number_format }}</span>
+
+                            <span class="badge text-bg-secondary fw-semibold px-2">
+                                {{ core.rowCount|number_format }}
+                            </span>
                         </div>
 
                         <div class="btn-list mt-3">
                             <a class="btn btn-sm btn-primary"
-                               href="{{ path('survos_folio_search', {provider: parts[0], dataset: parts[1], core: core.code}) }}">
+                               href="{{ path('survos_folio_search', {
+                                   provider: provider,
+                                   dataset: dataset,
+                                   core: core.code
+                               }) }}">
                                 Grid
                             </a>
+
                             <a class="btn btn-sm btn-outline-secondary"
-                               href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: core.code}) }}">
+                               href="{{ path('survos_folio_core', {
+                                   provider: provider,
+                                   dataset: dataset,
+                                   coreCode: core.code
+                               }) }}">
                                 List
                             </a>
                         </div>
 
                         {% set dtoTypes = summary.dtoChoices|filter(dto => dto.type) %}
+
                         {% if dtoTypes|length > 0 %}
                             <div class="d-flex flex-wrap gap-1 mt-3">
                                 {% for dto in dtoTypes|slice(0, 6) %}
                                     <a class="badge bg-blue-lt text-decoration-none"
-                                       href="{{ path('survos_folio_core_dto', {provider: parts[0], dataset: parts[1], coreCode: core.code, dtoType: dto.type}) }}">
+                                       href="{{ path('survos_folio_core_dto', {
+                                           provider: provider,
+                                           dataset: dataset,
+                                           coreCode: core.code,
+                                           dtoType: dto.type
+                                       }) }}">
                                         {{ dto.label }} · {{ dto.count|number_format }}
                                     </a>
                                 {% endfor %}
+
                                 {% if dtoTypes|length > 6 %}
-                                    <span class="badge bg-secondary-lt">+{{ dtoTypes|length - 6 }} more</span>
+                                    <span class="badge bg-secondary-lt">
+                                        +{{ dtoTypes|length - 6 }} more
+                                    </span>
                                 {% endif %}
                             </div>
                         {% endif %}
@@ -71,7 +91,11 @@
             </div>
         {% else %}
             <div class="col">
-                <div class="card"><div class="card-body text-muted">No cores loaded.</div></div>
+                <div class="card">
+                    <div class="card-body text-muted">
+                        No cores loaded.
+                    </div>
+                </div>
             </div>
         {% endfor %}
     </div>
@@ -82,79 +106,94 @@
                 <div class="card-header">
                     <h2 class="card-title mb-0">Link Types</h2>
                 </div>
+
                 <div class="table-responsive">
                     <table class="table table-vcenter card-table">
                         <thead>
-                        <tr>
-                            <th>Forward</th>
-                            <th>Reverse</th>
-                            <th class="text-end">Links</th>
-                        </tr>
+                            <tr>
+                                <th>Forward</th>
+                                <th>Reverse</th>
+                                <th class="text-end">Links</th>
+                            </tr>
                         </thead>
                         <tbody>
-                        {% for linkType in linkTypes %}
-                            <tr>
-                                <td>
-                                    <span class="font-monospace">{{ linkType.leftCore }}</span>
-                                    <span class="mx-1">{{ linkType.label ?: linkType.code }}</span>
-                                    <span class="font-monospace">{{ linkType.rightCore }}</span>
-                                    <div class="text-muted small font-monospace">{{ linkType.code }}</div>
-                                </td>
-                                <td>
-                                    <span class="font-monospace">{{ linkType.rightCore }}</span>
-                                    <span class="mx-1">{{ linkType.reverseLabel ?: linkType.reverseCode ?: 'is related to' }}</span>
-                                    <span class="font-monospace">{{ linkType.leftCore }}</span>
-                                    {% if linkType.reverseCode %}
-                                        <div class="text-muted small font-monospace">{{ linkType.reverseCode }}</div>
-                                    {% endif %}
-                                </td>
-                                <td class="text-end">{{ linkType.linkCount|number_format }}</td>
-                            </tr>
-                        {% else %}
-                            <tr>
-                                <td colspan="3" class="text-muted">No link types loaded.</td>
-                            </tr>
-                        {% endfor %}
+                            {% for linkType in linkTypes %}
+                                <tr>
+                                    <td>
+                                        <span class="font-monospace">{{ linkType.leftCore }}</span>
+                                        <span class="mx-1">{{ linkType.label ?: linkType.code }}</span>
+                                        <span class="font-monospace">{{ linkType.rightCore }}</span>
+                                        <div class="text-muted small font-monospace">{{ linkType.code }}</div>
+                                    </td>
+
+                                    <td>
+                                        <span class="font-monospace">{{ linkType.rightCore }}</span>
+                                        <span class="mx-1">{{ linkType.reverseLabel ?: linkType.reverseCode ?: 'is related to' }}</span>
+                                        <span class="font-monospace">{{ linkType.leftCore }}</span>
+
+                                        {% if linkType.reverseCode %}
+                                            <div class="text-muted small font-monospace">{{ linkType.reverseCode }}</div>
+                                        {% endif %}
+                                    </td>
+
+                                    <td class="text-end">{{ linkType.linkCount|number_format }}</td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td colspan="3" class="text-muted">
+                                        No link types loaded.
+                                    </td>
+                                </tr>
+                            {% endfor %}
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
+
         <div class="col-lg-6">
             <div class="card h-100">
                 <div class="card-header">
                     <h2 class="card-title mb-0">Observed Schema</h2>
                 </div>
+
                 <div class="table-responsive">
                     <table class="table table-vcenter card-table">
                         <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Core</th>
-                            <th>Type</th>
-                            <th class="text-end">Rows</th>
-                        </tr>
+                            <tr>
+                                <th>Name</th>
+                                <th>Core</th>
+                                <th>Type</th>
+                                <th class="text-end">Rows</th>
+                            </tr>
                         </thead>
                         <tbody>
-                        {% for table in schemaTables|filter(table => table.kind == 'dto') %}
-                            <tr>
-                                <td class="font-monospace">{{ table.name }}</td>
-                                <td>{{ table.core_code }}</td>
-                                <td>{{ table.dto_type }}</td>
-                                <td class="text-end">{{ table.row_count|number_format }}</td>
-                            </tr>
-                        {% else %}
-                            <tr><td colspan="4" class="text-muted">No observed DTO schema has been generated yet.</td></tr>
-                        {% endfor %}
+                            {% for table in schemaTables|filter(table => table.kind == 'dto') %}
+                                <tr>
+                                    <td class="font-monospace">{{ table.name }}</td>
+                                    <td>{{ table.core_code }}</td>
+                                    <td>{{ table.dto_type }}</td>
+                                    <td class="text-end">{{ table.row_count|number_format }}</td>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <td colspan="4" class="text-muted">
+                                        No observed DTO schema has been generated yet.
+                                    </td>
+                                </tr>
+                            {% endfor %}
                         </tbody>
                     </table>
                 </div>
+
                 {% if views %}
                     <div class="card-footer">
                         <div class="text-muted small mb-2">Generated SQLite views</div>
                         <div class="d-flex flex-wrap gap-2">
                             {% for view in views %}
-                                <span class="badge bg-blue-lt font-monospace">{{ view }}</span>
+                                <span class="badge bg-blue-lt font-monospace">
+                                    {{ view }}
+                                </span>
                             {% endfor %}
                         </div>
                     </div>
@@ -170,6 +209,7 @@
                     <div class="card-header">
                         <h2 class="card-title mb-0">Archive Docs</h2>
                     </div>
+
                     <div class="list-group list-group-flush">
                         {% for doc in docs %}
                             <div class="list-group-item">
@@ -177,6 +217,7 @@
                                     <strong>{{ doc.title }}</strong>
                                     <span class="badge bg-secondary">{{ doc.type }}</span>
                                 </div>
+
                                 <pre class="small mb-0" style="max-height: 12rem; overflow:auto;{% if doc.type != 'json' %} white-space: pre-wrap;{% endif %}">{{ doc.body }}</pre>
                             </div>
                         {% endfor %}
@@ -185,6 +226,4 @@
             </div>
         </div>
     {% endif %}
-
-</div>
 {% endblock %}
