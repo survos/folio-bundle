@@ -28,28 +28,32 @@
 {% block body %}
     <div class="row">
         <div class="col-3">
-            <div class="nav flex-column nav-pills" role="tablist" aria-orientation="vertical">
-                <a class="nav-link active" data-bs-toggle="pill" href="#tab-diagram" role="tab">
-                    Diagram
-                </a>
-
-                <hr class="my-2">
-
-                {% for table in tables %}
-                    <a class="nav-link font-monospace" data-bs-toggle="pill" href="#table-{{ table.name }}" role="tab">
-                        {{ table.name }}
-                    </a>
-                {% endfor %}
-
-                {% if views %}
-                    <hr class="my-2">
-
-                    {% for view in views %}
-                        <a class="nav-link font-monospace text-muted" data-bs-toggle="pill" href="#view-{{ view.name }}" role="tab">
-                            {{ view.name }}
+            <div class="card">
+                <div class="card-body px-2 py-2">
+                    <div class="nav flex-column nav-pills" role="tablist" aria-orientation="vertical">
+                        <a class="nav-link active" data-bs-toggle="pill" href="#tab-diagram" role="tab">
+                            Diagram
                         </a>
-                    {% endfor %}
-                {% endif %}
+
+                        <hr class="my-2">
+
+                        {% for table in tables %}
+                            <a class="nav-link font-monospace" data-bs-toggle="pill" href="#table-{{ table.name }}" role="tab">
+                                {{ table.name }}
+                            </a>
+                        {% endfor %}
+
+                        {% if views %}
+                            <hr class="my-2">
+
+                            {% for view in views %}
+                                <a class="nav-link font-monospace text-muted" data-bs-toggle="pill" href="#view-{{ view.name }}" role="tab">
+                                    {{ view.name }}
+                                </a>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -62,7 +66,13 @@
                         </div>
 
                         <div class="card-body text-center">
-                            {{ source('@SurvosFolioBundle/folio/_er-diagram.svg')|raw }}
+                            {{
+                                source('@SurvosFolioBundle/folio/_er-diagram.svg')
+                                    |replace({
+                                        '<svg ': '<svg style="width:100%; height:auto;" '
+                                    })
+                                    |raw
+                            }}
                         </div>
                     </div>
                 </div>
@@ -82,9 +92,9 @@
                                 {% endif %}
 
                                 {% if table.indexes %}
-                                    <h3 class="h6 mt-3">Indexes</h3>
+                                    <h3 class="h4 mt-3">Indexes</h3>
 
-                                    <table class="table table-sm table-vcenter">
+                                    <table class="table table-vcenter border">
                                         <thead>
                                             <tr>
                                                 <th>Name</th>
@@ -95,9 +105,9 @@
                                         <tbody>
                                             {% for idx in table.indexes %}
                                                 <tr>
-                                                    <td class="font-monospace">{{ idx.name }}</td>
-                                                    <td class="font-monospace">{{ idx.columns }}</td>
-                                                    <td>{{ idx.unique }}</td>
+                                                    <td class="fs-5 font-monospace">{{ idx.name }}</td>
+                                                    <td class="fs-5 font-monospace">{{ idx.columns }}</td>
+                                                    <td class="fs-5">{{ idx.unique }}</td>
                                                 </tr>
                                             {% endfor %}
                                         </tbody>

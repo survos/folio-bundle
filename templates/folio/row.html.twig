@@ -158,7 +158,7 @@
                                 {% set value = attribute(row.dtoData, field)|default(null) %}
                                 {% if value is not empty and field not in termFields and field not in imageFields %}
                                     <tr>
-                                        <th class="w-25 font-monospace text-muted">{{ field }}</th>
+                                        <th class="w-25 font-monospace text-muted" style="background: var(--tblr-bg-surface); position: sticky; left: 0;">{{ field }}</th>
                                         <td>{{ folio_row.render_value(value) }}</td>
                                     </tr>
                                 {% endif %}
@@ -166,7 +166,7 @@
                                 {% for field, value in row.dtoData %}
                                     {% if field not in termFields and field not in imageFields %}
                                         <tr>
-                                            <th class="w-25 font-monospace text-muted">{{ field }}</th>
+                                            <th class="w-25 font-monospace text-muted" style="background: var(--tblr-bg-surface); position: sticky; left: 0;">{{ field }}</th>
                                             <td>{{ folio_row.render_value(value) }}</td>
                                         </tr>
                                     {% endif %}

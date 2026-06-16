@@ -94,7 +94,7 @@
                             }) }}"
                         >
                             <span>All</span>
-                            <span class="badge {{ not selectedDto ? 'bg-white text-primary' : 'bg-secondary text-white' }}">
+                            <span class="badge {{ not selectedDto ? 'text-bg-primary' : 'text-bg-secondary' }}">
                                 {{ core.rowCount|number_format }}
                             </span>
                         </a>
@@ -112,7 +112,7 @@
                                 }) }}"
                             >
                                 <span>{{ dto.label }}</span>
-                                <span class="badge {{ selectedDto == dto.type ? 'bg-white text-primary' : 'bg-secondary text-white' }}">
+                                <span class="badge {{ selectedDto == dto.type ? 'text-bg-primary' : 'text-bg-secondary' }}">
                                     {{ dto.count|number_format }}
                                 </span>
                             </a>
