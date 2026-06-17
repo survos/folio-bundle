@@ -9,7 +9,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DatasetBundle\Service\DataPaths;
 use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Term,TermSet};
-use Survos\FolioBundle\Dto\PageRow;
+use Survos\FolioBundle\Dto\PageDto;
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\JsonlBundle\IO\JsonlReader;
 use Survos\JsonlBundle\Service\JsonlCountService;
@@ -42,7 +42,7 @@ final class FolioIngestService
      */
     private const ITEM_COLUMNS = ['id', 'core_id', 'local_id', 'label', 'dto_type', 'dto_data', 'extras', 'raw'];
     private const LINK_COLUMNS = ['id', 'link_type_id', 'left_core', 'left_id', 'right_core', 'right_id', 'extras'];
-    private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'url', 'media_id', 'text', 'dense_summary', 'ledger', 'layout', 'width', 'height'];
+    private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'type', 'url', 'media_id', 'text', 'dense_summary', 'ledger', 'layout', 'width', 'height'];
 
     public function __construct(
         private readonly FolioService $folios,
@@ -225,7 +225,7 @@ final class FolioIngestService
      */
     private function ingestPages(EntityManagerInterface $em, string $datasetKey, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
     {
-        $pageFile = $this->dataPaths->stageDir($datasetKey, 'normalize') . '/' . PageRow::FILENAME;
+        $pageFile = $this->dataPaths->stageDir($datasetKey, 'normalize') . '/' . PageDto::FILENAME;
         if (!is_file($pageFile)) {
             return ['count' => 0];
         }

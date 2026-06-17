@@ -9,6 +9,7 @@ use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Survos\FieldBundle\Attribute\EntityMeta;
 use Survos\FieldBundle\Attribute\Field;
+use Survos\FolioBundle\Enum\PageType;
 use Symfony\Component\Serializer\Attribute\Groups;
 
 /**
@@ -52,6 +53,12 @@ class Page
     #[Groups(['page:read'])]
     #[Field(sortable: true)]
     public int $pageIndex = 0;
+
+    #[ORM\Column(name: 'type', length: 16, nullable: true, enumType: PageType::class)]
+    #[ApiProperty('Imagery role / medium (photo/scan/document/…) — normalizer best guess; AI or a human may revise')]
+    #[Groups(['page:read'])]
+    #[Field(filterable: true)]
+    public ?PageType $type = null;
 
     #[ORM\Column(type: Types::TEXT)]
     #[ApiProperty('Page image / source URL — the viewer uses url + pageIndex / IIIF')]

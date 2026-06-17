@@ -3,17 +3,17 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Dto;
 
+use Survos\FolioBundle\Enum\PageType;
+
 /**
- * One row of the page stream — the canonical imagery of a folio Row (→ the `page` table).
+ * One line of the page stream (page.jsonl) → one Page entity (the canonical imagery of a folio Row).
  *
- * Mirrors the serialisable fields of the Page entity plus {coreCode, localId}, which the
- * ingester resolves to the parent Row (Row::id("$datasetKey:$coreCode", $localId)). This is
- * the single shared contract between producers (normalize listeners emitting page.jsonl) and
- * the consumer (FolioIngestService::ingestPages), so the schema and filename can't drift.
- *
- * It's a plain field-for-field DTO: serialise it with the Symfony normalizer, no toArray().
+ * Mirrors the serialisable Page fields plus {coreCode, localId}, which the ingester resolves to the
+ * parent Row (Row::id("$datasetKey:$coreCode", $localId)). Single shared contract between producers
+ * (normalize emitters) and the consumer (FolioIngestService::ingestPages) so the schema and filename
+ * can't drift. Pass it straight to JsonlWriter::write() — it serialises the DTO (null fields dropped).
  */
-final readonly class PageRow
+final readonly class PageDto
 {
     /** Canonical page-stream filename. Reference this everywhere to avoid page/pages drift. */
     public const string FILENAME = 'page.jsonl';
@@ -28,6 +28,7 @@ final readonly class PageRow
         public string $url,
         public int $seq = 1,
         public int $pageIndex = 0,
+        public ?PageType $type = null,
         public ?string $mediaId = null,
         public ?string $text = null,
         public ?string $denseSummary = null,
