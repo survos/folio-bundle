@@ -173,3 +173,42 @@ Migration:
 
 Row-level `largeImageUrl`/`thumbnailUrl` stay as derived, flattened thumbnail
 fields for Meilisearch; they stop being the source of truth for imagery — `Page` is.
+
+## Implementation status (as built)
+
+The contract and the shared producer now exist; normalizers are being migrated one by one.
+
+**folio-bundle**
+- `PageType` enum (`photo`/`scan`/`document`/`audio`/`video`/`other`) + a `Page.type`
+  column, threaded through the whole `page.jsonl` contract: `PageDto`, `PAGE_COLUMNS`,
+  and the `ingestPages()` insert tuple.
+- `PageDto` (the per-line contract DTO; renamed from `PageRow` — a Page is not a `Row`)
+  carries `FILENAME = 'page.jsonl'` so producer + consumer can't drift on the name.
+
+**jsonl-bundle**
+- `JsonlWriter::write()` accepts a serializable DTO (JsonSerializable, else public props
+  with nulls dropped) — so a producer just does `$writer->write($pageDto)`; no
+  normalize-to-array boilerplate.
+
+**md (the producer side)**
+- `App\Dto\SourceImage` + `App\Service\PageEmitter` — the one generic image step every
+  normalizer reuses: dedupe, 1-based `seq`, `mediaId` (the join key), and the cover
+  (first surviving image, returned for the row thumbnail). The per-source job is only
+  "build the `SourceImage[]` list — where are my images, and what role is each."
+- A normalizer fills `SourceImage[]` from its source and calls `PageEmitter::emit(...)`;
+  source-specific policy (which images, drop archival PDF renders, canonical-large vs
+  resized, IIIF vs direct URL) stays in the normalizer.
+
+**Migration order (live)**
+1. **Walters — done.** Emits one Page per `media.csv` Image row (`Rank`→`seq`, `type=photo`;
+   PDF renders skipped). Verified: 100 objects → 243 pages, 51 multi-image (max 18),
+   all linked in the folio. The multi-image proof.
+2. **Cleveland — next.** Single direct image URL (`images.web.url`, not IIIF) → one Page
+   per object, `seq=1`, `type=photo`. The "single image is just one page" proof.
+3. Remaining single-image normalizers (Met, SMK, Victoria, …) the same way; derive
+   row `thumbnailUrl` from the cover rather than hand-authoring it.
+4. museum-digital `images.jsonl` → `page.jsonl` last.
+
+Not yet done (deferred): `Page.type`/`media_id` width standardisation to 16, promoting
+`MediaIdentity` into data-contracts, computing `mediaId` at ingest when absent, and
+retiring the `FolioController` row-level-image fallback once every imaged row has a page.

@@ -247,6 +247,7 @@ final class FolioIngestService
                 $rowId,
                 $seq,
                 (int) ($data['pageIndex'] ?? 0),
+                is_scalar($data['type'] ?? null) ? (string) $data['type'] : null,
                 $url,
                 is_scalar($data['mediaId'] ?? null) ? (string) $data['mediaId'] : null,
                 is_scalar($data['text'] ?? null) ? (string) $data['text'] : null,

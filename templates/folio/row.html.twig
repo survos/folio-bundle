@@ -52,6 +52,11 @@
 
             {# Multi-page document viewer #}
             {% if pages|length > 0 %}
+                {# This row's IIIF Presentation manifest — shared by the OpenSeadragon
+                   viewer, the diva.js comparison viewer, and the external link below.
+                   Absolute (url(), not path()) so it resolves correctly when diva.js
+                   fetches it and when it's passed as a query param to the debug viewer. #}
+                {% set rowManifestUrl = url('survos_folio_iiif_manifest', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId}) %}
                 {% set viewerImages = [] %}
                 {% set viewerHires = [] %}
                 {% for page in pages %}
@@ -90,6 +95,23 @@
                         }
                     });
                 </script>
+
+                {# diva.js page-turning viewer of the SAME row, embedded directly
+                   below the OpenSeadragon doc-viewer so the two can be compared
+                   side by side. Same iiif:viewer component, viewer="diva". #}
+                <div id="diva-viewer" class="card mb-3">
+                    <div class="card-header py-2">
+                        <h2 class="card-title mb-0 h5">diva.js viewer <span class="text-muted fw-normal">— comparison</span></h2>
+                    </div>
+                    <div class="card-body p-0">
+                        <twig:iiif:viewer
+                            viewer="diva"
+                            manifestUrl="{{ rowManifestUrl }}"
+                            :height="600"
+                            :showLinks="false"
+                        />
+                    </div>
+                </div>
             {% endif %}
 
             {# Image listing — every page as a thumbnail gallery. #}
@@ -105,7 +127,9 @@
                                     <i class="ti ti-sparkles"></i> AI
                                 </a>
                             {% endif %}
-                            <a href="#doc-viewer" class="btn btn-sm btn-outline-primary">
+                            {# diva.js standalone debug viewer (iiif-bundle), fed this row's manifest (rowManifestUrl set above) #}
+                            <a href="{{ path('survos_iiif_debug', {manifest: rowManifestUrl}) }}"
+                               target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
                                 <i class="ti ti-book"></i> Open viewer
                             </a>
                         </div>

@@ -12,6 +12,7 @@ use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\{FolioCollectionController,FolioController,FolioSearchController};
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,TermRepository,TermSetRepository};
 use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatPromptSuggester,FolioChatService,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\Kit\Traits\HasConfigurableRoutes;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -56,8 +57,10 @@ final class SurvosFolioBundle extends AbstractBundle
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');
         }
         $services->set(FolioSchemaManager::class)->autowire()->autoconfigure()->public();
-        $services->set(FolioRegistry::class)->autowire()->autoconfigure()->public();
-        $services->set(FolioRegistry::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioRegistry::class)->autowire()->autoconfigure()->public()
+            // Auto-wire the dataset registry EM only if dataset-bundle is loaded; null otherwise,
+            // so a bare app can require folio-bundle, pull a folio, and display it — no dataset infra.
+            ->arg('$datasetEntityManager', service('doctrine.orm.dataset_entity_manager')->ignoreOnInvalid());
         $services->set(FolioSummaryService::class)->autowire()->autoconfigure()->public();
         $services->set(FolioFtsIndexer::class)->autowire()->autoconfigure()->public();
         $services->set(FolioQueryAnalyzer::class)->autowire()->autoconfigure()->public();

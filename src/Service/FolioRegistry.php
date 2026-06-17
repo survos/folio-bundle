@@ -8,7 +8,6 @@ use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DatasetBundle\Service\DataPaths;
 use Survos\JsonlBundle\Sqlite\SidecarDb;
-use Symfony\Component\DependencyInjection\Attribute\Target;
 
 final class FolioRegistry
 {
@@ -16,7 +15,10 @@ final class FolioRegistry
 
     public function __construct(
         private readonly DataPaths $dataPaths,
-        #[Target('dataset.entity_manager')] private readonly EntityManagerInterface $datasetEntityManager,
+        // Optional: the bundle auto-wires the dataset registry EM only when dataset-bundle is
+        // loaded (ignoreOnInvalid reference). It's null in a bare app that just pulls + displays
+        // folios — only datasets() needs it; every other method works off a DatasetInfo + DataPaths.
+        private readonly ?EntityManagerInterface $datasetEntityManager = null,
     ) {}
 
     /** @return list<DatasetInfo> */
@@ -26,6 +28,12 @@ final class FolioRegistry
         bool $all = false,
         bool $requireSource = false,
     ): array {
+        if ($this->datasetEntityManager === null) {
+            throw new \LogicException(
+                'FolioRegistry::datasets() needs the dataset registry (dataset-bundle), which is not loaded. '
+                . 'A bare folio app pulls and displays folios directly, without listing the dataset registry.'
+            );
+        }
         $repo = $this->datasetEntityManager->getRepository(DatasetInfo::class);
 
         if ($datasetKey !== null && $datasetKey !== '') {
