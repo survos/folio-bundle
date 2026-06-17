@@ -8,6 +8,7 @@ use Doctrine\DBAL\Connection;
 use Survos\FolioBundle\Attribute\FolioContext;
 use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Row,Term,TermSet};
 use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService};
+use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -24,6 +25,7 @@ final class FolioController extends AbstractController
         private readonly FolioChatService $chat,
         private readonly FolioChatPromptSuggester $promptSuggester,
         private readonly FolioWordCloudService $wordCloud,
+        private readonly ImgproxyUrlBuilder $imgproxy,
     ) {}
 
 

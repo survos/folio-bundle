@@ -95,23 +95,6 @@
                         }
                     });
                 </script>
-
-                {# diva.js page-turning viewer of the SAME row, embedded directly
-                   below the OpenSeadragon doc-viewer so the two can be compared
-                   side by side. Same iiif:viewer component, viewer="diva". #}
-                <div id="diva-viewer" class="card mb-3">
-                    <div class="card-header py-2">
-                        <h2 class="card-title mb-0 h5">diva.js viewer <span class="text-muted fw-normal">— comparison</span></h2>
-                    </div>
-                    <div class="card-body p-0">
-                        <twig:iiif:viewer
-                            viewer="diva"
-                            manifestUrl="{{ rowManifestUrl }}"
-                            :height="600"
-                            :showLinks="false"
-                        />
-                    </div>
-                </div>
             {% endif %}
 
             {# Image listing — every page as a thumbnail gallery. #}
