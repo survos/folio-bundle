@@ -3,7 +3,7 @@
 {% set parts = ctx.folioCode|split('/') %}
 {% set provider = parts[0] %}
 {% set dataset = parts[1] %}
-{% set folioLabel = 'Folio ' ~ ctx.folioCode %}
+{% set folioLabel = app.request.attributes.get('current_folio_title', ctx.folioCode) %}
 
 {% block body_class %}folio-layout{% endblock %}
 

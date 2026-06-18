@@ -50,8 +50,75 @@
 
 {% block body_class %}folio-layout{% endblock %}
 {% block body %}
-    <twig:Mezcalito:UxSearch:Layout
-        name="folio_row"
-        :options="hitOptions"
-    />
+    <div id="ux-search-results-top" style="scroll-margin-top: 1rem;"></div>
+
+    <div id="ux-search-wrapper">
+        <twig:Mezcalito:UxSearch:Layout
+            name="folio_row"
+            :options="hitOptions"
+        />
+    </div>
+
+    <script>
+        (() => {
+            const initUxSearchScroll = () => {
+                const top = document.getElementById('ux-search-results-top');
+                const wrapper = document.getElementById('ux-search-wrapper');
+
+                if (!top || !wrapper || wrapper.dataset.scrollHandlerAttached) {
+                    return;
+                }
+
+                wrapper.dataset.scrollHandlerAttached = '1';
+
+                let shouldScroll = false;
+
+                wrapper.addEventListener('click', (event) => {
+                    const trigger = event.target.closest(
+                        'a, button, [data-action*="live#action"]'
+                    );
+
+                    if (trigger) {
+                        shouldScroll = true;
+                    }
+                });
+
+                wrapper.addEventListener('change', (event) => {
+                    if (event.target.matches('input, select, textarea')) {
+                        shouldScroll = true;
+                    }
+                });
+
+                wrapper.addEventListener('input', (event) => {
+                    if (event.target.matches('input[type="search"], input[type="text"]')) {
+                        shouldScroll = true;
+                    }
+                });
+
+                const observer = new MutationObserver(() => {
+                    if (!shouldScroll) {
+                        return;
+                    }
+
+                    shouldScroll = false;
+
+                    setTimeout(() => {
+                        top.scrollIntoView({
+                            behavior: 'instant',
+                            block: 'start'
+                        });
+                    }, 100);
+                });
+
+                observer.observe(wrapper, {
+                    childList: true,
+                    subtree: true
+                });
+            };
+
+            document.addEventListener('DOMContentLoaded', initUxSearchScroll);
+            document.addEventListener('turbo:load', initUxSearchScroll);
+            initUxSearchScroll();
+        })();
+    </script>
 {% endblock %}

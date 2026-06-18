@@ -1,6 +1,6 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
 
-{% set folioLabel = 'Folio ' ~ ctx.folioCode %}
+{% set folioLabel = app.request.attributes.get('current_folio_title', ctx.folioCode) %}
 
 {% block stylesheets %}
     {{ parent() }}

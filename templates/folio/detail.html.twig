@@ -125,6 +125,7 @@
                     {% set viewerImages = viewerImages|merge([pageImg]) %}
                     {% set viewerHires = viewerHires|merge([pageHires]) %}
                 {% endfor %}
+                {% set pageAiUrls = viewerHires %}
 
                 <div id="doc-viewer" class="card mb-3">
                     <div class="card-body p-0">
@@ -154,20 +155,12 @@
                 </script>
             {% endif %}
 
-            {# Image listing — header (AI + viewer links) for any imaged row; the thumbnail grid
-               below is only worth showing when there's more than one image. #}
-            {% if pages|length > 0 %}
+            {# Image listing — every page as a thumbnail gallery. #}
+            {% if pages|length > 1 %}
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>
                         <div class="btn-list">
-                            {# AI demo button — only when the app wires folioAiRoute (e.g. zm → mediary). #}
-                            {% if folioAiRoute|default(null) and pages|length > 0 %}
-                                <a href="{{ path(folioAiRoute, {url: (pages|first).url, task: 'ocr_mistral'}) }}"
-                                   target="_blank" rel="noopener" class="btn btn-sm btn-outline-purple">
-                                    <i class="ti ti-sparkles"></i> AI
-                                </a>
-                            {% endif %}
                             {# diva.js standalone debug viewer (iiif-bundle), fed this row's manifest (rowManifestUrl set above) #}
                             <a href="{{ path('survos_iiif_debug', {manifest: rowManifestUrl}) }}"
                                target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
@@ -176,8 +169,6 @@
                         </div>
                     </div>
 
-                    {# Thumbnail grid only for multi-image rows — a lone thumbnail just duplicates the viewer above. #}
-                    {% if pages|length > 1 %}
                     <div class="card-body">
                         <div class="row g-2">
                             {% for page in pages|slice(0, 60) %}
@@ -207,7 +198,6 @@
                             </div>
                         {% endif %}
                     </div>
-                    {% endif %}{# /thumbnail grid (pages > 1) #}
                 </div>
             {% endif %}
 
@@ -311,6 +301,22 @@
         <div class="col-lg-4">
             {% if th %}
                 <div class="card mb-3">
+                    {% if folioAiRoute|default(null) and pageAiUrls|length > 0 %}
+                        <div class="card-header justify-content-end">
+                            <a
+                                id="folio-ai-page-link"
+                                href="{{ path(folioAiRoute, {url: pageAiUrls|first, task: 'ocr_mistral'}) }}"
+                                data-ai-url-template="{{ path(folioAiRoute, {url: '__URL__', task: 'ocr_mistral'}) }}"
+                                data-ai-images="{{ pageAiUrls|json_encode|e('html_attr') }}"
+                                target="_blank"
+                                rel="noopener"
+                                class="btn btn-sm btn-outline-purple"
+                            >
+                                <i class="ti ti-sparkles"></i> AI
+                            </a>
+                        </div>
+                    {% endif %}
+
                     <div class="card-body text-center">
                         {% set imageUrl = th %}
                         {% guard filter imgproxy %}
@@ -480,10 +486,38 @@
     </div>
 
     <script>
-        function initOSDViewerStrip() {
+        function updateFolioAiLink(pageIndex) {
+            const link = document.getElementById('folio-ai-page-link');
+
+            if (!link) {
+                return;
+            }
+
+            let images = [];
+
+            try {
+                images = JSON.parse(link.dataset.aiImages || '[]');
+            } catch (e) {
+                images = [];
+            }
+
+            const index = Number(pageIndex);
+            const imageUrl = Number.isInteger(index) ? images[index] : null;
+            const template = link.dataset.aiUrlTemplate || '';
+
+            if (!imageUrl || !template) {
+                return;
+            }
+
+            link.href = template.replace('__URL__', encodeURIComponent(imageUrl));
+        }
+
+        function initFolioDetailViewerControls() {
             const viewerEl = document.querySelector(
                 '[data-controller="survos--iiif-bundle--iiif-viewer"]'
             );
+
+            updateFolioAiLink(0);
 
             if (!viewerEl) {
                 return;
@@ -500,6 +534,7 @@
                     }
 
                     viewerEl.viewer.goToPage(pageIndex);
+                    updateFolioAiLink(pageIndex);
 
                     document.querySelectorAll('.js-osd-page img').forEach((img) => {
                         img.classList.remove('border-primary');
@@ -510,7 +545,8 @@
             });
         }
 
-        document.addEventListener('turbo:load', initOSDViewerStrip);
-        document.addEventListener('DOMContentLoaded', initOSDViewerStrip);
+        document.addEventListener('iiif-viewer:page', (e) => updateFolioAiLink(e.detail.index));
+        document.addEventListener('turbo:load', initFolioDetailViewerControls);
+        document.addEventListener('DOMContentLoaded', initFolioDetailViewerControls);
     </script>
 {% endblock %}

@@ -211,6 +211,42 @@ final class FolioPullCommand
         return $folios;
     }
 
+    /** GET <baseUrl>/folio/list.json and render the first page as a table — the "nothing requested" view. */
+    private function showApiList(SymfonyStyle $io, string $baseUrl): int
+    {
+        if ($this->http === null) {
+            $io->error('No HTTP client available (require symfony/http-client).');
+            return Command::FAILURE;
+        }
+
+        $data = $this->http->request('GET', $baseUrl . '/folio/list.json')->toArray(false);
+        $folios = is_array($data['folios'] ?? null) ? $data['folios'] : [];
+        if ($folios === []) {
+            $io->warning(sprintf('No folios available at %s', $baseUrl));
+            return Command::SUCCESS;
+        }
+
+        $total = (int) ($data['count'] ?? count($folios));
+        $io->title(sprintf('%d folio(s) at %s', $total, $baseUrl));
+
+        $page = array_slice($folios, 0, 25);
+        $io->table(['dataset', 'title', 'size', 'rows'], array_map(
+            static fn (array $f): array => [
+                (string) ($f['datasetKey'] ?? ''),
+                (string) ($f['title'] ?? ''),
+                (string) Bytes::parse($f['sizeBytes'] ?? 0)->humanize(),
+                number_format((int) ($f['rowCount'] ?? 0)),
+            ],
+            $page,
+        ));
+
+        $io->writeln($total > count($page)
+            ? sprintf('Showing first %d of %d. Pull with --dataset=<key>, --provider=<p>, or --all.', count($page), $total)
+            : 'Pull with --dataset=<key>, --provider=<p>, or --all.');
+
+        return Command::SUCCESS;
+    }
+
     /**
      * Default source: read `<provider>/<code>.folio.gz` from the folio_archive flysystem storage
      * (SFTP/S3/local — backend is pure config) and inflate via the same restore() path as HF.

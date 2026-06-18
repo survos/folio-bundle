@@ -38,8 +38,8 @@ final class SurvosFolioBundle extends AbstractBundle
             ->scalarNode('extension')->defaultValue('folio')->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
             ->scalarNode('folio_server')
-                ->info('Base URL of the app that hosts the full folio UX. Null = this app. Used to build browse links (e.g. harvest -> https://zm.example).')
-                ->defaultNull()
+                ->info('Base URL of the live folio site — hosts the full folio UX and the folio archive API. Used for browse links and as the default folio:pull source (GET <server>/folio/list.json).')
+                ->defaultValue('https://zm.survos.com')
             ->end()
         ->end();
     }

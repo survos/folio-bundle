@@ -80,13 +80,69 @@
         ]) %}
     {% endif %}
 
+    <div id="api-grid-top" style="scroll-margin-top: 1rem;"></div>
+
     {% if dtoStats %}
+        {% set selectedDtoChoice = dtoChoices|filter(dto => dto.type == selectedDto)|first %}
+        {% set selectedDtoLabel = selectedDtoChoice ? selectedDtoChoice.label : 'All' %}
+        {% set selectedDtoCount = selectedDtoChoice ? selectedDtoChoice.count : core.rowCount %}
+
         <div class="card mb-3">
-            <div class="card-body py-2">
-                <ul class="nav nav-pills flex-wrap gap-2 mb-0">
+            <div class="card-body p-2">
+
+                {# Mobile dropdown #}
+                <div class="dropdown d-md-none">
+                    <button
+                        class="btn dropdown-toggle w-100 d-flex justify-content-between align-items-center"
+                        type="button"
+                        data-bs-toggle="dropdown"
+                        aria-expanded="false"
+                    >
+                        <span>{{ selectedDtoLabel }}</span>
+                        <span class="badge text-bg-secondary ms-auto me-3">
+                            {{ selectedDtoCount|number_format }}
+                        </span>
+                    </button>
+
+                    <div class="dropdown-menu w-100" style="max-height: 240px; overflow-y: scroll;">
+                        <a
+                            class="dropdown-item d-flex justify-content-between align-items-center {{ not selectedDto ? 'active' }}"
+                            href="{{ path('survos_folio_core', {
+                                provider: provider,
+                                dataset: dataset,
+                                coreCode: core.code
+                            }) }}"
+                        >
+                            <span>All</span>
+                            <span class="badge text-bg-secondary">
+                                {{ core.rowCount|number_format }}
+                            </span>
+                        </a>
+
+                        {% for dto in dtoChoices %}
+                            <a
+                                class="dropdown-item d-flex justify-content-between align-items-center {{ selectedDto == dto.type ? 'active' }}"
+                                href="{{ path('survos_folio_core_dto', {
+                                    provider: provider,
+                                    dataset: dataset,
+                                    coreCode: core.code,
+                                    dtoType: dto.type
+                                }) }}"
+                            >
+                                <span>{{ dto.label }}</span>
+                                <span class="badge text-bg-secondary">
+                                    {{ dto.count|number_format }}
+                                </span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                {# Desktop pills #}
+                <ul class="nav nav-pills flex-wrap gap-2 mb-0 d-none d-md-flex">
                     <li class="nav-item">
                         <a
-                            class="nav-link d-flex align-items-center gap-2 {{ not selectedDto ? 'active' }}"
+                            class="nav-link d-inline-flex align-items-center gap-2 {{ not selectedDto ? 'active' }}"
                             href="{{ path('survos_folio_core', {
                                 provider: provider,
                                 dataset: dataset,
@@ -103,7 +159,7 @@
                     {% for dto in dtoChoices %}
                         <li class="nav-item">
                             <a
-                                class="nav-link d-flex align-items-center gap-2 {{ selectedDto == dto.type ? 'active' }}"
+                                class="nav-link d-inline-flex align-items-center gap-2 {{ selectedDto == dto.type ? 'active' }}"
                                 href="{{ path('survos_folio_core_dto', {
                                     provider: provider,
                                     dataset: dataset,
@@ -119,16 +175,74 @@
                         </li>
                     {% endfor %}
                 </ul>
+
             </div>
         </div>
     {% endif %}
 
-    <twig:api_grid
-        :class="rowClass"
-        :apiGetCollectionUrl="apiUrl"
-        :columns="apiColumns"
-        :filter="selectedDto ? {dtoType: selectedDto} : {}"
-        :pageLength="50"
-        :search="true"
-    />
+    <div id="api-grid-wrapper">
+        <twig:api_grid
+            :class="rowClass"
+            :apiGetCollectionUrl="apiUrl"
+            :columns="apiColumns"
+            :filter="selectedDto ? {dtoType: selectedDto} : {}"
+            :pageLength="50"
+            :search="true"
+        />
+    </div>
+
+    <script>
+        (() => {
+            const initApiGridScroll = () => {
+                const top = document.getElementById('api-grid-top');
+                const wrapper = document.getElementById('api-grid-wrapper');
+
+                if (!top || !wrapper || wrapper.dataset.scrollHandlerAttached) {
+                    return;
+                }
+
+                wrapper.dataset.scrollHandlerAttached = '1';
+
+                let shouldScroll = false;
+
+                wrapper.addEventListener('click', (event) => {
+                    if (event.target.closest('a, button')) {
+                        shouldScroll = true;
+                    }
+                });
+
+                wrapper.addEventListener('change', () => {
+                    shouldScroll = true;
+                });
+
+                wrapper.addEventListener('input', () => {
+                    shouldScroll = true;
+                });
+
+                const observer = new MutationObserver(() => {
+                    if (!shouldScroll) {
+                        return;
+                    }
+
+                    shouldScroll = false;
+
+                    setTimeout(() => {
+                        top.scrollIntoView({
+                            behavior: 'instant',
+                            block: 'start'
+                        });
+                    }, 100);
+                });
+
+                observer.observe(wrapper, {
+                    childList: true,
+                    subtree: true
+                });
+            };
+
+            document.addEventListener('DOMContentLoaded', initApiGridScroll);
+            document.addEventListener('turbo:load', initApiGridScroll);
+            initApiGridScroll();
+        })();
+    </script>
 {% endblock %}
