@@ -25,7 +25,7 @@ final class FolioController extends AbstractController
         private readonly FolioChatService $chat,
         private readonly FolioChatPromptSuggester $promptSuggester,
         private readonly FolioWordCloudService $wordCloud,
-        private readonly ImgproxyUrlBuilder $imgproxy,
+        private readonly ?ImgproxyUrlBuilder $imgproxy = null,
     ) {}
 
 

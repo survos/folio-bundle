@@ -17,16 +17,23 @@
 {% set dataset = parts[1] %}
 {% set th = row.thumbnailSource %}
 {% set termFields = terms ? ['genreSpecific', 'tec', 'mat', 'coll'] : [] %}
+{% set tombstoneTitle = attribute(row.dtoData, 'title')|default(row.label ?: row.localId) %}
+{% set tombstoneDescription = attribute(row.dtoData, 'description')|default(null) %}
+{% set tombstoneDate = attribute(row.dtoData, 'date')|default(null) %}
+{% set tombstoneDimensions = attribute(row.dtoData, 'dimensions')|default(attribute(row.dtoData, 'dimensionsRaw')|default(null)) %}
+{% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
+{% set sourceUrl = attribute(row.dtoData, 'url')|default(null) %}
+{% set tombstoneUrl = citationUrl ?: sourceUrl %}
+{% set promotedFields = ['title', 'description', 'date', 'dimensions', 'dimensionsRaw', 'weight', 'citationUrl', 'ocrText'] %}
+{% if sourceUrl and (sourceUrl == citationUrl or citationUrl is empty) %}
+    {% set promotedFields = promotedFields|merge(['url']) %}
+{% endif %}
+{% set ocrText = attribute(row.dtoData, 'ocrText')|default(null) %}
+{% set pageCount = attribute(row.dtoData, 'pageCount')|default(null) %}
 
 {% block body_class %}folio-layout{% endblock %}
 
-{% block page_pretitle %}Folio Row{% endblock %}
-
-{% block page_title %}
-    {{ row.label ?: row.localId }}
-{% endblock %}
-
-{% block page_subtitle %}
+{% block page_pretitle %}
     <span class="font-monospace">{{ ctx.folioCode }}</span>
     <span class="mx-1 text-muted">&middot;</span>
     <span class="font-monospace">{{ core.code }}</span>
@@ -35,13 +42,36 @@
         <span class="mx-1 text-muted">&middot;</span>
         {{ row.dtoType }}
     {% endif %}
+{% endblock %}
 
-    <span class="mx-1 text-muted">&middot;</span>
-    <span class="font-monospace">{{ row.localId }}</span>
+{% block page_title %}
+    {{ tombstoneTitle }}
+{% endblock %}
+
+{% block page_subtitle %}
+    {% if tombstoneDescription %}
+        <div class="text-body text-truncate" style="max-width: 100%;">
+            {{ tombstoneDescription|striptags }}
+        </div>
+    {% endif %}
+
+    <div class="d-flex flex-wrap gap-2 small">
+        {% if tombstoneDate %}
+            <span>{{ tombstoneDate }}</span>
+        {% endif %}
+
+        {% if tombstoneDimensions %}
+            <span>{{ tombstoneDimensions is iterable ? tombstoneDimensions|json_encode : tombstoneDimensions }}</span>
+        {% endif %}
+
+        {% if tombstoneUrl %}
+            <a href="{{ tombstoneUrl }}" target="_blank" rel="noopener">Citation</a>
+        {% endif %}
+    </div>
 {% endblock %}
 
 {% block title %}
-    {{ row.label ?: row.localId }} · {{ ctx.folioCode }}
+    {{ tombstoneTitle }} · {{ ctx.folioCode }}
 {% endblock %}
 
 {% block body %}
@@ -124,7 +154,7 @@
             {% endif %}
 
             {# Image listing — every page as a thumbnail gallery. #}
-            {% if pages|length > 0 %}
+            {% if pages|length > 1 %}
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>
@@ -154,7 +184,7 @@
                                 {% endguard %}
 
                                 <div class="col-4 col-md-3 col-lg-2">
-                                    <a href="{{ src }}" target="_blank" rel="noopener" title="p. {{ page.seq }}">
+                                    <a href="#" class="js-osd-page" data-page-index="{{ loop.index0 }}" title="p. {{ page.seq }}">
                                         <img
                                             src="{{ thumb }}"
                                             alt="p. {{ page.seq }}"
@@ -182,14 +212,12 @@
                 </div>
 
                 {% set imageFields = ['thumbnailUrl', 'largeImageUrl', 'iiifBase', 'iiifManifest', 'iiifInfo', 'imageCount', 'hasImages', 'sourceUrl'] %}
-                {% set longFields = ['ocrText'] %}
-
                 <div class="table-responsive">
                     <table class="table table-vcenter card-table">
                         <tbody>
                             {% for field in columns %}
                                 {% set value = attribute(row.dtoData, field)|default(null) %}
-                                {% if value is not empty and field not in termFields and field not in imageFields %}
+                                {% if value is not empty and field not in termFields and field not in imageFields and field not in promotedFields %}
                                     <tr>
                                         <th class="w-25 font-monospace text-muted" style="background: var(--tblr-bg-surface); position: sticky; left: 0;">{{ field }}</th>
                                         <td>{{ folio_row.render_value(value) }}</td>
@@ -197,7 +225,7 @@
                                 {% endif %}
                             {% else %}
                                 {% for field, value in row.dtoData %}
-                                    {% if field not in termFields and field not in imageFields %}
+                                    {% if field not in termFields and field not in imageFields and field not in promotedFields %}
                                         <tr>
                                             <th class="w-25 font-monospace text-muted" style="background: var(--tblr-bg-surface); position: sticky; left: 0;">{{ field }}</th>
                                             <td>{{ folio_row.render_value(value) }}</td>
@@ -236,27 +264,6 @@
                     </details>
                 {% endif %}
             </div>
-
-            {% set ocrText = attribute(row.dtoData, 'ocrText')|default(null) %}
-            {% set pageCount = attribute(row.dtoData, 'pageCount')|default(null) %}
-
-            {% if ocrText %}
-                <div class="card mb-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h2 class="card-title mb-0">Transcription</h2>
-
-                        {% if pageCount %}
-                            <span class="text-muted small">{{ pageCount }} pages</span>
-                        {% endif %}
-                    </div>
-
-                    <div class="card-body">
-                        <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-                            {{ ocrText }}
-                        </div>
-                    </div>
-                </div>
-            {% endif %}
 
             {# Claims — AI/OCR/human assertions for this row (folio `claim` table).
                Populated e.g. by running ai-workflow Observe via mediary and landing
@@ -318,23 +325,37 @@
                 </div>
             {% endif %}
 
-            {% guard function dim_render %}
-                {% set dimsArr = attribute(row.dtoData, 'dimensions') %}
-                {% set weightArr = attribute(row.dtoData, 'weight') %}
-                {% set dimsRaw = attribute(row.dtoData, 'dimensionsRaw') %}
+            {% if tombstoneDescription %}
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h2 class="card-title mb-0">Description</h2>
+                    </div>
 
-                {% if dimsArr or weightArr or dimsRaw %}
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            <h2 class="card-title mb-0">Dimensions</h2>
-                        </div>
-
-                        <div class="card-body">
-                            {{ dim_render(dimsArr, weightArr, dimsRaw) }}
+                    <div class="card-body">
+                        <div style="max-height: 360px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+                            {{ tombstoneDescription }}
                         </div>
                     </div>
-                {% endif %}
-            {% endguard %}
+                </div>
+            {% endif %}
+
+            {% if ocrText %}
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h2 class="card-title mb-0">Transcription</h2>
+
+                        {% if pageCount %}
+                            <span class="text-muted small">{{ pageCount }} pages</span>
+                        {% endif %}
+                    </div>
+
+                    <div class="card-body">
+                        <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+                            {{ ocrText }}
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
 
             <div class="card mb-3">
                 <div class="card-header">
@@ -351,15 +372,6 @@
 
                         <dt>DTO Class</dt>
                         <dd class="font-monospace small">{{ dtoClass ?: '(generic)' }}</dd>
-
-                        {% if row.citationUrl %}
-                            <dt>Original</dt>
-                            <dd>
-                                <a href="{{ row.citationUrl }}" target="_blank" rel="noopener">
-                                    Citation record
-                                </a>
-                            </dd>
-                        {% endif %}
                     </dl>
                 </div>
             </div>
@@ -461,4 +473,39 @@
             {% endif %}
         </div>
     </div>
+
+    <script>
+        function initOSDViewerStrip() {
+            const viewerEl = document.querySelector(
+                '[data-controller="survos--iiif-bundle--iiif-viewer"]'
+            );
+
+            if (!viewerEl) {
+                return;
+            }
+
+            document.querySelectorAll('.js-osd-page').forEach((thumb) => {
+                thumb.onclick = (event) => {
+                    event.preventDefault();
+
+                    const pageIndex = Number(thumb.dataset.pageIndex);
+
+                    if (!viewerEl.viewer || !Number.isInteger(pageIndex)) {
+                        return;
+                    }
+
+                    viewerEl.viewer.goToPage(pageIndex);
+
+                    document.querySelectorAll('.js-osd-page img').forEach((img) => {
+                        img.classList.remove('border-primary');
+                    });
+
+                    thumb.querySelector('img')?.classList.add('border-primary');
+                };
+            });
+        }
+
+        document.addEventListener('turbo:load', initOSDViewerStrip);
+        document.addEventListener('DOMContentLoaded', initOSDViewerStrip);
+    </script>
 {% endblock %}

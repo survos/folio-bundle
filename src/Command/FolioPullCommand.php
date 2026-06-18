@@ -4,30 +4,35 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
+use League\Flysystem\FilesystemOperator;
 use Survos\FolioBundle\Service\{FolioArchiveService,FolioService};
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\DependencyInjection\Attribute\Target;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Zenstruck\Bytes;
 
-#[AsCommand('folio:pull', 'Download folio archives from Hugging Face and inflate')]
+#[AsCommand('folio:pull', 'Download folio archives from the folio_archive storage (or Hugging Face) and inflate')]
 final class FolioPullCommand
 {
     public function __construct(
         private readonly FolioService $folios,
         private readonly FolioArchiveService $archiveService,
+        // Optional: apps without a `folio_archive.storage` flysystem storage (e.g. HF-only) inject null.
+        #[Target('folio_archive.storage')]
+        private readonly ?FilesystemOperator $archiveStorage = null,
+        private readonly ?HttpClientInterface $http = null,
     ) {}
 
     public function __invoke(
         SymfonyStyle $io,
 
-        #[Option('Hugging Face dataset repo')]
-        string $repo = 'museado/folios',
-
         #[Option('Folio code to pull (e.g. mus/cleveland)')]
         ?string $dataset = null,
 
-        #[Option('Pull all folios in the repo')]
+        #[Option('Pull all folios in the source')]
         bool $all = false,
 
         #[Option('Provider code (e.g. mus)')]
@@ -35,7 +40,17 @@ final class FolioPullCommand
 
         #[Option('Replace existing folio files')]
         bool $force = false,
+
+        #[Option('Pull from Hugging Face instead of the folio_archive storage')]
+        bool $hf = false,
+
+        #[Option('Hugging Face dataset repo (with --hf)')]
+        string $repo = 'museado/folios',
     ): int {
+        if (!$hf) {
+            return $this->pullFromStorage($io, $dataset, $provider, $all, $force);
+        }
+
         $remotes = $this->resolveRemotes($io, $repo, $dataset, $provider, $all);
         if ($remotes === []) {
             $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
@@ -82,6 +97,97 @@ final class FolioPullCommand
 
         $io->success(sprintf('Pulled %d folio(s), skipped %d current folio(s)', $pulled, $skipped));
         return Command::SUCCESS;
+    }
+
+    /**
+     * Default source: read `<provider>/<code>.folio.gz` from the folio_archive flysystem storage
+     * (SFTP/S3/local — backend is pure config) and inflate via the same restore() path as HF.
+     */
+    private function pullFromStorage(SymfonyStyle $io, ?string $dataset, ?string $provider, bool $all, bool $force): int
+    {
+        if ($this->archiveStorage === null) {
+            $io->error('No folio_archive.storage configured. Add a flysystem storage named "folio_archive.storage", or pass --hf.');
+            return Command::FAILURE;
+        }
+
+        $codes = $this->resolveStorageCodes($dataset, $provider, $all);
+        if ($codes === []) {
+            $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
+            return Command::SUCCESS;
+        }
+
+        $io->title(sprintf('Pulling %d folio(s) from folio_archive storage', count($codes)));
+        $tmpDir = sys_get_temp_dir() . '/folio_pull_' . uniqid();
+        mkdir($tmpDir, 0775, true);
+
+        $pulled = 0;
+        $skipped = 0;
+        foreach ($codes as $code) {
+            $io->section($code);
+
+            $target = $this->folios->path($code);
+            if (is_file($target) && !$force) {
+                $io->text('Exists, skipping (use --force to replace)');
+                $skipped++;
+                continue;
+            }
+
+            $remotePath = $code . '.folio.gz';
+            if (!$this->archiveStorage->fileExists($remotePath)) {
+                $io->warning(sprintf('Not in archive: %s', $remotePath));
+                continue;
+            }
+
+            $localGz = $tmpDir . '/' . str_replace('/', '_', $code) . '.folio.gz';
+            $stream = $this->archiveStorage->readStream($remotePath);
+            $out = fopen($localGz, 'wb');
+            stream_copy_to_stream($stream, $out);
+            fclose($out);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+            $io->text(sprintf('Downloaded: %s (%s)', $remotePath, Bytes::parse(filesize($localGz) ?: 0)->humanize()));
+
+            // restore() gunzips → working folio AND inflates (indexes + FTS + views).
+            $result = $this->archiveService->restore($localGz, $code, $force);
+            $io->text(sprintf(
+                'Inflated: %s (%s, %s FTS rows)',
+                $result['target'],
+                Bytes::parse($result['targetBytes'])->humanize(),
+                number_format($result['indexedRows']),
+            ));
+            $pulled++;
+        }
+
+        $this->rmdir($tmpDir);
+        $io->success(sprintf('Pulled %d folio(s) from storage, skipped %d existing', $pulled, $skipped));
+        return Command::SUCCESS;
+    }
+
+    /** @return list<string> folio codes (provider/code) available in the archive storage */
+    private function resolveStorageCodes(?string $dataset, ?string $provider, bool $all): array
+    {
+        if ($dataset !== null && $dataset !== '') {
+            return [$dataset];
+        }
+        if (!$all && ($provider === null || $provider === '')) {
+            return [];
+        }
+
+        $codes = [];
+        foreach ($this->archiveStorage->listContents('', true) as $item) {
+            if (!$item->isFile() || !str_ends_with($item->path(), '.folio.gz')) {
+                continue;
+            }
+            $code = substr($item->path(), 0, -strlen('.folio.gz'));
+            if ($provider !== null && $provider !== '' && !str_starts_with($code, $provider . '/')) {
+                continue;
+            }
+            $codes[] = $code;
+        }
+
+        sort($codes);
+        return $codes;
     }
 
     /**
