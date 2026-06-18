@@ -17,6 +17,7 @@
 {% set dataset = parts[1] %}
 {% set th = row.thumbnailSource %}
 {% set termFields = terms ? ['genreSpecific', 'tec', 'mat', 'coll'] : [] %}
+{% set pageAiUrls = [] %}
 {% set tombstoneTitle = attribute(row.dtoData, 'title')|default(row.label ?: row.localId) %}
 {% set tombstoneDescription = attribute(row.dtoData, 'description')|default(null) %}
 {% set tombstoneDate = attribute(row.dtoData, 'date')|default(null) %}
@@ -153,8 +154,9 @@
                 </script>
             {% endif %}
 
-            {# Image listing — every page as a thumbnail gallery. #}
-            {% if pages|length > 1 %}
+            {# Image listing — header (AI + viewer links) for any imaged row; the thumbnail grid
+               below is only worth showing when there's more than one image. #}
+            {% if pages|length > 0 %}
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>
@@ -174,6 +176,8 @@
                         </div>
                     </div>
 
+                    {# Thumbnail grid only for multi-image rows — a lone thumbnail just duplicates the viewer above. #}
+                    {% if pages|length > 1 %}
                     <div class="card-body">
                         <div class="row g-2">
                             {% for page in pages|slice(0, 60) %}
@@ -203,6 +207,7 @@
                             </div>
                         {% endif %}
                     </div>
+                    {% endif %}{# /thumbnail grid (pages > 1) #}
                 </div>
             {% endif %}
 

@@ -7,6 +7,7 @@ namespace Survos\FolioBundle\Command;
 use Survos\DatasetBundle\Entity\Artifact;
 use Survos\DatasetBundle\Event\DatasetArtifactUpdatedEvent;
 use Survos\FolioBundle\Service\{FolioArchivePreparer,FolioArchiveService,FolioIngestService,FolioRegistry,FolioService};
+use Survos\JsonlBundle\Service\JsonlStateService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
@@ -49,6 +50,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
         private readonly FolioArchiveService $archiveService,
         private readonly FolioArchivePreparer $preparer,
         private readonly UrlGeneratorInterface $urlGenerator,
+        private readonly JsonlStateService $jsonlState,
         private readonly ?EventDispatcherInterface $dispatcher = null,
         private readonly bool $kernelDebug = false,
         private readonly ?string $folioServer = null,
@@ -129,6 +131,14 @@ final class FolioBuildCommand implements SignalableCommandInterface
         $coreFilter = ($core ?? '') ?: null;
 
         foreach ($datasets as $info) {
+            // Release every handle left open by the PREVIOUS dataset before starting this one:
+            // the folio sqlite connection (checkpoints + drops its -wal/-shm), all cached sidecar
+            // handles, and any lingering PDO objects from archive/inflate/tableCount. Each SQLite
+            // file costs a few fds, so a long `--all` run otherwise dies with "Too many open files".
+            $this->folios->closeActive();
+            $this->jsonlState->closeAll();
+            gc_collect_cycles();
+
             $code = $info->datasetKey;
             $io->section($code);
 

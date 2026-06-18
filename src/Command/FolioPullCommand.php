@@ -24,6 +24,8 @@ final class FolioPullCommand
         #[Target('folio_archive.storage')]
         private readonly ?FilesystemOperator $archiveStorage = null,
         private readonly ?HttpClientInterface $http = null,
+        // survos_folio.folio_server — the live folio site; the default API source for pulls.
+        private readonly ?string $folioServer = null,
     ) {}
 
     public function __invoke(
@@ -41,6 +43,9 @@ final class FolioPullCommand
         #[Option('Replace existing folio files')]
         bool $force = false,
 
+        #[Option('Pull over HTTP from a folio API base URL (e.g. https://zm.example) instead of storage')]
+        ?string $api = null,
+
         #[Option('Pull from Hugging Face instead of the folio_archive storage')]
         bool $hf = false,
 
@@ -48,6 +53,11 @@ final class FolioPullCommand
         string $repo = 'museado/folios',
     ): int {
         if (!$hf) {
+            // Default to the folio API (folio_server) unless --api overrides it; storage is the fallback.
+            $apiBase = ($api !== null && $api !== '') ? $api : $this->folioServer;
+            if ($apiBase !== null && $apiBase !== '') {
+                return $this->pullFromApi($io, $apiBase, $dataset, $provider, $all, $force);
+            }
             return $this->pullFromStorage($io, $dataset, $provider, $all, $force);
         }
 
@@ -97,6 +107,108 @@ final class FolioPullCommand
 
         $io->success(sprintf('Pulled %d folio(s), skipped %d current folio(s)', $pulled, $skipped));
         return Command::SUCCESS;
+    }
+
+    /**
+     * Pull over plain HTTP from a folio API (e.g. zm's read-only `/folio/list.json` + download routes).
+     * No SSH/credentials — just GET the JSON registry, download each `.folio.gz`, restore() + inflate().
+     */
+    private function pullFromApi(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all, bool $force): int
+    {
+        if ($this->http === null) {
+            $io->error('No HTTP client available (require symfony/http-client).');
+            return Command::FAILURE;
+        }
+
+        $baseUrl = rtrim($baseUrl, '/');
+
+        // Nothing requested → just show what's available (first page of the registry).
+        if (($dataset === null || $dataset === '') && ($provider === null || $provider === '') && !$all) {
+            return $this->showApiList($io, $baseUrl);
+        }
+
+        $entries = $this->resolveApiEntries($io, $baseUrl, $dataset, $provider, $all);
+        if ($entries === []) {
+            $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
+            return Command::SUCCESS;
+        }
+
+        $io->title(sprintf('Pulling %d folio(s) from %s', count($entries), $baseUrl));
+        $tmpDir = sys_get_temp_dir() . '/folio_pull_' . uniqid();
+        mkdir($tmpDir, 0775, true);
+
+        $pulled = 0;
+        $skipped = 0;
+        foreach ($entries as $entry) {
+            $code = (string) ($entry['datasetKey'] ?? '');
+            $downloadUrl = (string) ($entry['downloadUrl'] ?? '');
+            if ($code === '' || $downloadUrl === '') {
+                continue;
+            }
+            $io->section($code);
+
+            $target = $this->folios->path($code);
+            if (is_file($target) && !$force) {
+                $io->text('Exists, skipping (use --force to replace)');
+                $skipped++;
+                continue;
+            }
+
+            $localGz = $tmpDir . '/' . str_replace('/', '_', $code) . '.folio.gz';
+            $out = fopen($localGz, 'wb');
+            $response = $this->http->request('GET', $downloadUrl);
+            foreach ($this->http->stream($response) as $chunk) {
+                fwrite($out, $chunk->getContent());
+            }
+            fclose($out);
+            $io->text(sprintf('Downloaded: %s (%s)', $downloadUrl, Bytes::parse(filesize($localGz) ?: 0)->humanize()));
+
+            // restore() gunzips → working folio AND inflates (indexes + FTS + views).
+            $result = $this->archiveService->restore($localGz, $code, $force);
+            $io->text(sprintf(
+                'Inflated: %s (%s, %s FTS rows)',
+                $result['target'],
+                Bytes::parse($result['targetBytes'])->humanize(),
+                number_format($result['indexedRows']),
+            ));
+            $pulled++;
+        }
+
+        $this->rmdir($tmpDir);
+        $io->success(sprintf('Pulled %d folio(s) from API, skipped %d existing', $pulled, $skipped));
+        return Command::SUCCESS;
+    }
+
+    /**
+     * @return list<array<string,mixed>> folio entries from `<baseUrl>/folio/list.json`
+     *   (each has at least datasetKey + downloadUrl), filtered to the requested dataset.
+     */
+    private function resolveApiEntries(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all): array
+    {
+        if (!$all && ($dataset === null || $dataset === '') && ($provider === null || $provider === '')) {
+            return [];
+        }
+
+        $query = [];
+        if ($provider !== null && $provider !== '') {
+            $query['provider'] = $provider;
+        }
+        $url = $baseUrl . '/folio/list.json' . ($query !== [] ? '?' . http_build_query($query) : '');
+
+        $data = $this->http->request('GET', $url)->toArray(false);
+        $folios = is_array($data['folios'] ?? null) ? $data['folios'] : [];
+
+        if ($dataset !== null && $dataset !== '') {
+            $folios = array_values(array_filter(
+                $folios,
+                static fn (array $f): bool => ($f['datasetKey'] ?? null) === $dataset,
+            ));
+            if ($folios === []) {
+                $io->warning(sprintf('Not in API registry: %s', $dataset));
+            }
+        }
+
+        return $folios;
     }
 
     /**

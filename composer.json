@@ -17,6 +17,7 @@
     "symfony/ai-agent": "^0.10",
     "symfony/config": "^8.1",
     "symfony/console": "^8.1",
+    "symfony/http-client": "^8.1",
     "symfony/dependency-injection": "^8.1",
     "symfony/framework-bundle": "^8.1",
     "symfony/http-kernel": "^8.1",
