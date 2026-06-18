@@ -50,8 +50,31 @@
             {# Pages — the canonical imagery of a row (a list of jpgs, or a PDF's pages). #}
             {% set pages = pageTableExists ? row.pages : [] %}
 
-            {# Multi-page document viewer #}
-            {% if pages|length > 0 %}
+            {# A row's canonical media is EITHER a PDF (pdfUrl set during normalization) or a
+               sequence of images. PDF wins — it also carries a cover-image page for thumbnails,
+               so we must branch on pdfUrl before the image viewer. Both viewers emit the same
+               `iiif-viewer:page` event, so the page-status script below is shared. #}
+            {% set pdfUrl = attribute(row.dtoData, 'pdfUrl')|default(null) %}
+            {% set docPageCount = attribute(row.dtoData, 'pageCount')|default(0) %}
+
+            {% if pdfUrl %}
+                {# PDF document → pdf.js viewer (page-by-page, emits iiif-viewer:page, OCR-ready). #}
+                <div id="doc-viewer" class="card mb-3">
+                    <div class="card-body p-0">
+                        <twig:iiif:pdf
+                            :url="pdfUrl"
+                            :pageCount="docPageCount"
+                            :height="600"
+                            :showLinks="true"
+                        />
+                    </div>
+
+                    <div id="doc-page-status" class="card-footer py-2 small text-muted">
+                        {{ docPageCount ? 'PDF · ' ~ docPageCount ~ ' pages' : 'PDF' }} — OCR not wired yet
+                    </div>
+                </div>
+
+            {% elseif pages|length > 0 %}
                 {# This row's IIIF Presentation manifest — shared by the OpenSeadragon
                    viewer, the diva.js comparison viewer, and the external link below.
                    Absolute (url(), not path()) so it resolves correctly when diva.js
@@ -86,7 +109,10 @@
                         Page 1 of {{ viewerImages|length }} — OCR not wired yet
                     </div>
                 </div>
+            {% endif %}
 
+            {# Shared across both viewers — they emit the identical iiif-viewer:page event. #}
+            {% if pdfUrl or pages|length > 0 %}
                 <script>
                     document.addEventListener('iiif-viewer:page', function (e) {
                         var el = document.getElementById('doc-page-status');
@@ -228,6 +254,43 @@
                         <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
                             {{ ocrText }}
                         </div>
+                    </div>
+                </div>
+            {% endif %}
+
+            {# Claims — AI/OCR/human assertions for this row (folio `claim` table).
+               Populated e.g. by running ai-workflow Observe via mediary and landing
+               the result here. Predicate-keyed, with source + confidence provenance. #}
+            {% if claims|default([]) is not empty %}
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h2 class="card-title mb-0">Claims <span class="text-muted">({{ claims|length }})</span></h2>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-vcenter card-table">
+                            <tbody>
+                                {% for claim in claims %}
+                                    <tr>
+                                        <th class="w-25 align-top font-monospace text-muted" style="background: var(--tblr-bg-surface)">
+                                            {{ claim.predicate }}
+                                        </th>
+                                        <td>
+                                            <div style="white-space: pre-wrap; word-break: break-word;">{{ claim.value }}</div>
+                                            <div class="text-muted small mt-1">
+                                                <span class="badge text-bg-light border">{{ claim.source }}</span>
+                                                {% if claim.confidence is not null %}
+                                                    <span title="confidence">{{ (claim.confidence * 100)|round }}%</span>
+                                                {% endif %}
+                                                {% if claim.agent %}
+                                                    <span class="mx-1">&middot;</span><span class="font-monospace">{{ claim.agent }}</span>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             {% endif %}

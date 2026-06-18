@@ -237,6 +237,7 @@ final class FolioController extends AbstractController
         $dtoClass = is_array($schemaTable) && is_string($schemaTable['dto_class'] ?? null) ? $schemaTable['dto_class'] : $this->dtoTypeResolver->classForType($row->dtoType);
         $columns = $schemaTable ? $this->schemaColumns($ctx->em->getConnection(), (string) $schemaTable['id']) : ($dtoClass ? $this->dtoColumns($dtoClass) : []);
         $pageTableExists = $this->tableExists($ctx->em->getConnection(), 'page');
+        $claims = $this->rowClaims($ctx->em->getConnection(), $row->id);
         $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
         $terms = $this->rowTerms($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
         $extras = $row->extras ?? [];
@@ -246,7 +247,7 @@ final class FolioController extends AbstractController
             unset($extras['creator']);
         }
 
-        return $this->render('@SurvosFolioBundle/folio/row.html.twig', [
+        return $this->render('@SurvosFolioBundle/folio/detail.html.twig', [
             'ctx' => $ctx,
             'core' => $core,
             'row' => $row,
@@ -254,6 +255,7 @@ final class FolioController extends AbstractController
             'columns' => $columns,
             'schemaTable' => $schemaTable,
             'pageTableExists' => $pageTableExists,
+            'claims' => $claims,
             'links' => $links,
             'terms' => $terms,
             'extras' => $extras,
@@ -513,6 +515,24 @@ final class FolioController extends AbstractController
             'columns'     => $columns,
             'schemaTable' => $schemaTable,
         ]);
+    }
+
+    /**
+     * Claims recorded against a row (AI/OCR/human assertions), e.g. produced by
+     * running ai-workflow tasks via mediary and landed in the folio `claim` table.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function rowClaims(Connection $conn, string $itemId): array
+    {
+        if (!$this->tableExists($conn, 'claim')) {
+            return [];
+        }
+
+        return $conn->executeQuery(
+            'SELECT predicate, value, source, confidence, agent, claimed_at FROM claim WHERE item_id = ? ORDER BY source, predicate',
+            [$itemId],
+        )->fetchAllAssociative();
     }
 
     private function tableExists(Connection $conn, string $table): bool

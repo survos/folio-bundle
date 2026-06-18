@@ -335,13 +335,24 @@ final class FolioIngestService
     {
         $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
         $expected = 0;
+        // This only seeds the progress bar — a count that can't be read (a locked or
+        // unreadable sidecar, fd pressure, …) must never abort the build, so a failure
+        // here just leaves the estimate approximate.
         foreach ($sources as $sourceFile) {
-            $expected += $this->counter->rows($sourceFile);
+            try {
+                $expected += $this->counter->rows($sourceFile);
+            } catch (\Throwable) {
+                // skip — estimate stays approximate
+            }
         }
         foreach (['term.jsonl', 'link.jsonl'] as $phaseFile) {
             $path = $normalizeDir . '/' . $phaseFile;
             if (is_file($path)) {
-                $expected += $this->counter->rows($path);
+                try {
+                    $expected += $this->counter->rows($path);
+                } catch (\Throwable) {
+                    // skip — estimate stays approximate
+                }
             }
         }
 

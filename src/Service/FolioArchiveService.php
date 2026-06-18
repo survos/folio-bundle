@@ -32,6 +32,12 @@ final readonly class FolioArchiveService
             throw new \RuntimeException(sprintf('Unable to create archive directory "%s".', $dir));
         }
 
+        // Fold the WAL into the main file before the copy: copy() takes only the
+        // .folio bytes, not the -wal sidecar, and SQLite auto-checkpoints just every
+        // ~1000 WAL pages — so without this the tail of recent commits (rows, the
+        // archivePreparedAt just written above) can be missing from the archive.
+        $this->checkpoint($source);
+
         $tmp = $archivePath . '.tmp.sqlite';
         if (!copy($source, $tmp)) {
             throw new \RuntimeException(sprintf('Unable to create archive staging copy "%s".', $tmp));
@@ -147,12 +153,36 @@ final readonly class FolioArchiveService
         $fts = $this->ftsIndexer->rebuild($dbFile);
         $ftsTime = microtime(true) - $tFts;
 
+        // Leave the working folio self-contained: the index/view/FTS rebuilds above
+        // each left frames in the -wal. Checkpoint so a copy/upload — or a reader on
+        // a fresh connection — never sees a torn db missing the latest derived tables.
+        $this->checkpoint($dbFile);
+
         return [
             'indexes' => $indexes,
             'views' => $views['views'] ?? 0,
             'ftsRows' => $fts['rows'] ?? 0,
             'timing' => ['indexes' => $indexesTime, 'views' => $viewsTime, 'fts' => $ftsTime],
         ];
+    }
+
+    /**
+     * Fold the WAL back into the main database file (TRUNCATE resets the -wal too),
+     * so a subsequent file-level copy or a shipped/served folio is self-contained.
+     * SQLite only auto-checkpoints every ~1000 WAL pages, so the tail of recent
+     * commits can otherwise sit unflushed in the -wal sidecar and be lost on copy.
+     */
+    private function checkpoint(string $dbFile): void
+    {
+        if (!is_file($dbFile)) {
+            return;
+        }
+
+        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $pdo->exec('PRAGMA busy_timeout = 30000');
+        $pdo->exec('PRAGMA wal_checkpoint(TRUNCATE)');
+        unset($pdo);
     }
 
     private function gzip(string $source, string $target): void

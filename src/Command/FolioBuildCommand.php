@@ -236,6 +236,10 @@ final class FolioBuildCommand implements SignalableCommandInterface
                         'coreCounts' => $this->coreCounts($result['cores']),
                         'terms' => (int) $result['terms'],
                         'links' => (int) $result['links'],
+                        // Cache derived-table counts on the Artifact so the homepage shows
+                        // them without opening each folio sqlite per row.
+                        'pageCount' => $this->tableCount($workingPath, 'page'),
+                        'claimCount' => $this->tableCount($workingPath, 'claim'),
                     ],
                 );
             } elseif (is_file($workingPath)) {
@@ -255,6 +259,23 @@ final class FolioBuildCommand implements SignalableCommandInterface
             Helper::formatTime(microtime(true) - $startedAt),
         ));
         return Command::SUCCESS;
+    }
+
+    /** COUNT(*) for a folio table, or 0 if the table is absent. Cheap, once per build. */
+    private function tableCount(string $dbFile, string $table): int
+    {
+        try {
+            $pdo = new \PDO('sqlite:' . $dbFile);
+            $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+            $exists = $pdo->query(sprintf(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=%s",
+                $pdo->quote($table),
+            ))->fetchColumn();
+
+            return $exists === false ? 0 : (int) $pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 
     /** @param array<string,array{count:int,classCounts?:array<string,int>}> $cores */
