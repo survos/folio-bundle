@@ -9,6 +9,7 @@
 
 {% block body_class %}folio-layout{% endblock %}
 
+{#
 {% block page_pretitle %}Folio Schema{% endblock %}
 
 {% block page_title %}
@@ -22,6 +23,7 @@
     <span class="mx-1 text-muted">&middot;</span>
     {{ views|length }} views
 {% endblock %}
+#}
 
 {% block title %}Schema: {{ ctx.folioCode }}{% endblock %}
 
@@ -136,6 +138,12 @@
             </div>
         </div>
     </div>
+
+    <style>
+        .page-header {
+            display: none !important;
+        }
+    </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script>hljs.highlightAll();</script>

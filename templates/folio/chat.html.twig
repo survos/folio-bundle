@@ -4,6 +4,7 @@
 
 {% block body_class %}folio-layout{% endblock %}
 
+{#
 {% block page_pretitle %}Folio Chat{% endblock %}
 
 {% block page_title %}
@@ -15,6 +16,7 @@
     <span class="mx-1 text-muted">&middot;</span>
     Ask questions against the folio FTS5 index
 {% endblock %}
+#}
 
 {% block title %}Chat: {{ ctx.folioCode }}{% endblock %}
 
@@ -239,4 +241,10 @@
             </div>
         </div>
     </div>
+
+    <style>
+        .page-header {
+            display: none !important;
+        }
+    </style>
 {% endblock %}

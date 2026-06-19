@@ -6,6 +6,7 @@
 {% set folioLabel = folio and folio.label ? folio.label : ctx.folioCode %}
 {% set hitOptions = { folioCode: ctx.folioCode, hitTemplate: 'search/hits/folio_row.html.twig' } %}
 
+{#
 {% block page_pretitle %}Folio Search{% endblock %}
 {% block page_title %}{{ folioLabel }}{% endblock %}
 
@@ -15,6 +16,7 @@
         <span class="mx-1 text-muted">&middot;</span>{{ folio.rowCount|number_format }} records
     {% endif %}
 {% endblock %}
+#}
 
 {% block title %}{{ folioLabel }} Search{% endblock %}
 
@@ -121,4 +123,10 @@
             initUxSearchScroll();
         })();
     </script>
+
+    <style>
+        .page-header {
+            display: none !important;
+        }
+    </style>
 {% endblock %}

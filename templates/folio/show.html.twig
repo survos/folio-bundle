@@ -7,6 +7,7 @@
 
 {% block body_class %}folio-layout{% endblock %}
 
+{#
 {% block page_pretitle %}Folio Overview{% endblock %}
 
 {% block page_title %}
@@ -20,6 +21,7 @@
     <span class="mx-1 text-muted">&middot;</span>
     {{ totalRows|number_format }} rows
 {% endblock %}
+#}
 
 {% block title %}{{ folioLabel }}{% endblock %}
 
@@ -226,4 +228,10 @@
             </div>
         </div>
     {% endif %}
+
+    <style>
+        .page-header {
+            display: none !important;
+        }
+    </style>
 {% endblock %}
