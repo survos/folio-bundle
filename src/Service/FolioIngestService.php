@@ -73,7 +73,7 @@ final class FolioIngestService
     }
 
     /**
-     * @return array{rows:int,skipped:int,terms:int,links:int,cores:array<string,array{count:int,file:string}>}
+     * @return array{rows:int,skipped:int,terms:int,links:int,pages:int,pagesSkipped:int,cores:array<string,array{count:int,file:string}>}
      */
     public function ingestDataset(
         DatasetInfo $dataset,
@@ -212,6 +212,7 @@ final class FolioIngestService
             'terms' => $termCount,
             'links' => $linkResult['count'],
             'pages' => $pageResult['count'],
+            'pagesSkipped' => $pageResult['skipped'],
             'cores' => $coreResults,
         ];
     }
@@ -221,25 +222,43 @@ final class FolioIngestService
      * {coreCode, localId}; per-page AI fields (text/denseSummary/ledger/layout) are
      * folded in by the enriched build and carried straight through here.
      *
-     * @return array{count:int}
+     * @return array{count:int,skipped:int}
      */
     private function ingestPages(EntityManagerInterface $em, string $datasetKey, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
     {
         $pageFile = $this->dataPaths->stageDir($datasetKey, 'normalize') . '/' . PageDto::FILENAME;
         if (!is_file($pageFile)) {
-            return ['count' => 0];
+            return ['count' => 0, 'skipped' => 0];
         }
 
         $conn = $em->getConnection();
+
+        // page.row_id is a NOT NULL FK into item(id). A page can reference a {coreCode, localId}
+        // that has no row — a core excluded by --core, or a stale entry in page.jsonl left over
+        // from a prior normalize that has since dropped/renamed that row. The FK violation aborts
+        // the entire multi-row INSERT (ON CONFLICT(id) only swallows duplicate page ids, never FK
+        // failures), so we must drop orphans *before* they reach the inserter. Load the valid
+        // row-id set once — the items were just written on this same connection's open transaction,
+        // so they're visible here — then skip+count orphan pages: tolerated and reported, like the
+        // duplicate-id rows in {@see FolioBulkInserter}, never silently swallowed.
+        $validRowIds = array_fill_keys($conn->fetchFirstColumn('SELECT id FROM item'), true);
+
         $pages = new FolioBulkInserter($conn, 'page', self::PAGE_COLUMNS);
         $count = 0;
+        $skipped = 0;
 
         foreach (JsonlReader::open($pageFile) as $data) {
             $coreCode = $this->requiredString($data, 'coreCode', $pageFile);
             $localId  = $this->requiredString($data, 'localId', $pageFile);
+            $rowId    = Row::id($datasetKey . ':' . $coreCode, $localId);
+
+            if (!isset($validRowIds[$rowId])) {
+                ++$skipped;
+                continue;
+            }
+
             $url      = $this->requiredString($data, 'url', $pageFile);
             $seq      = (int) ($data['seq'] ?? ($count + 1));
-            $rowId    = Row::id($datasetKey . ':' . $coreCode, $localId);
 
             // Order must match self::PAGE_COLUMNS.
             $pages->add([
@@ -265,7 +284,7 @@ final class FolioIngestService
         }
         $pages->flush();
 
-        return ['count' => $count];
+        return ['count' => $count, 'skipped' => $skipped + $pages->skipped()];
     }
 
     /**

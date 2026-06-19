@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Command;
 
 use League\Flysystem\FilesystemOperator;
+use Psr\Log\LoggerInterface;
 use Survos\FolioBundle\Service\{FolioArchiveService,FolioService};
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -26,6 +27,7 @@ final class FolioPullCommand
         private readonly ?HttpClientInterface $http = null,
         // survos_folio.folio_server — the live folio site; the default API source for pulls.
         private readonly ?string $folioServer = null,
+        private readonly ?LoggerInterface $logger = null,
     ) {}
 
     public function __invoke(
@@ -156,6 +158,7 @@ final class FolioPullCommand
 
             $localGz = $tmpDir . '/' . str_replace('/', '_', $code) . '.folio.gz';
             $out = fopen($localGz, 'wb');
+            $this->logger?->info('folio:pull downloading folio', ['code' => $code, 'url' => $downloadUrl]);
             $response = $this->http->request('GET', $downloadUrl);
             foreach ($this->http->stream($response) as $chunk) {
                 fwrite($out, $chunk->getContent());
@@ -195,6 +198,7 @@ final class FolioPullCommand
         }
         $url = $baseUrl . '/folio/list.json' . ($query !== [] ? '?' . http_build_query($query) : '');
 
+        $this->logger?->info('folio:pull fetching registry', ['url' => $url]);
         $data = $this->http->request('GET', $url)->toArray(false);
         $folios = is_array($data['folios'] ?? null) ? $data['folios'] : [];
 
@@ -219,6 +223,7 @@ final class FolioPullCommand
             return Command::FAILURE;
         }
 
+        $this->logger?->info('folio:pull fetching registry', ['url' => $baseUrl . '/folio/list.json']);
         $data = $this->http->request('GET', $baseUrl . '/folio/list.json')->toArray(false);
         $folios = is_array($data['folios'] ?? null) ? $data['folios'] : [];
         if ($folios === []) {

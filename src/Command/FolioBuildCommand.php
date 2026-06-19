@@ -175,6 +175,9 @@ final class FolioBuildCommand implements SignalableCommandInterface
             if (($result['skipped'] ?? 0) > 0) {
                 $io->writeln(sprintf('  <comment>skipped  %s duplicate-id row(s) (first occurrence kept)</comment>', number_format($result['skipped'])));
             }
+            if (($result['pagesSkipped'] ?? 0) > 0) {
+                $io->writeln(sprintf('  <comment>skipped  %s orphan page(s) (no matching row)</comment>', number_format($result['pagesSkipped'])));
+            }
             if ($io->isVerbose()) {
                 foreach ($result['cores'] as $coreCode => $coreInfo) {
                     $io->writeln(sprintf('  · core %s: %s rows', $coreCode, number_format($coreInfo['count'])));
