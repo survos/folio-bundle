@@ -39,6 +39,9 @@ final class FolioRetriever
             $params['dtoType'] = $dtoType;
         }
 
+        // pages[0] (the row's first image) carries the thumbnail for folios whose dtoData has no
+        // image field (dc, nara). LEFT JOIN so rows without a page still return; the page table is
+        // always present in the folio schema, so the join is safe.
         $sql = sprintf(
             "SELECT d.local_id AS localId,
                     d.label,
@@ -47,9 +50,12 @@ final class FolioRetriever
                     d.dto_data AS dtoData,
                     d.extras AS extras,
                     bm25(item_fts) AS score,
-                    snippet(item_fts, 0, '[[[', ']]]', '...', 32) AS snippet
+                    snippet(item_fts, 0, '[[[', ']]]', '...', 32) AS snippet,
+                    p.url AS pageUrl,
+                    p.media_id AS pageMediaId
              FROM item d
              JOIN item_fts f ON f.rowid = d.rowid
+             LEFT JOIN page p ON p.row_id = d.id AND p.seq = 1
              WHERE %s
              ORDER BY score ASC
              LIMIT :limit",
@@ -65,22 +71,70 @@ final class FolioRetriever
 
         $hits = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
-            [$provider, $dataset, $rowCoreCode] = $this->splitCoreId((string) $row['coreId']);
-            $hits[] = new FolioChatHit(
-                provider: $provider,
-                dataset: $dataset,
-                coreCode: $rowCoreCode,
-                localId: (string) $row['localId'],
-                label: is_string($row['label'] ?? null) && $row['label'] !== '' ? $row['label'] : null,
-                dtoType: is_string($row['dtoType'] ?? null) && $row['dtoType'] !== '' ? $row['dtoType'] : null,
-                score: (float) $row['score'],
-                snippet: is_string($row['snippet'] ?? null) ? $row['snippet'] : '',
-                dtoData: $this->decodeJson($row['dtoData'] ?? null),
-                extras: $this->decodeJson($row['extras'] ?? null),
-            );
+            $hits[] = $this->hitFromRow($row);
         }
 
         return $hits;
+    }
+
+    /**
+     * Fetch one row by its localId (optionally scoped to a core). Used by the agent's get_object tool
+     * and to resolve an item the model cited after a tool search (so it isn't limited to the seed
+     * results). Returns null when not found.
+     */
+    public function byLocalId(FolioContext $ctx, string $localId, ?string $coreCode = null): ?FolioChatHit
+    {
+        $pdo = $this->connect($ctx->path);
+
+        $where = ['d.local_id = :localId'];
+        $params = ['localId' => $localId];
+        if ($coreCode !== null && $coreCode !== '') {
+            $where[] = 'd.core_id = :coreId';
+            $params['coreId'] = sprintf('%s:%s', $ctx->folioCode, $coreCode);
+        }
+
+        $sql = sprintf(
+            "SELECT d.local_id AS localId, d.label, d.dto_type AS dtoType, d.core_id AS coreId,
+                    d.dto_data AS dtoData, d.extras AS extras, 0.0 AS score, '' AS snippet,
+                    p.url AS pageUrl, p.media_id AS pageMediaId
+             FROM item d
+             LEFT JOIN page p ON p.row_id = d.id AND p.seq = 1
+             WHERE %s
+             LIMIT 1",
+            implode(' AND ', $where),
+        );
+
+        $stmt = $pdo->prepare($sql);
+        foreach ($params as $name => $value) {
+            $stmt->bindValue($name, $value);
+        }
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $this->hitFromRow($row) : null;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function hitFromRow(array $row): FolioChatHit
+    {
+        [$provider, $dataset, $rowCoreCode] = $this->splitCoreId((string) $row['coreId']);
+
+        return new FolioChatHit(
+            provider: $provider,
+            dataset: $dataset,
+            coreCode: $rowCoreCode,
+            localId: (string) $row['localId'],
+            label: is_string($row['label'] ?? null) && $row['label'] !== '' ? $row['label'] : null,
+            dtoType: is_string($row['dtoType'] ?? null) && $row['dtoType'] !== '' ? $row['dtoType'] : null,
+            score: (float) $row['score'],
+            snippet: is_string($row['snippet'] ?? null) ? $row['snippet'] : '',
+            dtoData: $this->decodeJson($row['dtoData'] ?? null),
+            extras: $this->decodeJson($row['extras'] ?? null),
+            pageUrl: is_string($row['pageUrl'] ?? null) && $row['pageUrl'] !== '' ? $row['pageUrl'] : null,
+            pageMediaId: is_string($row['pageMediaId'] ?? null) && $row['pageMediaId'] !== '' ? $row['pageMediaId'] : null,
+        );
     }
 
     private function connect(string $dbFile): \PDO

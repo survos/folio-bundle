@@ -18,15 +18,18 @@ final class FolioChatPromptSuggester
      */
     public function suggest(FolioContext $ctx, array $dtoChoices, int $limit = 8): array
     {
-        $prompts = [];
+        // Natural, inviting questions a visitor would actually ask — grounded in what this
+        // collection contains (its dominant item types, salient terms, and matching topics).
+        $prompts = ['Give me an overview of this collection — what is it about?'];
+
         foreach ($this->topDtoLabels($dtoChoices) as $label) {
-            $prompts[] = sprintf('Build a gallery of notable %s. Cite why each row belongs.', $label);
+            $prompts[] = sprintf('What kinds of %s are here, and which stand out?', $label);
         }
 
         $terms = $this->promptTerms($ctx);
-        foreach (array_chunk($terms, 3) as $chunk) {
-            if (count($chunk) >= 2) {
-                $prompts[] = sprintf('Build a gallery around %s. Cite the connecting theme.', implode(', ', $chunk));
+        foreach (array_chunk($terms, 2) as $chunk) {
+            if (count($chunk) === 2) {
+                $prompts[] = sprintf('What does this collection show about %s and %s?', $chunk[0], $chunk[1]);
             }
         }
 
@@ -34,10 +37,8 @@ final class FolioChatPromptSuggester
             $prompts[] = $prompt;
         }
 
-        $prompts[] = 'Actors gallery: theater, stage, performance, portraits. Cite rows.';
-        $prompts[] = 'Athletes gallery: sport, teams, competition, movement. Cite rows.';
-        $prompts[] = 'Soldiers gallery: military, uniforms, memorials, service. Cite rows.';
-        $prompts[] = 'Kids gallery: school, children, games, family. Cite rows.';
+        $prompts[] = 'What time period and places does this collection cover?';
+        $prompts[] = 'Pick a few standout items and tell me their stories.';
 
         return array_slice(array_values(array_unique($prompts)), 0, $limit);
     }
@@ -91,13 +92,13 @@ final class FolioChatPromptSuggester
     private function audiencePrompts(FolioContext $ctx): array
     {
         $topics = [
-            'actors' => ['theater', 'stage', 'performance', 'actor'],
-            'athletes' => ['sport', 'baseball', 'football', 'team'],
-            'politicians' => ['mayor', 'senator', 'political', 'government'],
-            'artists' => ['art', 'artist', 'painting', 'photograph'],
-            'kids' => ['school', 'children', 'toy', 'family'],
-            'geeks' => ['science', 'technology', 'machine', 'computer'],
-            'soldiers' => ['military', 'soldier', 'uniform', 'memorial'],
+            'theater and performers' => ['theater', 'stage', 'performance', 'actor'],
+            'sports and athletes' => ['sport', 'baseball', 'football', 'team'],
+            'politics and government' => ['mayor', 'senator', 'political', 'government'],
+            'art and artists' => ['art', 'artist', 'painting', 'photograph'],
+            'schools and children' => ['school', 'children', 'toy', 'family'],
+            'science and technology' => ['science', 'technology', 'machine', 'computer'],
+            'military service' => ['military', 'soldier', 'uniform', 'memorial'],
         ];
 
         $pdo = $this->connect($ctx->path);
@@ -106,9 +107,9 @@ final class FolioChatPromptSuggester
         }
 
         $prompts = [];
-        foreach ($topics as $audience => $terms) {
+        foreach ($topics as $topic => $terms) {
             if ($this->hasMatches($pdo, $terms)) {
-                $prompts[] = sprintf('%s gallery: %s. Cite rows.', ucfirst($audience), implode(', ', $terms));
+                $prompts[] = sprintf('What can I find here about %s?', $topic);
             }
         }
 

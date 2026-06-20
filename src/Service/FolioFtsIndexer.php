@@ -17,7 +17,11 @@ final class FolioFtsIndexer
         $this->assertFts5($pdo);
 
         $pdo->exec('DROP TABLE IF EXISTS item_fts');
-        $pdo->exec("CREATE VIRTUAL TABLE item_fts USING fts5(body, tokenize='unicode61')");
+        // Porter stemmer over unicode61: natural-language questions use inflected/plural words
+        // ("documents", "songs") that must match the singular/root forms stored in the rows
+        // ("document", "song"). Without stemming, prefix queries like "documents*" miss "document"
+        // entirely, so chat retrieval returned nothing. Porter stems both the index and the query.
+        $pdo->exec("CREATE VIRTUAL TABLE item_fts USING fts5(body, tokenize='porter unicode61')");
         $pdo->exec('DROP TABLE IF EXISTS item_vocab');
         $pdo->exec("CREATE VIRTUAL TABLE item_vocab USING fts5vocab('item_fts', 'row')");
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_core_dto_type ON item(core_id, dto_type)');

@@ -11,7 +11,7 @@ use Survos\FolioBundle\EventListener\{FolioContextListener,FolioFtsIndexListener
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\{FolioCollectionController,FolioController,FolioSearchController};
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatPromptSuggester,FolioChatService,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
+use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\Kit\Traits\HasConfigurableRoutes;
@@ -65,6 +65,9 @@ final class SurvosFolioBundle extends AbstractBundle
         $services->set(FolioFtsIndexer::class)->autowire()->autoconfigure()->public();
         $services->set(FolioQueryAnalyzer::class)->autowire()->autoconfigure()->public();
         $services->set(FolioRetriever::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioChatContextHolder::class)->autowire()->autoconfigure()->public();
+        // autoconfigure() applies the ai-bundle's #[AsTool] autoconfiguration, tagging this ai.tool.
+        $services->set(FolioChatTools::class)->autowire()->autoconfigure()->public();
         $services->set(FolioWordCloudService::class)->autowire()->autoconfigure()->public();
         $services->set(FolioChatPromptSuggester::class)->autowire()->autoconfigure()->public();
         $services->set(FolioChatService::class)->autowire()->autoconfigure()->public()->args([

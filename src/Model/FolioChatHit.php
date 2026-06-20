@@ -23,6 +23,8 @@ final readonly class FolioChatHit
         public string $snippet,
         public array $dtoData,
         public array $extras,
+        public ?string $pageUrl = null,
+        public ?string $pageMediaId = null,
     ) {}
 
     /**
@@ -44,8 +46,18 @@ final readonly class FolioChatHit
         return $this->stringValue('citation_url');
     }
 
+    /**
+     * Source image for the row's pages[0]. Returned raw (the stored page url) so the template can
+     * pass it through imgproxy exactly as the row detail view does ({@see detail.html.twig}:
+     * `page.url|imgproxy('thumb')`) — imgproxy fetches and resizes, including IIIF urls. Folios
+     * whose dtoData carries an image field (iiif_base/large/thumbnail) fall back to that.
+     */
     public function thumbnailSource(): ?string
     {
+        if ($this->pageUrl !== null && trim($this->pageUrl) !== '') {
+            return $this->pageUrl;
+        }
+
         return $this->stringValue('iiif_base')
             ?? $this->stringValue('large_image_url')
             ?? $this->stringValue('thumbnail_url');
@@ -53,6 +65,10 @@ final readonly class FolioChatHit
 
     public function thumbnailUrl(): ?string
     {
+        if ($this->pageUrl !== null && trim($this->pageUrl) !== '') {
+            return $this->pageUrl;
+        }
+
         $iiifBase = $this->stringValue('iiif_base');
         if ($iiifBase) {
             return IiifUrl::imageUrl($iiifBase, '!300,300');
@@ -66,6 +82,21 @@ final readonly class FolioChatHit
     {
         return $this->stringValue('ai:denseSummary')
             ?? $this->stringValue('search_summary');
+    }
+
+    /**
+     * The row's own descriptive text — the richest grounding the chat can give the model when
+     * no AI denseSummary exists (e.g. dc/nara, which carry a real `description`). Truncated so a
+     * batch of hits stays within a sane prompt budget.
+     */
+    public function description(int $maxLen = 600): ?string
+    {
+        $value = $this->stringValue('description');
+        if ($value === null) {
+            return null;
+        }
+
+        return mb_strlen($value) > $maxLen ? rtrim(mb_substr($value, 0, $maxLen)) . '…' : $value;
     }
 
     private function stringValue(string $key): ?string
