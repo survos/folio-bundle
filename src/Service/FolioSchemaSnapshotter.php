@@ -7,13 +7,11 @@ namespace Survos\FolioBundle\Service;
 use Survos\DataContracts\Attribute\{ClassMeta,PropertyMeta,VocabTerm};
 use Survos\DataContracts\Vocabulary\{ItemField,MuseumVocab};
 use Survos\FieldBundle\Attribute\Field;
-use Survos\JsonlBundle\Service\JsonlProfilerInterface;
 
 final readonly class FolioSchemaSnapshotter
 {
     public function __construct(
         private FolioDtoTypeResolver $dtoTypeResolver,
-        private JsonlProfilerInterface $profiler,
     ) {
     }
 
@@ -69,7 +67,7 @@ final readonly class FolioSchemaSnapshotter
                 $tables++;
 
                 $rows = $this->dtoDataRows($pdo, (string) $core['id'], $dtoType);
-                $fieldStats = $this->profiler->profile($rows);
+                $fieldStats = $this->fieldPresence($rows);
                 $metadata = $this->dtoPropertyMetadata($dtoType);
                 $position = 0;
                 foreach ($fieldStats as $name => $stats) {
@@ -258,6 +256,36 @@ final readonly class FolioSchemaSnapshotter
             'label' => $classMeta instanceof ClassMeta ? $classMeta->label : null,
             'description' => $classMeta instanceof ClassMeta && $classMeta->description !== null ? $classMeta->description : $this->docComment($reflection->getDocComment() ?: null),
         ], static fn (?string $value): bool => $value !== null && $value !== '');
+    }
+
+    /**
+     * Per-field presence ({total, nulls}) over in-memory dto_data rows — all observed() needs.
+     * Replaces the deprecated in-PHP JsonlProfiler (which also distinct-tracked and blew memory on
+     * large fields); the schema snapshot only cares whether a field has any non-null value.
+     *
+     * @param list<array<string,mixed>> $rows
+     * @return array<string,array{total:int,nulls:int}>
+     */
+    private function fieldPresence(array $rows): array
+    {
+        $stats = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            foreach ($row as $field => $value) {
+                if (!is_string($field)) {
+                    continue;
+                }
+                $stats[$field] ??= ['total' => 0, 'nulls' => 0];
+                $stats[$field]['total']++;
+                if ($value === null) {
+                    $stats[$field]['nulls']++;
+                }
+            }
+        }
+
+        return $stats;
     }
 
     private function observed(mixed $stats): bool
