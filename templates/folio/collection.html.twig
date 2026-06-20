@@ -40,6 +40,11 @@
                         <a href="{{ path('survos_folio_show', { provider: parts[0], dataset: parts[1] }) }}">
                             {{ row.dataset.label ?: datasetKey }}
                         </a>
+                        {% if row.dataset.hasArchive %}
+                            <span class="text-muted ms-1" title="Compressed archive (.gz) available">
+                                {{ icon('tabler:download') }}
+                            </span>
+                        {% endif %}
                     </div>
 
                     <div class="text-muted small font-monospace">

@@ -2,22 +2,7 @@
 
 {% set folioLabel = app.request.attributes.get('current_folio_title', ctx.folioCode) %}
 
-{% block body_class %}folio-layout{% endblock %}
-
-{#
-{% block page_pretitle %}Folio Chat{% endblock %}
-
-{% block page_title %}
-    {{ folioLabel }}
-{% endblock %}
-
-{% block page_subtitle %}
-    <span class="font-monospace">{{ ctx.folioCode }}</span>
-    <span class="mx-1 text-muted">&middot;</span>
-    Ask questions against the folio FTS5 index
-{% endblock %}
-#}
-
+{% block body_class %}folio-layout folio-chat-page{% endblock %}
 {% block title %}Chat: {{ ctx.folioCode }}{% endblock %}
 
 {% block body %}
@@ -34,7 +19,11 @@
                 <div class="card-body">
                     <form method="post" class="vstack gap-3" data-turbo="false">
                         <div>
-                            <label class="form-label" for="folio-chat-q">Ask a question</label>
+                            <label class="form-label fw-semibold" for="folio-chat-q">
+                                {{ ux_icon('tabler:message-question', { class: 'icon me-1 text-primary' }) }}
+                                Ask a question
+                            </label>
+
                             <textarea
                                 id="folio-chat-q"
                                 name="q"
@@ -47,15 +36,17 @@
 
                         {% if promptSuggestions %}
                             <div>
-                                <div class="form-label text-muted mb-1">Not sure where to start? Try one of these:</div>
+                                <div class="form-label text-muted mb-2">Popular questions</div>
+
                                 <div class="d-flex flex-wrap gap-2">
-                                    {% for prompt in promptSuggestions %}
+                                    {% for prompt in promptSuggestions|slice(0, 8) %}
                                         <button
                                             class="btn btn-sm btn-outline-primary text-start"
                                             type="submit"
                                             name="q"
                                             value="{{ prompt }}"
                                         >
+                                            {{ ux_icon('tabler:bolt', { class: 'icon me-1' }) }}
                                             {{ prompt }}
                                         </button>
                                     {% endfor %}
@@ -91,7 +82,10 @@
                             </div>
 
                             <div class="col-md-3 d-flex align-items-end">
-                                <button class="btn btn-primary w-100" type="submit">Ask</button>
+                                <button class="btn btn-primary w-100" type="submit">
+                                    {{ ux_icon('tabler:send', { class: 'icon me-1' }) }}
+                                    Ask
+                                </button>
                             </div>
                         </div>
                     </form>
@@ -99,85 +93,219 @@
             </div>
 
             {% if error %}
-                <div class="alert alert-warning">
-                    {{ error }}
+                <div class="alert alert-warning d-flex align-items-center gap-2">
+                    {{ ux_icon('tabler:alert-triangle', { class: 'icon' }) }}
+                    <div>{{ error }}</div>
                 </div>
             {% endif %}
 
             {% if result %}
                 <div class="card mb-3">
                     <div class="card-header">
-                        <h2 class="card-title mb-0">Answer</h2>
+                        <div>
+                            <h2 class="card-title mb-0">
+                                {{ ux_icon('tabler:sparkles', { class: 'icon me-1 text-primary' }) }}
+                                Answer
+                            </h2>
+                        </div>
                     </div>
 
                     <div class="card-body">
-                        {# The model answers in Markdown (bold, lists, [n] citations) — render it.
-                           Source [n] badges on the cards below map each citation to its row. #}
-                        <div class="markdown mb-0">{{ result.answer|markdown_to_html }}</div>
+                        <div class="markdown folio-answer fs-5">
+                            {{ result.answer|markdown_to_html }}
+                        </div>
+
+                        <div class="d-flex flex-wrap gap-2 mt-4 pt-3 border-top">
+                            <button class="btn btn-outline-success btn-sm" type="button">
+                                {{ ux_icon('tabler:thumb-up', { class: 'icon me-1' }) }}
+                                Helpful
+                            </button>
+
+                            <button class="btn btn-outline-secondary btn-sm" type="button">
+                                {{ ux_icon('tabler:thumb-down', { class: 'icon me-1' }) }}
+                                Not helpful
+                            </button>
+
+                            <button class="btn btn-outline-secondary btn-sm" type="button">
+                                {{ ux_icon('tabler:bookmark', { class: 'icon me-1' }) }}
+                                Save question
+                            </button>
+
+                            <button class="btn btn-outline-secondary btn-sm" type="button">
+                                {{ ux_icon('tabler:folder-plus', { class: 'icon me-1' }) }}
+                                Add to collection
+                            </button>
+
+                            <button class="btn btn-outline-secondary btn-sm" type="button">
+                                {{ ux_icon('tabler:share-3', { class: 'icon me-1' }) }}
+                                Share
+                            </button>
+                        </div>
+
+                        <div class="small text-muted mt-2">Not yet implemented</div>
                     </div>
                 </div>
 
-                {# Each cited item: the AI's narration paired with the row's photo (the natural
-                   response); the database record sits below as a supporting footnote + a link to
-                   open the full document. #}
-                <div class="vstack gap-3">
-                    {% for card in result.cards %}
-                        {% set hit = card.hit %}
-                        {% set th = hit.thumbnailSource %}
-                        {% set detailPath = path('survos_folio_row_show', hit.routeParams) %}
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title mb-0">
+                            {{ ux_icon('tabler:list-details', { class: 'icon me-1 text-primary' }) }}
+                            Sources
+                        </h2>
 
-                        <div class="card" id="source-{{ loop.index }}">
-                            <div class="row g-0">
+                        <div class="card-actions">
+                            <span class="badge bg-primary-lt">{{ result.cards|length }}</span>
+                        </div>
+                    </div>
+
+                    <div class="list-group list-group-flush">
+                        {% for card in result.cards %}
+                            {% set hit = card.hit %}
+                            {% set th = hit.thumbnailSource %}
+                            {% set detailPath = path('survos_folio_row_show', hit.routeParams) %}
+                            {% set offcanvasId = 'folio-source-offcanvas-' ~ loop.index %}
+
+                            {% set imageUrl = hit.thumbnailUrl %}
+                            {% if th %}
+                                {% guard filter imgproxy %}
+                                    {% set imageUrl = th|imgproxy('thumb') %}
+                                {% endguard %}
+                            {% endif %}
+
+                            <button
+                                type="button"
+                                class="list-group-item list-group-item-action folio-source-row"
+                                data-bs-toggle="offcanvas"
+                                data-bs-target="#{{ offcanvasId }}"
+                                aria-controls="{{ offcanvasId }}"
+                            >
+                                <span class="folio-source-index">{{ loop.index }}</span>
+
                                 {% if th %}
-                                    <div class="col-sm-4 col-lg-3">
-                                        {% set imageUrl = hit.thumbnailUrl %}
-                                        {% guard filter imgproxy %}
-                                            {% set imageUrl = th|imgproxy('thumb') %}
-                                        {% endguard %}
+                                    <img src="{{ imageUrl }}" alt="{{ hit.label }}" loading="lazy" class="folio-source-thumb">
+                                {% else %}
+                                    <span class="folio-source-thumb folio-source-thumb-empty">
+                                        {{ ux_icon('tabler:file-text', { class: 'icon' }) }}
+                                    </span>
+                                {% endif %}
 
-                                        <a href="{{ detailPath }}" class="d-block ratio ratio-4x3 bg-light h-100">
+                                <span class="min-w-0">
+                                    <span class="fw-semibold text-truncate d-block">
+                                        {{ hit.label ?: hit.localId }}
+                                    </span>
+
+                                    <span class="text-muted small font-monospace">
+                                        {{ hit.localId }}
+                                    </span>
+                                </span>
+
+                                <span class="ms-auto text-muted">
+                                    {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
+                                </span>
+                            </button>
+
+                            <div
+                                class="offcanvas offcanvas-end folio-source-offcanvas"
+                                tabindex="-1"
+                                id="{{ offcanvasId }}"
+                                aria-labelledby="{{ offcanvasId }}-label"
+                            >
+                                <div class="offcanvas-header">
+                                    <div class="min-w-0">
+                                        <h2 class="offcanvas-title h3 mb-1 text-truncate" id="{{ offcanvasId }}-label">
+                                            {{ hit.label ?: hit.localId }}
+                                        </h2>
+
+                                        <div class="text-muted small font-monospace">
+                                            {{ hit.localId }}
+                                        </div>
+                                    </div>
+
+                                    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+                                </div>
+
+                                <div class="offcanvas-body">
+                                    {% if th %}
+                                        <div class="ratio ratio-4x3 bg-light rounded mb-3 overflow-hidden">
                                             <img
                                                 src="{{ imageUrl }}"
                                                 alt="{{ hit.label }}"
                                                 loading="lazy"
-                                                class="w-100 h-100 object-fit-cover rounded-start"
+                                                class="w-100 h-100 object-fit-cover"
                                             >
-                                        </a>
-                                    </div>
-                                {% endif %}
-
-                                <div class="col">
-                                    <div class="card-body">
-                                        {# AI narration (or the row's own summary when there's no caption). #}
-                                        <p class="mb-2">
-                                            <span class="badge bg-primary align-text-bottom me-1">{{ loop.index }}</span>
-                                            {{ card.caption ?? hit.denseSummary ?? hit.description }}
-                                        </p>
-
-                                        {# Footnote: the supporting database record + open the full document. #}
-                                        <div class="text-muted small d-flex flex-wrap gap-2 align-items-center">
-                                            <a href="{{ detailPath }}" class="fw-semibold link-secondary">
-                                                {{ hit.label ?: hit.localId }}
-                                            </a>
-                                            <span class="font-monospace">{{ hit.localId }}</span>
-                                            <span>·</span>
-                                            <a href="{{ detailPath }}">Open full doc</a>
-                                            {% if hit.citationUrl %}
-                                                <span>·</span>
-                                                <a href="{{ hit.citationUrl }}" target="_blank" rel="noopener">Original</a>
-                                            {% endif %}
                                         </div>
+                                    {% endif %}
+
+                                    <div class="mb-3">
+                                        <div class="text-muted small text-uppercase fw-semibold mb-1">Summary</div>
+                                        <div>
+                                            {{ card.caption ?? hit.denseSummary ?? hit.description }}
+                                        </div>
+                                    </div>
+
+                                    <div class="list-group list-group-flush mb-3">
+                                        <div class="list-group-item px-0 d-flex justify-content-between gap-3">
+                                            <span class="text-muted">Source</span>
+                                            <span class="text-end">#{{ loop.index }}</span>
+                                        </div>
+
+                                        <div class="list-group-item px-0 d-flex justify-content-between gap-3">
+                                            <span class="text-muted">Local ID</span>
+                                            <span class="font-monospace text-end">{{ hit.localId }}</span>
+                                        </div>
+
+                                        {% if hit.label %}
+                                            <div class="list-group-item px-0 d-flex justify-content-between gap-3">
+                                                <span class="text-muted">Title</span>
+                                                <span class="text-end">{{ hit.label }}</span>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+
+                                    <div class="d-grid gap-2">
+                                        <a
+                                            href="{{ detailPath }}"
+                                            class="btn btn-primary"
+                                            onclick="
+                                                const offcanvas = bootstrap.Offcanvas.getInstance(this.closest('.offcanvas'));
+                                                if (offcanvas) {
+                                                    offcanvas.hide();
+                                                }
+                                            "
+                                        >
+                                            {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}
+                                            Open full doc
+                                        </a>
+
+                                        {% if hit.citationUrl %}
+                                            <a href="{{ hit.citationUrl }}" target="_blank" rel="noopener" class="btn btn-outline-secondary">
+                                                {{ ux_icon('tabler:external-link', { class: 'icon me-1' }) }}
+                                                Original source
+                                            </a>
+                                        {% endif %}
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    {% else %}
-                        <div class="card">
-                            <div class="card-body text-muted">
+                        {% else %}
+                            <div class="list-group-item text-muted">
                                 No closely matching items — see the answer above.
                             </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% else %}
+                <div class="card">
+                    <div class="card-body text-center py-5">
+                        <div class="mb-3 text-primary">
+                            {{ ux_icon('tabler:message-circle-question', { class: 'icon icon-lg' }) }}
                         </div>
-                    {% endfor %}
+
+                        <h2 class="h3">Ask a question to begin</h2>
+
+                        <p class="text-muted mb-0">
+                            The answer, matching collection items, and source details will appear here.
+                        </p>
+                    </div>
                 </div>
             {% endif %}
         </div>
@@ -185,27 +313,20 @@
         <div class="col-lg-4">
             <div class="card">
                 <div class="card-header">
-                    <h2 class="card-title mb-0">Word Cloud</h2>
+                    <h2 class="card-title mb-0">
+                        {{ ux_icon('tabler:tag', { class: 'icon me-1 text-primary' }) }}
+                        Word Cloud
+                    </h2>
                 </div>
 
                 <div class="card-body">
                     {% if wordCloud %}
-                        {% set topTerm = wordCloud|first %}
-                        {% set topValue = topTerm.value ?: 1 %}
-
                         <div class="d-flex flex-wrap gap-2">
-                            {% for term in wordCloud %}
-                                {% set scale = min(1.55, max(0.85, 0.85 + (term.value / topValue))) %}
-
+                            {% for term in wordCloud|slice(0, 24) %}
                                 <form method="post" data-turbo="false">
                                     <input type="hidden" name="q" value="Tell me about {{ term.text }} in this collection.">
 
-                                    <button
-                                        class="btn btn-sm btn-outline-secondary"
-                                        style="font-size: {{ scale }}rem"
-                                        type="submit"
-                                        title="Tell me about {{ term.text }}"
-                                    >
+                                    <button class="btn btn-sm rounded-pill shadow-none" type="submit">
                                         {{ term.text }}
                                     </button>
                                 </form>
@@ -221,12 +342,21 @@
 
             <div class="card mt-3">
                 <div class="card-header">
-                    <h2 class="card-title mb-0">Context</h2>
+                    <h2 class="card-title mb-0">
+                        {{ ux_icon('tabler:bug', { class: 'icon me-1 text-primary' }) }}
+                        Debug Context
+                    </h2>
                 </div>
 
                 <div class="card-body">
                     {% if result and result.contextPrompt %}
-                        <pre class="small mb-0" style="white-space: pre-wrap">{{ result.contextPrompt }}</pre>
+                        <details>
+                            <summary class="text-muted small">
+                                Show generated context prompt
+                            </summary>
+
+                            <pre class="small mt-3 mb-0 p-3 rounded bg-dark text-white" style="white-space: pre-wrap">{{ result.contextPrompt }}</pre>
+                        </details>
                     {% else %}
                         <div class="text-muted">
                             Sources and the generated context prompt will appear after a question.
@@ -240,6 +370,116 @@
     <style>
         .page-header {
             display: none !important;
+        }
+
+        .folio-chat-page {
+            background: var(--tblr-bg-surface-secondary);
+        }
+
+        .folio-answer {
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+
+        .folio-source-row {
+            display: grid;
+            grid-template-columns: 2rem 56px minmax(0, 1fr) auto;
+            gap: .75rem;
+            align-items: center;
+            text-align: left;
+            padding: .75rem 1rem;
+            border-left: 0;
+            border-right: 0;
+            background: transparent;
+        }
+
+        .folio-source-row:hover {
+            background: var(--tblr-bg-surface-secondary);
+        }
+
+        .folio-source-index {
+            width: 1.75rem;
+            height: 1.75rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: var(--tblr-primary-lt);
+            color: var(--tblr-primary);
+            font-size: .75rem;
+            font-weight: 600;
+        }
+
+        .folio-source-thumb,
+        .folio-source-thumb-empty {
+            width: 56px;
+            height: 44px;
+            border-radius: .5rem;
+            object-fit: cover;
+            background: var(--tblr-bg-surface-secondary);
+        }
+
+        .folio-source-thumb-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--tblr-muted);
+        }
+
+        .folio-side-source {
+            display: grid;
+            grid-template-columns: 56px minmax(0, 1fr) auto;
+            gap: .75rem;
+            align-items: center;
+            padding: .625rem;
+            border: 1px solid var(--tblr-border-color);
+            border-radius: .75rem;
+            text-decoration: none;
+            color: inherit;
+            background: transparent;
+        }
+
+        .folio-side-source:hover {
+            background: var(--tblr-bg-surface-secondary);
+            text-decoration: none;
+        }
+
+        .folio-side-source img,
+        .folio-side-source-icon {
+            width: 56px;
+            height: 44px;
+            border-radius: .5rem;
+            object-fit: cover;
+            background: var(--tblr-bg-surface-secondary);
+        }
+
+        .folio-side-source-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--tblr-muted);
+        }
+
+        .folio-source-offcanvas {
+            --tblr-offcanvas-width: 420px;
+        }
+
+        .icon-lg {
+            width: 3rem;
+            height: 3rem;
+        }
+
+        @media (max-width: 575.98px) {
+            .folio-source-row {
+                grid-template-columns: 1.75rem 48px minmax(0, 1fr) auto;
+                padding: .625rem .75rem;
+            }
+
+            .folio-source-thumb,
+            .folio-source-thumb-empty {
+                width: 48px;
+                height: 40px;
+            }
         }
     </style>
 {% endblock %}

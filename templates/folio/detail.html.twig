@@ -95,8 +95,27 @@
                `iiif-viewer:page` event, so the page-status script below is shared. #}
             {% set pdfUrl = attribute(row.dtoData, 'pdfUrl')|default(null) %}
             {% set docPageCount = attribute(row.dtoData, 'pageCount')|default(0) %}
+            {# Moving-image digital objects (NARA .mp4 reels, etc.) → native player. Detected by URL
+               extension so it works whether or not the page carries PageType::Video. #}
+            {% set videoPages = pages|filter(p => p.url matches '/\\.(mp4|mpe?g|mov|avi|wmv|m4v|webm)($|\\?)/i') %}
 
-            {% if pdfUrl %}
+            {% if videoPages|length > 0 %}
+                {# Video → HTML5 <video>, one player per moving-image digital object. #}
+                <div id="doc-viewer" class="card mb-3">
+                    <div class="card-body">
+                        {% for page in videoPages %}
+                            <video controls preload="metadata" class="w-100 mb-2 bg-dark rounded" style="max-height: 70vh;">
+                                <source src="{{ page.url }}">
+                                Your browser can't play this video — <a href="{{ page.url }}">download it</a>.
+                            </video>
+                        {% endfor %}
+                    </div>
+                    <div class="card-footer py-2 small text-muted">
+                        {{ videoPages|length }} video file{{ videoPages|length > 1 ? 's' : '' }}
+                    </div>
+                </div>
+
+            {% elseif pdfUrl %}
                 {# PDF document → pdf.js viewer (page-by-page, emits iiif-viewer:page, OCR-ready). #}
                 <div id="doc-viewer" class="card mb-3">
                     <div class="card-body p-0">
@@ -163,8 +182,9 @@
                 </script>
             {% endif %}
 
-            {# Image listing — every page as a thumbnail gallery. #}
-            {% if pages|length > 1 %}
+            {# Image listing — every page as a thumbnail gallery. Skipped for video (the players are
+               shown above; rowManifestUrl/viewerImages are only set in the image branch). #}
+            {% if pages|length > 1 and videoPages|length == 0 %}
                 <div class="card mb-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>

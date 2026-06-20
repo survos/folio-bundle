@@ -127,6 +127,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
 
         $built = 0;
         $skipped = 0;
+        $empty = 0;
         $archiveBytesTotal = 0;
         $coreFilter = ($core ?? '') ?: null;
 
@@ -188,6 +189,15 @@ final class FolioBuildCommand implements SignalableCommandInterface
                 if ($result['links'] > 0) {
                     $io->writeln(sprintf('  · links: %s', number_format($result['links'])));
                 }
+            }
+
+            // Never publish an empty folio: a 0-row build means the normalize stage produced nothing
+            // for this dataset, and an empty folio reaching the Artifact (and S3/HF on upload) breaks
+            // the consuming app. Skip the archive + Artifact registration + inflate entirely.
+            if ((int) ($result['rows'] ?? 0) === 0) {
+                $io->warning(sprintf('%s produced 0 rows — skipping archive + Artifact (nothing to publish).', $code));
+                $empty++;
+                continue;
             }
 
             // Step 2 (--gz only): snapshot the compressed index-free archive (archive() also writes the
@@ -265,10 +275,11 @@ final class FolioBuildCommand implements SignalableCommandInterface
 
         $io->newLine();
         $io->writeln(sprintf(
-            '%d selected · %d built · %d skipped%s · %s total',
+            '%d selected · %d built · %d skipped%s%s · %s total',
             count($datasets),
             $built,
             $skipped,
+            $empty > 0 ? ' · ' . $empty . ' empty (not published)' : '',
             $archiveBytesTotal > 0 ? ' · archives ' . $this->humanBytes($archiveBytesTotal) : '',
             Helper::formatTime(microtime(true) - $startedAt),
         ));
