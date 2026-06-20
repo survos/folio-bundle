@@ -7,7 +7,7 @@ namespace Survos\FolioBundle;
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
 use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand};
-use Survos\FolioBundle\EventListener\{FolioContextListener,FolioFtsIndexListener};
+use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioContextListener,FolioFtsIndexListener};
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\{FolioCollectionController,FolioController,FolioSearchController};
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,TermRepository,TermSetRepository};
@@ -95,7 +95,7 @@ final class SurvosFolioBundle extends AbstractBundle
             '$folioServer' => $config['folio_server'],
             '$kernelDebug' => '%kernel.debug%',
         ]);
-        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
+        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioContextListener::class, BuildFolioRequestedListener::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
         if ($config['routes_enabled']) {

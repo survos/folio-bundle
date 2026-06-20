@@ -694,6 +694,15 @@ final class FolioIngestService
             }
         }
 
+        // Values that couldn't hydrate onto their (type-mismatched) DTO property land in unmapped —
+        // they're a known prop name so the loop above skips them; keep them in extras so a provider
+        // reusing a DTO-typed key (e.g. a `dimensions` string) doesn't silently lose the value.
+        if (is_array($dto->unmapped ?? null)) {
+            foreach ($dto->unmapped as $key => $value) {
+                $extras[$key] ??= $value;
+            }
+        }
+
         return [$dtoData, $extras];
     }
 }
