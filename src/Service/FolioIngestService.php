@@ -43,6 +43,7 @@ final class FolioIngestService
     private const ITEM_COLUMNS = ['id', 'core_id', 'local_id', 'label', 'dto_type', 'dto_data', 'extras', 'raw'];
     private const LINK_COLUMNS = ['id', 'link_type_id', 'left_core', 'left_id', 'right_core', 'right_id', 'extras'];
     private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'type', 'url', 'media_id', 'text', 'dense_summary', 'ledger', 'layout', 'width', 'height'];
+    private const CLAIM_COLUMNS = ['id', 'item_id', 'predicate', 'value', 'source', 'confidence', 'agent', 'claimed_at', 'meta'];
 
     public function __construct(
         private readonly FolioService $folios,
@@ -193,6 +194,7 @@ final class FolioIngestService
         $termCount = $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $batch, $io);
         $linkResult = $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $sinceCommit, $io);
         $pageResult = $this->ingestPages($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
+        $claimResult = $this->ingestClaims($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
 
         $this->finishIngestProgress($io);
 
@@ -213,6 +215,7 @@ final class FolioIngestService
             'links' => $linkResult['count'],
             'pages' => $pageResult['count'],
             'pagesSkipped' => $pageResult['skipped'],
+            'claims' => $claimResult['count'],
             'cores' => $coreResults,
         ];
     }
@@ -285,6 +288,75 @@ final class FolioIngestService
         $pages->flush();
 
         return ['count' => $count, 'skipped' => $skipped + $pages->skipped()];
+    }
+
+    /**
+     * Ingest the dataset's AI/OCR/human claims (the vault claims.jsonl authority) into the folio
+     * `claim` table, so the detail page can surface them with their source/confidence/basis. Claims
+     * are keyed by provider + localId (not core), so we map every localId to its item id.
+     *
+     * @return array{count:int}
+     */
+    private function ingestClaims(EntityManagerInterface $em, string $datasetKey, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
+    {
+        $claimsFile = $this->dataPaths->claimsFile($datasetKey);
+        if (!is_file($claimsFile)) {
+            return ['count' => 0];
+        }
+
+        $conn = $em->getConnection();
+        /** @var array<string,string> localId => item id */
+        $byLocalId = [];
+        foreach ($conn->fetchAllKeyValue('SELECT local_id, id FROM item') as $localId => $itemId) {
+            $byLocalId[(string) $localId] = (string) $itemId;
+        }
+
+        $claims = new FolioBulkInserter($conn, 'claim', self::CLAIM_COLUMNS);
+        $count = 0;
+        foreach (JsonlReader::open($claimsFile) as $data) {
+            $predicate = is_scalar($data['predicate'] ?? null) ? (string) $data['predicate'] : '';
+            $itemId = $byLocalId[(string) ($data['subjectId'] ?? '')] ?? null;
+            if ($itemId === null || $predicate === '') {
+                continue;
+            }
+
+            $source = is_scalar($data['source'] ?? null) ? (string) $data['source'] : 'ai';
+            $value = $this->claimValue($data['value'] ?? null);
+            $conf = $data['confidence'] ?? null;
+            $confidence = is_numeric($conf) ? min(1.0, max(0.0, (float) $conf / 100)) : null;
+            $basis = is_string($data['basis'] ?? null) && trim($data['basis']) !== '' && $data['basis'] !== 'None'
+                ? trim($data['basis']) : null;
+
+            // Order must match self::CLAIM_COLUMNS. Id mirrors the Claim entity's xxh128 hash.
+            $claims->add([
+                hash('xxh128', implode('|', [$itemId, $predicate, $source, $value ?? ''])),
+                $itemId,
+                $predicate,
+                $value,
+                $source,
+                $confidence,
+                null,
+                is_string($data['createdAt'] ?? null) ? $data['createdAt'] : null,
+                $basis !== null ? $this->encodeJson(['basis' => $basis]) : null,
+            ]);
+
+            if (++$count % $batch === 0) {
+                $sinceCommit = $this->maybeCheckpoint($conn, $sinceCommit + $batch, $claims);
+            }
+        }
+        $claims->flush();
+
+        return ['count' => $count];
+    }
+
+    /** Claim value as the TEXT column expects: scalar → string, list/object → JSON. */
+    private function claimValue(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_UNICODE);
     }
 
     /**

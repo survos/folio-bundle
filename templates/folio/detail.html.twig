@@ -18,9 +18,11 @@
 {% set th = row.thumbnailSource %}
 {% set termFields = terms ? ['genreSpecific', 'tec', 'mat', 'coll'] : [] %}
 {% set pageAiUrls = [] %}
-{% set tombstoneTitle = attribute(row.dtoData, 'title')|default(row.label ?: row.localId) %}
-{% set tombstoneDescription = attribute(row.dtoData, 'description')|default(null) %}
-{% set tombstoneDate = attribute(row.dtoData, 'date')|default(null) %}
+{# Fall back to the dcterms:/ai: keys in extras while the canonical mapping is still incomplete,
+   so the header surfaces what we have (and shows which fields aren't mapped yet). #}
+{% set tombstoneTitle = attribute(row.dtoData, 'title')|default(attribute(row.extras, 'dcterms:title')|default(row.label ?: row.localId)) %}
+{% set tombstoneDescription = attribute(row.dtoData, 'description')|default(attribute(row.extras, 'dcterms:description')|default(null)) %}
+{% set tombstoneDate = attribute(row.dtoData, 'date')|default(attribute(row.extras, 'dcterms:date')|default(null)) %}
 {% set tombstoneDimensions = attribute(row.dtoData, 'dimensions')|default(attribute(row.dtoData, 'dimensionsRaw')|default(null)) %}
 {% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
 {% set sourceUrl = attribute(row.dtoData, 'url')|default(null) %}
@@ -31,6 +33,10 @@
 {% endif %}
 {% set ocrText = attribute(row.dtoData, 'ocrText')|default(null) %}
 {% set pageCount = attribute(row.dtoData, 'pageCount')|default(null) %}
+{% set tombstoneYear = attribute(row.dtoData, 'year')|default(tombstoneDate) %}
+{% set tombstoneDenseSummary = attribute(row.dtoData, 'denseSummary')|default(attribute(row.extras, 'ai:denseSummary')|default(null)) %}
+{# The objective first-pass "describe this image" observation — shown beside the photo. #}
+{% set observationProse = attribute(row.dtoData, 'ai:observationProse')|default(attribute(row.extras, 'ai:observationProse')|default(null)) %}
 
 {% block body_class %}folio-layout{% endblock %}
 
@@ -50,25 +56,23 @@
 {% endblock %}
 
 {% block page_subtitle %}
-    {% if tombstoneDescription %}
-        <div class="text-body text-truncate" style="max-width: 100%;">
-            {{ tombstoneDescription|striptags }}
-        </div>
-    {% endif %}
-
-    <div class="d-flex flex-wrap gap-2 small">
-        {% if tombstoneDate %}
-            <span>{{ tombstoneDate }}</span>
+    {# Top of the page: year + the AI denseSummary (the "tagline" until we have real titles).
+       The longer catalog description moves beside the image in the body. #}
+    <div class="d-flex flex-wrap gap-2 small mb-1">
+        {% if tombstoneYear %}
+            <span class="badge bg-secondary-lt fs-6">{{ tombstoneYear }}</span>
         {% endif %}
-
         {% if tombstoneDimensions %}
-            <span>{{ tombstoneDimensions is iterable ? tombstoneDimensions|json_encode : tombstoneDimensions }}</span>
+            <span class="text-muted">{{ tombstoneDimensions is iterable ? tombstoneDimensions|json_encode : tombstoneDimensions }}</span>
         {% endif %}
-
         {% if tombstoneUrl %}
             <a href="{{ tombstoneUrl }}" target="_blank" rel="noopener">Citation</a>
         {% endif %}
     </div>
+
+    {% if tombstoneDenseSummary %}
+        <div class="text-body" style="max-width: 65rem;">{{ tombstoneDenseSummary }}</div>
+    {% endif %}
 {% endblock %}
 
 {% block title %}
@@ -76,10 +80,14 @@
 {% endblock %}
 
 {% block body %}
+    {% set pages = pageTableExists ? row.pages : [] %}
+    {# A single-image row (e.g. a photograph) gets one clean image + the description beside it —
+       no zoomable OSD viewer AND a separate thumbnail. Multi-page docs keep the page viewer. #}
+    {% set isSingleImage = pages|length == 1 and not attribute(row.dtoData, 'pdfUrl')|default(null) %}
+
     <div class="row row-cards">
         <div class="col-lg-8">
             {# Pages — the canonical imagery of a row (a list of jpgs, or a PDF's pages). #}
-            {% set pages = pageTableExists ? row.pages : [] %}
 
             {# A row's canonical media is EITHER a PDF (pdfUrl set during normalization) or a
                sequence of images. PDF wins — it also carries a cover-image page for thumbnails,
@@ -299,7 +307,9 @@
         </div>
 
         <div class="col-lg-4">
-            {% if th %}
+            {# Single-image rows already show the image in the main column, so skip the duplicate
+               thumbnail card here (keep it for multi-image/doc rows). #}
+            {% if th and not isSingleImage %}
                 <div class="card mb-3">
                     {% if folioAiRoute|default(null) and pageAiUrls|length > 0 %}
                         <div class="card-header justify-content-end">
@@ -336,14 +346,28 @@
                 </div>
             {% endif %}
 
+            {# Objective AI observation of the image (first-pass "describe this picture") — the
+               primary visual description beside the photo, not the institution's caption. #}
+            {% if observationProse %}
+                <div class="card mb-3">
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <h2 class="card-title mb-0">What's in the picture</h2>
+                        <span class="badge bg-purple-lt">AI observation</span>
+                    </div>
+                    <div class="card-body">
+                        <div style="white-space: pre-wrap; word-break: break-word;">{{ observationProse }}</div>
+                    </div>
+                </div>
+            {% endif %}
+
             {% if tombstoneDescription %}
                 <div class="card mb-3">
                     <div class="card-header">
-                        <h2 class="card-title mb-0">Description</h2>
+                        <h2 class="card-title mb-0 text-muted">Source caption</h2>
                     </div>
 
                     <div class="card-body">
-                        <div style="max-height: 360px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+                        <div style="max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
                             {{ tombstoneDescription }}
                         </div>
                     </div>
