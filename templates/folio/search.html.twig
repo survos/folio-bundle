@@ -5,6 +5,12 @@
 {% set dataset = parts[1] %}
 {% set folioLabel = folio and folio.label ? folio.label : ctx.folioCode %}
 {% set hitOptions = { folioCode: ctx.folioCode, hitTemplate: 'search/hits/folio_row.html.twig' } %}
+{% if selectedCore|default(null) %}
+    {% set hitOptions = hitOptions|merge({coreCode: selectedCore}) %}
+{% endif %}
+{% if selectedDtoType|default(null) %}
+    {% set hitOptions = hitOptions|merge({dtoType: selectedDtoType}) %}
+{% endif %}
 
 {#
 {% block page_pretitle %}Folio Search{% endblock %}
@@ -31,8 +37,8 @@
                         <span class="text-secondary small">Cores</span>
 
                         {% for core in cores %}
-                            <a class="btn btn-sm btn-outline-secondary"
-                            href="{{ path('survos_folio_core', {
+                            <a class="btn btn-sm {{ selectedCore|default(null) == core.code ? 'btn-primary' : 'btn-outline-secondary' }}"
+                            href="{{ path('survos_folio_core_search', {
                                 provider: provider,
                                 dataset: dataset,
                                 coreCode: core.code

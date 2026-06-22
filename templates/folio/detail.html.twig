@@ -81,6 +81,9 @@
 
 {% block body %}
     {% set pages = pageTableExists ? row.pages : [] %}
+    {# AI image URLs for OCR/Observe — computed here (not inside the viewer's for-loop, whose set
+       doesn't leak) so the AI button works for single-image rows too. Raw page url; mediary fetches it. #}
+    {% set pageAiUrls = pages|map(p => p.url) %}
     {# A single-image row (e.g. a photograph) gets one clean image + the description beside it —
        no zoomable OSD viewer AND a separate thumbnail. Multi-page docs keep the page viewer. #}
     {% set isSingleImage = pages|length == 1 and not attribute(row.dtoData, 'pdfUrl')|default(null) %}
@@ -152,7 +155,8 @@
                     {% set viewerImages = viewerImages|merge([pageImg]) %}
                     {% set viewerHires = viewerHires|merge([pageHires]) %}
                 {% endfor %}
-                {% set pageAiUrls = viewerHires %}
+                {# pageAiUrls stays the RAW page url (set at top): mediary imgproxies internally, and a
+                   pre-imgproxy'd webp url fails its fetch. Don't override with viewerHires here. #}
 
                 <div id="doc-viewer" class="card mb-3">
                     <div class="card-body p-0">
@@ -327,12 +331,13 @@
         </div>
 
         <div class="col-lg-4">
-            {# Single-image rows already show the image in the main column, so skip the duplicate
-               thumbnail card here (keep it for multi-image/doc rows). #}
-            {% if th and not isSingleImage %}
+            {# Item actions — available for EVERY row that has an image, single or multi. The OCR/Observe
+               button (folio_ai → mediary) and "Ask the Scholar" (the document chat) must work even on a
+               single thumbnail: that's exactly the no-OCR item where we want to start a conversation. #}
+            {% if pageAiUrls|length > 0 or th %}
                 <div class="card mb-3">
-                    {% if folioAiRoute|default(null) and pageAiUrls|length > 0 %}
-                        <div class="card-header justify-content-end">
+                    <div class="card-body d-flex flex-wrap gap-2">
+                        {% if folioAiRoute|default(null) and pageAiUrls|length > 0 %}
                             <a
                                 id="folio-ai-page-link"
                                 href="{{ path(folioAiRoute, {url: pageAiUrls|first, task: 'ocr_mistral'}) }}"
@@ -344,9 +349,21 @@
                             >
                                 <i class="ti ti-sparkles"></i> AI
                             </a>
-                        </div>
-                    {% endif %}
+                        {% endif %}
 
+                        <a
+                            href="{{ path('survos_folio_chat', {provider: provider, dataset: dataset}) }}"
+                            class="btn btn-sm btn-outline-primary"
+                        >
+                            <i class="ti ti-school"></i> Ask the Scholar
+                        </a>
+                    </div>
+                </div>
+            {% endif %}
+
+            {# Thumbnail — only for multi-image/doc rows; a single image already shows in the main column. #}
+            {% if th and not isSingleImage %}
+                <div class="card mb-3">
                     <div class="card-body text-center">
                         {% set imageUrl = th %}
                         {% guard filter imgproxy %}

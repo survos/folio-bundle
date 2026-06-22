@@ -18,11 +18,38 @@
             <div class="card mb-3">
                 <div class="card-body">
                     <form method="post" class="vstack gap-3" data-turbo="false">
+                        <input type="hidden" name="core" value="{{ selectedCore }}">
+                        <input type="hidden" name="dtoType" value="{{ selectedDtoType }}">
                         <div>
-                            <label class="form-label fw-semibold" for="folio-chat-q">
-                                {{ ux_icon('tabler:message-question', { class: 'icon me-1 text-primary' }) }}
-                                Ask a question
-                            </label>
+                            <details class="folio-sample-questions" {{ promptSuggestions ? '' : 'hidden' }}>
+                                {# Header row: the "Ask a question" label sits left, the disclosure floats right. #}
+                                <summary class="folio-sample-summary d-flex justify-content-between align-items-center mb-2">
+                                    <span class="form-label fw-semibold mb-0">
+                                        {{ ux_icon('tabler:message-question', { class: 'icon me-1 text-primary' }) }}
+                                        Ask a question
+                                    </span>
+                                    <span class="text-muted small d-inline-flex align-items-center">
+                                        Sample questions
+                                        {{ ux_icon('tabler:chevron-down', { class: 'icon ms-1 folio-sample-chevron' }) }}
+                                    </span>
+                                </summary>
+
+                                <div class="d-flex flex-wrap gap-2 mb-2">
+                                    {% for prompt in promptSuggestions|slice(0, 8) %}
+                                        {# Clicking a sample fills the textarea with the question, then submits — so the
+                                           visitor sees what was asked and the same path runs as typing it by hand. #}
+                                        <button
+                                            type="button"
+                                            class="btn btn-sm btn-outline-primary text-start"
+                                            data-q="{{ prompt }}"
+                                            onclick="const f = this.closest('form'); f.querySelector('#folio-chat-q').value = this.dataset.q; f.requestSubmit();"
+                                        >
+                                            {{ ux_icon('tabler:bolt', { class: 'icon me-1' }) }}
+                                            {{ prompt }}
+                                        </button>
+                                    {% endfor %}
+                                </div>
+                            </details>
 
                             <textarea
                                 id="folio-chat-q"
@@ -30,59 +57,34 @@
                                 class="form-control"
                                 rows="3"
                                 autofocus
+                                aria-label="Ask a question"
                                 placeholder="e.g. What schools are documented here? · Tell me about the oldest items · Are there any maps?"
                             >{{ question }}</textarea>
                         </div>
 
-                        {% if promptSuggestions %}
-                            <div>
-                                <div class="form-label text-muted mb-2">Popular questions</div>
-
-                                <div class="d-flex flex-wrap gap-2">
-                                    {% for prompt in promptSuggestions|slice(0, 8) %}
-                                        <button
-                                            class="btn btn-sm btn-outline-primary text-start"
-                                            type="submit"
-                                            name="q"
-                                            value="{{ prompt }}"
-                                        >
-                                            {{ ux_icon('tabler:bolt', { class: 'icon me-1' }) }}
-                                            {{ prompt }}
-                                        </button>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        {% endif %}
-
                         <div class="row g-2">
-                            <div class="col-md-4">
-                                <label class="form-label" for="folio-chat-core">Core</label>
-                                <select id="folio-chat-core" name="core" class="form-select">
-                                    <option value="">All cores</option>
-                                    {% for core in cores %}
-                                        <option value="{{ core.code }}" {{ selectedCore == core.code ? 'selected' }}>
-                                            {{ core.code }} · {{ core.rowCount|number_format }}
-                                        </option>
-                                    {% endfor %}
-                                </select>
-                            </div>
+                            <div class="d-flex justify-content-between align-items-center gap-2">
+                                {% set activeFilterCount =
+                                    (selectedCore ? 1 : 0)
+                                    + (selectedDtoType ? 1 : 0)
+                                %}
 
-                            <div class="col-md-5">
-                                <label class="form-label" for="folio-chat-dto">DTO Type</label>
-                                <select id="folio-chat-dto" name="dtoType" class="form-select">
-                                    <option value="">All DTO types</option>
-                                    {% for coreCode, choices in dtoChoices %}
-                                        {% for dto in choices %}
-                                            <option value="{{ dto.type }}" {{ selectedDtoType == dto.type ? 'selected' }}>
-                                                {{ coreCode }} / {{ dto.label }} · {{ dto.count|number_format }}
-                                            </option>
-                                        {% endfor %}
-                                    {% endfor %}
-                                </select>
-                            </div>
+                                <button
+                                    type="button"
+                                    class="btn"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#folio-advanced-search-modal"
+                                >
+                                    {{ ux_icon('tabler:adjustments-horizontal', { class: 'icon me-1' }) }}
+                                    Advanced search
 
-                            <div class="col-md-3 d-flex align-items-end">
-                                <button class="btn btn-primary w-100" type="submit">
+                                    {% if activeFilterCount %}
+                                        <span class="badge bg-primary-lt ms-1">
+                                            {{ activeFilterCount }}
+                                        </span>
+                                    {% endif %}
+                                </button>
+                                <button class="btn btn-primary" type="submit" style="min-width: 128px;">
                                     {{ ux_icon('tabler:send', { class: 'icon me-1' }) }}
                                     Ask
                                 </button>
@@ -172,12 +174,57 @@
                                 {% endguard %}
                             {% endif %}
 
-                            <button
-                                type="button"
-                                class="list-group-item list-group-item-action folio-source-row"
-                                data-bs-toggle="offcanvas"
-                                data-bs-target="#{{ offcanvasId }}"
-                                aria-controls="{{ offcanvasId }}"
+                            {% set detailBody %}
+                                {% if th %}
+                                    <div class="ratio ratio-4x3 bg-light rounded mb-3 overflow-hidden">
+                                        <img src="{{ imageUrl }}" alt="{{ hit.label }}" loading="lazy" class="w-100 h-100 object-fit-cover">
+                                    </div>
+                                {% endif %}
+
+                                <div class="mb-3">
+                                    <div class="text-muted small text-uppercase fw-semibold mb-1">Summary</div>
+                                    <div>{{ card.caption ?? hit.denseSummary ?? hit.description }}</div>
+                                </div>
+
+                                <div class="list-group list-group-flush mb-3">
+                                    <div class="list-group-item px-0 d-flex justify-content-between gap-3">
+                                        <span class="text-muted">Source</span>
+                                        <span class="text-end">#{{ loop.index }}</span>
+                                    </div>
+                                    <div class="list-group-item px-0 d-flex justify-content-between gap-3">
+                                        <span class="text-muted">Local ID</span>
+                                        <span class="font-monospace text-end">{{ hit.localId }}</span>
+                                    </div>
+                                    {% if hit.label %}
+                                        <div class="list-group-item px-0 d-flex justify-content-between gap-3">
+                                            <span class="text-muted">Title</span>
+                                            <span class="text-end">{{ hit.label }}</span>
+                                        </div>
+                                    {% endif %}
+                                </div>
+
+                                <div class="d-grid gap-2">
+                                    <a href="{{ detailPath }}" class="btn btn-primary" onclick="const oc = this.closest('.offcanvas'); if (oc) { const i = bootstrap.Offcanvas.getInstance(oc); if (i) { i.hide(); } }">
+                                        {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}
+                                        Open full doc
+                                    </a>
+                                    {% if hit.citationUrl %}
+                                        <a href="{{ hit.citationUrl }}" target="_blank" rel="noopener" class="btn btn-outline-secondary">
+                                            {{ ux_icon('tabler:external-link', { class: 'icon me-1' }) }}
+                                            Original source
+                                        </a>
+                                    {% endif %}
+                                </div>
+                            {% endset %}
+
+                            {# One source row, two ways to view its detail: Sidebar (docks it in the right
+                               panel) and Canvas (slides it over). Both reuse the captured detailBody. #}
+                            <div
+                                class="list-group-item folio-source-row"
+                                role="button"
+                                tabindex="0"
+                                data-folio-detail-idx="{{ loop.index }}"
+                                data-folio-offcanvas-target="#{{ offcanvasId }}"
                             >
                                 <span class="folio-source-index">{{ loop.index }}</span>
 
@@ -190,101 +237,29 @@
                                 {% endif %}
 
                                 <span class="min-w-0">
-                                    <span class="fw-semibold text-truncate d-block">
-                                        {{ hit.label ?: hit.localId }}
-                                    </span>
-
-                                    <span class="text-muted small font-monospace">
-                                        {{ hit.localId }}
-                                    </span>
+                                    <span class="badge badge-pill fs-6 mb-1 text-uppercase bg-primary-lt">{{ hit.dtoType }}</span>
+                                    <span class="fw-semibold text-truncate d-block">{{ hit.label ?: hit.localId }}</span>
+                                    <span class="text-muted small font-monospace">{{ hit.localId }}{% if hit.dtoData.itemCount is defined and hit.dtoData.itemCount %} · {{ hit.dtoData.itemCount|number_format }} items{% endif %}</span>
                                 </span>
 
-                                <span class="ms-auto text-muted">
-                                    {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
+                                <span class="folio-source-actions">
+                                    <span class="folio-source-chevron">
+                                        {{ ux_icon('tabler:chevron-right', { class: 'icon text-secondary' }) }}
+                                    </span>
                                 </span>
-                            </button>
+                            </div>
 
-                            <div
-                                class="offcanvas offcanvas-end folio-source-offcanvas"
-                                tabindex="-1"
-                                id="{{ offcanvasId }}"
-                                aria-labelledby="{{ offcanvasId }}-label"
-                            >
+                            <template class="folio-detail-tpl" data-idx="{{ loop.index }}">{{ detailBody }}</template>
+
+                            <div class="offcanvas offcanvas-end folio-source-offcanvas" tabindex="-1" id="{{ offcanvasId }}" aria-labelledby="{{ offcanvasId }}-label">
                                 <div class="offcanvas-header">
                                     <div class="min-w-0">
-                                        <h2 class="offcanvas-title h3 mb-1 text-truncate" id="{{ offcanvasId }}-label">
-                                            {{ hit.label ?: hit.localId }}
-                                        </h2>
-
-                                        <div class="text-muted small font-monospace">
-                                            {{ hit.localId }}
-                                        </div>
+                                        <h2 class="offcanvas-title h3 mb-1 text-truncate" id="{{ offcanvasId }}-label">{{ hit.label ?: hit.localId }}</h2>
+                                        <div class="text-muted small font-monospace">{{ hit.localId }}</div>
                                     </div>
-
                                     <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
                                 </div>
-
-                                <div class="offcanvas-body">
-                                    {% if th %}
-                                        <div class="ratio ratio-4x3 bg-light rounded mb-3 overflow-hidden">
-                                            <img
-                                                src="{{ imageUrl }}"
-                                                alt="{{ hit.label }}"
-                                                loading="lazy"
-                                                class="w-100 h-100 object-fit-cover"
-                                            >
-                                        </div>
-                                    {% endif %}
-
-                                    <div class="mb-3">
-                                        <div class="text-muted small text-uppercase fw-semibold mb-1">Summary</div>
-                                        <div>
-                                            {{ card.caption ?? hit.denseSummary ?? hit.description }}
-                                        </div>
-                                    </div>
-
-                                    <div class="list-group list-group-flush mb-3">
-                                        <div class="list-group-item px-0 d-flex justify-content-between gap-3">
-                                            <span class="text-muted">Source</span>
-                                            <span class="text-end">#{{ loop.index }}</span>
-                                        </div>
-
-                                        <div class="list-group-item px-0 d-flex justify-content-between gap-3">
-                                            <span class="text-muted">Local ID</span>
-                                            <span class="font-monospace text-end">{{ hit.localId }}</span>
-                                        </div>
-
-                                        {% if hit.label %}
-                                            <div class="list-group-item px-0 d-flex justify-content-between gap-3">
-                                                <span class="text-muted">Title</span>
-                                                <span class="text-end">{{ hit.label }}</span>
-                                            </div>
-                                        {% endif %}
-                                    </div>
-
-                                    <div class="d-grid gap-2">
-                                        <a
-                                            href="{{ detailPath }}"
-                                            class="btn btn-primary"
-                                            onclick="
-                                                const offcanvas = bootstrap.Offcanvas.getInstance(this.closest('.offcanvas'));
-                                                if (offcanvas) {
-                                                    offcanvas.hide();
-                                                }
-                                            "
-                                        >
-                                            {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}
-                                            Open full doc
-                                        </a>
-
-                                        {% if hit.citationUrl %}
-                                            <a href="{{ hit.citationUrl }}" target="_blank" rel="noopener" class="btn btn-outline-secondary">
-                                                {{ ux_icon('tabler:external-link', { class: 'icon me-1' }) }}
-                                                Original source
-                                            </a>
-                                        {% endif %}
-                                    </div>
-                                </div>
+                                <div class="offcanvas-body">{{ detailBody }}</div>
                             </div>
                         {% else %}
                             <div class="list-group-item text-muted">
@@ -311,11 +286,33 @@
         </div>
 
         <div class="col-lg-4">
+            <div class="card folio-detail-sidebar-card">
+                <div class="card-header">
+                    <h2 class="card-title mb-0">
+                        {{ ux_icon('tabler:layout-sidebar-right', { class: 'icon me-1 text-primary' }) }}
+                        Details
+                    </h2>
+                </div>
+
+                <div class="card-body" id="folio-detail-sidebar">
+                    <div class="text-muted">
+                        Source details will appear here when you select an item from the answer.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Debug aids — below the conversation, not beside it. The word cloud shows which FTS terms
+       will match, so we know what to ask; the context panel shows the prompt the model received. #}
+    <div class="row row-cards mt-3">
+        <div class="col-lg-6">
             <div class="card">
                 <div class="card-header">
                     <h2 class="card-title mb-0">
                         {{ ux_icon('tabler:tag', { class: 'icon me-1 text-primary' }) }}
                         Word Cloud
+                        <span class="badge bg-secondary-lt ms-2">debug</span>
                     </h2>
                 </div>
 
@@ -340,7 +337,10 @@
                 </div>
             </div>
 
-            <div class="card mt-3">
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card">
                 <div class="card-header">
                     <h2 class="card-title mb-0">
                         {{ ux_icon('tabler:bug', { class: 'icon me-1 text-primary' }) }}
@@ -365,6 +365,72 @@
                 </div>
             </div>
         </div>
+
+        <div class="modal modal-blur fade" id="folio-advanced-search-modal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <form method="post" class="modal-content" data-turbo="false">
+                    <input type="hidden" name="q" value="{{ question }}">
+
+                    <div class="modal-header">
+                        <h2 class="modal-title">
+                            {{ ux_icon('tabler:adjustments-horizontal', { class: 'icon me-1 text-primary' }) }}
+                            Advanced search
+                        </h2>
+
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+
+                    <div class="modal-body">
+                        <p class="text-muted small">
+                            Refine the answer by limiting the search to a specific core or DTO type.
+                        </p>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="folio-chat-core">Core</label>
+                            <select id="folio-chat-core" name="core" class="form-select">
+                                <option value="">All cores</option>
+                                {% for core in cores %}
+                                    <option value="{{ core.code }}" {{ selectedCore == core.code ? 'selected' }}>
+                                        {{ core.code }} · {{ core.rowCount|number_format }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="folio-chat-dto">DTO Type</label>
+                            <select id="folio-chat-dto" name="dtoType" class="form-select">
+                                <option value="">All DTO types</option>
+                                {% for coreCode, choices in dtoChoices %}
+                                    {% for dto in choices %}
+                                        <option value="{{ dto.type }}" {{ selectedDtoType == dto.type ? 'selected' }}>
+                                            {{ coreCode }} / {{ dto.label }} · {{ dto.count|number_format }}
+                                        </option>
+                                    {% endfor %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer">
+                        <a
+                            href="{{ app.request.pathinfo }}"
+                            class="btn btn-outline-secondary"
+                        >
+                            Reset
+                        </a>
+
+                        <button type="button" class="btn btn-link" data-bs-dismiss="modal">
+                            Cancel
+                        </button>
+
+                        <button class="btn btn-primary" type="submit">
+                            Apply filters
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
     <style>
@@ -374,6 +440,23 @@
 
         .folio-chat-page {
             background: var(--tblr-bg-surface-secondary);
+        }
+
+        .folio-sample-summary {
+            cursor: pointer;
+            list-style: none;
+        }
+
+        .folio-sample-summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .folio-sample-chevron {
+            transition: transform .15s ease;
+        }
+
+        .folio-sample-questions[open] .folio-sample-chevron {
+            transform: rotate(180deg);
         }
 
         .folio-answer {
@@ -391,10 +474,22 @@
             border-left: 0;
             border-right: 0;
             background: transparent;
+            cursor: pointer;
         }
 
         .folio-source-row:hover {
             background: var(--tblr-bg-surface-secondary);
+        }
+
+        .folio-source-actions {
+            display: flex;
+            gap: .375rem;
+            white-space: nowrap;
+        }
+
+        .folio-detail-sidebar-card {
+            position: sticky;
+            top: 1rem;
         }
 
         .folio-source-index {
@@ -482,4 +577,63 @@
             }
         }
     </style>
+
+    <script>
+        function openFolioSourceDetail(row) {
+            const idx = row.dataset.folioDetailIdx;
+            const offcanvasTarget = row.dataset.folioOffcanvasTarget;
+
+            if (!idx) {
+                return;
+            }
+
+            const isDesktop = window.matchMedia('(min-width: 992px)').matches;
+
+            if (isDesktop) {
+                const tpl = document.querySelector('.folio-detail-tpl[data-idx="' + idx + '"]');
+                const target = document.getElementById('folio-detail-sidebar');
+
+                if (!tpl || !target) {
+                    return;
+                }
+
+                target.replaceChildren(tpl.content.cloneNode(true));
+                return;
+            }
+
+            if (offcanvasTarget && window.bootstrap) {
+                const offcanvasEl = document.querySelector(offcanvasTarget);
+
+                if (!offcanvasEl) {
+                    return;
+                }
+
+                const offcanvas = bootstrap.Offcanvas.getOrCreateInstance(offcanvasEl);
+                offcanvas.show();
+            }
+        }
+
+        document.addEventListener('click', function (e) {
+            const row = e.target.closest('.folio-source-row[data-folio-detail-idx]');
+
+            if (!row) {
+                return;
+            }
+
+            openFolioSourceDetail(row);
+        });
+
+        document.addEventListener('keydown', function (e) {
+            const row = e.target.closest('.folio-source-row[data-folio-detail-idx]');
+
+            if (!row) {
+                return;
+            }
+
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openFolioSourceDetail(row);
+            }
+        });
+    </script>
 {% endblock %}

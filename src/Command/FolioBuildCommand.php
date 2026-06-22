@@ -333,10 +333,16 @@ final class FolioBuildCommand implements SignalableCommandInterface
     {
         $metadata = [];
         foreach ($cores as $code => $info) {
-            $metadata[] = [
+            $core = [
                 'code' => (string) $code,
                 'rowCount' => (int) $info['count'],
             ];
+            if (($info['classCounts'] ?? []) !== []) {
+                $classCounts = $info['classCounts'];
+                arsort($classCounts);
+                $core['classCounts'] = $classCounts;
+            }
+            $metadata[] = $core;
         }
 
         return $metadata;

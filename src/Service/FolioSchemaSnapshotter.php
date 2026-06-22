@@ -263,10 +263,10 @@ final readonly class FolioSchemaSnapshotter
      * Replaces the deprecated in-PHP JsonlProfiler (which also distinct-tracked and blew memory on
      * large fields); the schema snapshot only cares whether a field has any non-null value.
      *
-     * @param list<array<string,mixed>> $rows
+     * @param iterable<array<string,mixed>> $rows
      * @return array<string,array{total:int,nulls:int}>
      */
-    private function fieldPresence(array $rows): array
+    private function fieldPresence(iterable $rows): array
     {
         $stats = [];
         foreach ($rows as $row) {
