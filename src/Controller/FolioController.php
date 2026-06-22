@@ -8,6 +8,8 @@ use Doctrine\DBAL\Connection;
 use Survos\FolioBundle\Attribute\FolioContext;
 use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Row,Term,TermSet};
 use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService};
+use Survos\DataContracts\Vocabulary\RelationBinding;
+use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -131,12 +133,16 @@ final class FolioController extends AbstractController
         $coreCode = $request->request->getString('core', $request->query->getString('core')) ?: null;
         $dtoType = $request->request->getString('dtoType', $request->query->getString('dtoType')) ?: null;
         $limit = max(1, min(50, $request->request->getInt('limit', $request->query->getInt('limit', 24))));
+        $conversationId = trim($request->request->getString('conversation', $request->query->getString('conversation')));
+        if ($conversationId === '') {
+            $conversationId = bin2hex(random_bytes(16));
+        }
         $result = null;
         $error = null;
 
         if ($question !== '') {
             try {
-                $result = $this->chat->ask($ctx, $question, $coreCode, $dtoType, $limit);
+                $result = $this->chat->ask($ctx, $question, $coreCode, $dtoType, $limit, $conversationId);
             } catch (\RuntimeException $e) {
                 $error = $e->getMessage();
             }
@@ -159,6 +165,7 @@ final class FolioController extends AbstractController
             'selectedCore' => $coreCode,
             'selectedDtoType' => $dtoType,
             'limit' => $limit,
+            'conversationId' => $conversationId,
             'promptSuggestions' => $this->promptSuggester->suggest($ctx, $dtoChoices),
             'wordCloud' => $this->wordCloud->cloud($ctx, 32),
             'result' => $result,
@@ -240,11 +247,21 @@ final class FolioController extends AbstractController
         $claims = $this->rowClaims($ctx->em->getConnection(), $row->id);
         $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
         $terms = $this->rowTerms($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
+
+        // Fields shown elsewhere (as Terms, or as relation links) are excluded from the DTO Data
+        // table on the left — same single-source bindings, so the table never repeats them.
+        $termFields = array_merge(
+            [],
+            ...array_values(TermSetBinding::fields()),
+            ...array_map(static fn (array $r): array => $r['sourceFields'], array_values(RelationBinding::relations())),
+        );
+
+        // The extras blob also shouldn't repeat fields rendered as Terms or Relations — strip the same
+        // termset/relation source fields (e.g. dept/cul/med, creators/collections), plus structural
+        // ones shown in the header.
         $extras = $row->extras ?? [];
-        // Structural fields shown elsewhere (link/header/facets) — not display "extras".
-        unset($extras['genreSpecific'], $extras['tec'], $extras['mat'], $extras['coll'], $extras['url']);
-        if ($links !== []) {
-            unset($extras['creator']);
+        foreach ([...$termFields, 'url'] as $shownElsewhere) {
+            unset($extras[$shownElsewhere]);
         }
 
         return $this->render('@SurvosFolioBundle/folio/detail.html.twig', [
@@ -258,6 +275,7 @@ final class FolioController extends AbstractController
             'claims' => $claims,
             'links' => $links,
             'terms' => $terms,
+            'termFields' => $termFields,
             'extras' => $extras,
         ]);
     }
@@ -383,16 +401,20 @@ final class FolioController extends AbstractController
      */
     private function rowTerms(\Doctrine\ORM\EntityManagerInterface $em, string $folioCode, array $dtoData, array $extras): array
     {
-        $sources = [
-            'genre' => $dtoData['genreSpecific'] ?? $extras['genreSpecific'] ?? null,
-            'technique' => $dtoData['tec'] ?? $extras['tec'] ?? null,
-            'material' => $dtoData['mat'] ?? $extras['mat'] ?? null,
-            'collection' => $dtoData['coll'] ?? $extras['coll'] ?? null,
-        ];
-
+        // Same field→termset binding the extractor used to write the Term rows (single source of
+        // truth: #[VocabTerm(termSet:true, sourceFields:…)] on MuseumVocab), so what we resolve here
+        // matches what exists. A set draws from several fields (e.g. obj ← subjects/keywords).
         $terms = [];
-        foreach ($sources as $setCode => $values) {
-            foreach ($this->termValues($values) as $label) {
+        foreach (TermSetBinding::fields() as $setCode => $fields) {
+            $labels = [];
+            foreach ($fields as $field) {
+                foreach ($this->termValues($dtoData[$field] ?? $extras[$field] ?? null) as $label) {
+                    $labels[] = $label;
+                }
+            }
+            // Dedupe by value (array_unique), NOT by key — a numeric-string label like "1886" used as
+            // an array key would be coerced to an int and break termCode(string).
+            foreach (array_unique($labels) as $label) {
                 $code = $this->termCode($label);
                 $term = $em->find(Term::class, "$folioCode:$setCode:$code");
                 $terms[$setCode][] = [
@@ -403,7 +425,7 @@ final class FolioController extends AbstractController
             }
         }
 
-        return $terms;
+        return array_filter($terms);
     }
 
     /** @return list<string> */

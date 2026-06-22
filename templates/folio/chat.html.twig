@@ -17,12 +17,13 @@
         <div class="col-lg-8">
             <div class="card mb-3">
                 <div class="card-body">
-                    <form method="post" class="vstack gap-3" data-turbo="false">
+                    <form method="post" class="vstack gap-3" data-turbo="false" id="folio-chat-form">
                         <input type="hidden" name="core" value="{{ selectedCore }}">
                         <input type="hidden" name="dtoType" value="{{ selectedDtoType }}">
+                        <input type="hidden" name="conversation" value="{{ conversationId }}">
+
                         <div>
                             <details class="folio-sample-questions" {{ promptSuggestions ? '' : 'hidden' }}>
-                                {# Header row: the "Ask a question" label sits left, the disclosure floats right. #}
                                 <summary class="folio-sample-summary d-flex justify-content-between align-items-center mb-2">
                                     <span class="form-label fw-semibold mb-0">
                                         {{ ux_icon('tabler:message-question', { class: 'icon me-1 text-primary' }) }}
@@ -36,8 +37,6 @@
 
                                 <div class="d-flex flex-wrap gap-2 mb-2">
                                     {% for prompt in promptSuggestions|slice(0, 8) %}
-                                        {# Clicking a sample fills the textarea with the question, then submits — so the
-                                           visitor sees what was asked and the same path runs as typing it by hand. #}
                                         <button
                                             type="button"
                                             class="btn btn-sm btn-outline-primary text-start"
@@ -84,13 +83,47 @@
                                         </span>
                                     {% endif %}
                                 </button>
-                                <button class="btn btn-primary" type="submit" style="min-width: 128px;">
+
+                                <button
+                                    class="btn btn-primary"
+                                    type="submit"
+                                    id="folio-chat-submit"
+                                    style="min-width: 128px;"
+                                >
                                     {{ ux_icon('tabler:send', { class: 'icon me-1' }) }}
-                                    Ask
+                                    <span class="folio-submit-text">Ask</span>
                                 </button>
                             </div>
                         </div>
                     </form>
+                </div>
+            </div>
+
+            <div class="card mb-3 d-none" id="folio-chat-processing">
+                <div class="card-body">
+                    <div class="d-flex align-items-start gap-3">
+                        <span class="avatar avatar-sm avatar-rounded bg-primary-lt text-primary flex-shrink-0">
+                            {{ ux_icon('tabler:building-bank', { class: 'icon' }) }}
+                        </span>
+
+                        <div class="flex-fill">
+                            <div class="fw-semibold mb-1">
+                                Finding the best answer for you
+                            </div>
+
+                            <div class="text-muted small mb-3">
+                                <span id="folio-processing-text">
+                                    Thinking...
+                                </span>
+                            </div>
+
+                            <div class="folio-thinking-lines">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -217,8 +250,6 @@
                                 </div>
                             {% endset %}
 
-                            {# One source row, two ways to view its detail: Sidebar (docks it in the right
-                               panel) and Canvas (slides it over). Both reuse the captured detailBody. #}
                             <div
                                 class="list-group-item folio-source-row"
                                 role="button"
@@ -237,7 +268,9 @@
                                 {% endif %}
 
                                 <span class="min-w-0">
-                                    <span class="badge badge-pill fs-6 mb-1 text-uppercase bg-primary-lt">{{ hit.dtoType }}</span>
+                                    <span class="badge badge-pill fs-6 mb-1 text-uppercase bg-primary-lt">
+                                        {{ hit.coreCode }} / {{ hit.dtoType }}
+                                    </span>
                                     <span class="fw-semibold text-truncate d-block">{{ hit.label ?: hit.localId }}</span>
                                     <span class="text-muted small font-monospace">{{ hit.localId }}{% if hit.dtoData.itemCount is defined and hit.dtoData.itemCount %} · {{ hit.dtoData.itemCount|number_format }} items{% endif %}</span>
                                 </span>
@@ -303,8 +336,6 @@
         </div>
     </div>
 
-    {# Debug aids — below the conversation, not beside it. The word cloud shows which FTS terms
-       will match, so we know what to ask; the context panel shows the prompt the model received. #}
     <div class="row row-cards mt-3">
         <div class="col-lg-6">
             <div class="card">
@@ -464,6 +495,56 @@
             line-height: 1.7;
         }
 
+        .folio-thinking-lines {
+            display: grid;
+            gap: .5rem;
+            max-width: 520px;
+        }
+
+        .folio-thinking-lines span {
+            display: block;
+            height: .65rem;
+            border-radius: 999px;
+            background: linear-gradient(
+                90deg,
+                var(--tblr-bg-surface-secondary) 0%,
+                var(--tblr-border-color) 50%,
+                var(--tblr-bg-surface-secondary) 100%
+            );
+            background-size: 200% 100%;
+            animation: folioThinking 1.2s ease-in-out infinite;
+        }
+
+        .folio-thinking-lines span:nth-child(1) {
+            width: 90%;
+        }
+
+        .folio-thinking-lines span:nth-child(2) {
+            width: 72%;
+            animation-delay: .12s;
+        }
+
+        .folio-thinking-lines span:nth-child(3) {
+            width: 48%;
+            animation-delay: .24s;
+        }
+
+        @keyframes folioThinking {
+            0% {
+                background-position: 200% 0;
+                opacity: .55;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                background-position: -200% 0;
+                opacity: .55;
+            }
+        }
+
         .folio-source-row {
             display: grid;
             grid-template-columns: 2rem 56px minmax(0, 1fr) auto;
@@ -485,6 +566,14 @@
             display: flex;
             gap: .375rem;
             white-space: nowrap;
+        }
+
+        .folio-source-chevron {
+            transition: transform .15s ease;
+        }
+
+        .folio-source-row:hover .folio-source-chevron {
+            transform: translateX(2px);
         }
 
         .folio-detail-sidebar-card {
@@ -597,6 +686,12 @@
                     return;
                 }
 
+                document
+                    .querySelectorAll('.folio-source-row.active')
+                    .forEach(el => el.classList.remove('active'));
+
+                row.classList.add('active');
+
                 target.replaceChildren(tpl.content.cloneNode(true));
                 return;
             }
@@ -635,5 +730,60 @@
                 openFolioSourceDetail(row);
             }
         });
+
+        document.addEventListener('submit', function (e) {
+            const form = e.target.closest('#folio-chat-form');
+
+            if (!form) {
+                return;
+            }
+
+            const textarea = form.querySelector('#folio-chat-q');
+            const submitBtn = form.querySelector('#folio-chat-submit');
+            const processing = document.getElementById('folio-chat-processing');
+
+            if (textarea && !textarea.value.trim()) {
+                e.preventDefault();
+                textarea.focus();
+                return;
+            }
+
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.classList.add('btn-loading');
+
+                const label = submitBtn.querySelector('.folio-submit-text');
+
+                if (label) {
+                    label.textContent = 'Thinking...';
+                }
+            }
+
+            if (processing) {
+                processing.classList.remove('d-none');
+                processing.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        });
+
+        const folioProcessingMessages = [
+            'Thinking...',
+            'Searching...',
+            'Reading sources...',
+            'Preparing results...'
+        ];
+
+        let folioProcessingIndex = 0;
+
+        setInterval(() => {
+            const processingCard = document.getElementById('folio-chat-processing');
+            const text = document.getElementById('folio-processing-text');
+
+            if (!processingCard || !text || processingCard.classList.contains('d-none')) {
+                return;
+            }
+
+            folioProcessingIndex = (folioProcessingIndex + 1) % folioProcessingMessages.length;
+            text.textContent = folioProcessingMessages[folioProcessingIndex];
+        }, 1000);
     </script>
 {% endblock %}

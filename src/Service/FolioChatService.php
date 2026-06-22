@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Survos\FolioBundle\Event\FolioChatTurnEvent;
 use Survos\FolioBundle\Model\FolioChatAnswer;
 use Survos\FolioBundle\Model\FolioChatCard;
 use Survos\FolioBundle\Model\FolioChatHit;
@@ -12,6 +13,7 @@ use Survos\FolioBundle\Model\FolioContext;
 use Symfony\AI\Agent\AgentInterface;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 final readonly class FolioChatService
 {
@@ -19,9 +21,10 @@ final readonly class FolioChatService
         private FolioRetriever $retriever,
         private FolioChatContextHolder $holder,
         private ?AgentInterface $agent = null,
+        private ?EventDispatcherInterface $dispatcher = null,
     ) {}
 
-    public function ask(FolioContext $ctx, string $question, ?string $coreCode = null, ?string $dtoType = null, int $limit = 12): FolioChatResult
+    public function ask(FolioContext $ctx, string $question, ?string $coreCode = null, ?string $dtoType = null, int $limit = 12, ?string $conversationId = null): FolioChatResult
     {
         $question = trim($question);
         if ($question === '') {
@@ -29,15 +32,21 @@ final readonly class FolioChatService
         }
 
         $hits = $this->retriever->retrieve($ctx, $question, $limit, $coreCode, $dtoType);
-        [$answer, $cards] = $this->compose($ctx, $question, $hits);
+        [$answer, $cards] = $this->compose($ctx, $question, $hits, $conversationId);
 
-        return new FolioChatResult(
+        $result = new FolioChatResult(
             question: $question,
             answer: $answer,
             contextPrompt: $this->contextPrompt($question, $hits),
             hits: $hits,
             cards: $cards,
         );
+
+        if ($conversationId !== null && $this->dispatcher !== null) {
+            $this->dispatcher->dispatch(new FolioChatTurnEvent($ctx, $conversationId, $result));
+        }
+
+        return $result;
     }
 
     /**
@@ -48,7 +57,7 @@ final readonly class FolioChatService
      * @param list<FolioChatHit> $hits
      * @return array{0: string, 1: list<FolioChatCard>}
      */
-    private function compose(FolioContext $ctx, string $question, array $hits): array
+    private function compose(FolioContext $ctx, string $question, array $hits, ?string $conversationId): array
     {
         if ($this->agent === null || $hits === []) {
             return [$this->extractiveAnswer($hits), $this->fallbackCards($hits)];
@@ -65,7 +74,13 @@ final readonly class FolioChatService
                     Message::forSystem($this->systemPrompt()),
                     Message::ofUser($this->contextPrompt($question, $hits)),
                 ),
-                ['response_format' => FolioChatAnswer::class],
+                [
+                    'response_format' => FolioChatAnswer::class,
+                    'folio_chat' => [
+                        'conversation_id' => $conversationId,
+                        'folio_code' => $ctx->folioCode,
+                    ],
+                ],
             );
             $answer = $result->getContent();
         } catch (\Throwable) {

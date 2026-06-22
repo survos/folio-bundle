@@ -16,7 +16,7 @@
 {% set provider = parts[0] %}
 {% set dataset = parts[1] %}
 {% set th = row.thumbnailSource %}
-{% set termFields = terms ? ['genreSpecific', 'tec', 'mat', 'coll'] : [] %}
+{% set termFields = termFields|default([]) %}
 {% set pageAiUrls = [] %}
 {# Fall back to the dcterms:/ai: keys in extras while the canonical mapping is still incomplete,
    so the header surfaces what we have (and shows which fields aren't mapped yet). #}
@@ -457,7 +457,7 @@
                     <div class="list-group list-group-flush">
                         {% for set, values in terms %}
                             <div class="list-group-item">
-                                <div class="text-muted small text-uppercase">{{ set }}</div>
+                                <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ set }}</div>
 
                                 {% for value in values %}
                                     {% if value.term %}
@@ -500,7 +500,7 @@
                                 <div class="text-muted small font-monospace">{{ link.code }}</div>
 
                                 <div>
-                                    <span>{{ link.label ?: link.code }}</span>
+                                    {{ ux_icon(link.core, {class: 'icon me-1'}) }}<span>{{ link.label ?: link.code }}</span>
 
                                     {% if target %}
                                         <a href="{{ path('survos_folio_row_show', {
