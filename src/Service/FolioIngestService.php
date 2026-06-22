@@ -581,6 +581,13 @@ final class FolioIngestService
             return ['count' => 0, 'skipped' => 0];
         }
 
+        // The term ingest above flushes-and-clears the EM on large datasets, which DETACHES the
+        // $folio passed in; persisting a LinkType that points at a detached Folio makes Doctrine
+        // treat the Folio as a new, un-cascaded entity and throw. Re-fetch the managed instance
+        // (ORM 3 has no merge()). It must exist — we just ingested rows into it — so fail loudly.
+        $folio = $em->find(Folio::class, $datasetKey)
+            ?? throw new \RuntimeException(sprintf('Folio "%s" vanished before link ingest.', $datasetKey));
+
         $types = [];
         foreach (JsonlReader::open($linkTypeFile) as $data) {
             $code = $this->requiredString($data, 'code', $linkTypeFile);
