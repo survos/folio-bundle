@@ -18,8 +18,7 @@
 {% set th = row.thumbnailSource %}
 {% set termFields = termFields|default([]) %}
 {% set pageAiUrls = [] %}
-{# Fall back to the dcterms:/ai: keys in extras while the canonical mapping is still incomplete,
-   so the header surfaces what we have (and shows which fields aren't mapped yet). #}
+
 {% set tombstoneTitle = attribute(row.dtoData, 'title')|default(attribute(row.extras, 'dcterms:title')|default(row.label ?: row.localId)) %}
 {% set tombstoneDescription = attribute(row.dtoData, 'description')|default(attribute(row.extras, 'dcterms:description')|default(null)) %}
 {% set tombstoneDate = attribute(row.dtoData, 'date')|default(attribute(row.extras, 'dcterms:date')|default(null)) %}
@@ -28,52 +27,22 @@
 {% set sourceUrl = attribute(row.dtoData, 'url')|default(null) %}
 {% set tombstoneUrl = citationUrl ?: sourceUrl %}
 {% set promotedFields = ['title', 'description', 'date', 'dimensions', 'dimensionsRaw', 'weight', 'citationUrl', 'ocrText'] %}
+
 {% if sourceUrl and (sourceUrl == citationUrl or citationUrl is empty) %}
     {% set promotedFields = promotedFields|merge(['url']) %}
 {% endif %}
+
 {% set ocrText = attribute(row.dtoData, 'ocrText')|default(null) %}
 {% set pageCount = attribute(row.dtoData, 'pageCount')|default(null) %}
 {% set tombstoneYear = attribute(row.dtoData, 'year')|default(tombstoneDate) %}
 {% set tombstoneDenseSummary = attribute(row.dtoData, 'denseSummary')|default(attribute(row.extras, 'ai:denseSummary')|default(null)) %}
-{# The objective first-pass "describe this image" observation — shown beside the photo. #}
 {% set observationProse = attribute(row.dtoData, 'ai:observationProse')|default(attribute(row.extras, 'ai:observationProse')|default(null)) %}
 
-{% block body_class %}folio-layout{% endblock %}
+{% block body_class %}folio-layout folio-object-page{% endblock %}
 
-{% block page_pretitle %}
-    <span class="font-monospace">{{ ctx.folioCode }}</span>
-    <span class="mx-1 text-muted">&middot;</span>
-    <span class="font-monospace">{{ core.code }}</span>
-
-    {% if row.dtoType %}
-        <span class="mx-1 text-muted">&middot;</span>
-        {{ row.dtoType }}
-    {% endif %}
-{% endblock %}
-
-{% block page_title %}
-    {{ tombstoneTitle }}
-{% endblock %}
-
-{% block page_subtitle %}
-    {# Top of the page: year + the AI denseSummary (the "tagline" until we have real titles).
-       The longer catalog description moves beside the image in the body. #}
-    <div class="d-flex flex-wrap gap-2 small mb-1">
-        {% if tombstoneYear %}
-            <span class="badge bg-secondary-lt fs-6">{{ tombstoneYear }}</span>
-        {% endif %}
-        {% if tombstoneDimensions %}
-            <span class="text-muted">{{ tombstoneDimensions is iterable ? tombstoneDimensions|json_encode : tombstoneDimensions }}</span>
-        {% endif %}
-        {% if tombstoneUrl %}
-            <a href="{{ tombstoneUrl }}" target="_blank" rel="noopener">Citation</a>
-        {% endif %}
-    </div>
-
-    {% if tombstoneDenseSummary %}
-        <div class="text-body" style="max-width: 65rem;">{{ tombstoneDenseSummary }}</div>
-    {% endif %}
-{% endblock %}
+{% block page_pretitle %}{% endblock %}
+{% block page_title %}{% endblock %}
+{% block page_subtitle %}{% endblock %}
 
 {% block title %}
     {{ tombstoneTitle }} · {{ ctx.folioCode }}
@@ -81,592 +50,707 @@
 
 {% block body %}
     {% set pages = pageTableExists ? row.pages : [] %}
-    {# AI image URLs for OCR/Observe — computed here (not inside the viewer's for-loop, whose set
-       doesn't leak) so the AI button works for single-image rows too. Raw page url; mediary fetches it. #}
     {% set pageAiUrls = pages|map(p => p.url) %}
-    {# Per-page extracted text (OCR shipped by the source, e.g. NARA digitalObjects.extractedText →
-       page.text). Drives the OCR panel beside the viewer, indexed in lock-step with the pages. #}
     {% set pageTexts = pages|map(p => p.text|default('')) %}
     {% set hasOcr = pageTexts|filter(t => t|trim is not empty)|length > 0 %}
-    {# A single-image row (e.g. a photograph) gets one clean image + the description beside it —
-       no zoomable OSD viewer AND a separate thumbnail. Multi-page docs keep the page viewer. #}
     {% set isSingleImage = pages|length == 1 and not attribute(row.dtoData, 'pdfUrl')|default(null) %}
+    {% set pdfUrl = attribute(row.dtoData, 'pdfUrl')|default(null) %}
+    {% set docPageCount = attribute(row.dtoData, 'pageCount')|default(0) %}
+    {% set videoPages = pages|filter(p => p.url matches '/\\.(mp4|mpe?g|mov|avi|wmv|m4v|webm)($|\\?)/i') %}
 
-    <div class="row row-cards">
-        <div class="col-lg-8" id="doc-main-col">
-            {# Pages — the canonical imagery of a row (a list of jpgs, or a PDF's pages). #}
+    <div class="container-xl py-4 py-lg-5">
+        <div class="folio-detail-shell">
 
-            {# A row's canonical media is EITHER a PDF (pdfUrl set during normalization) or a
-               sequence of images. PDF wins — it also carries a cover-image page for thumbnails,
-               so we must branch on pdfUrl before the image viewer. Both viewers emit the same
-               `iiif-viewer:page` event, so the page-status script below is shared. #}
-            {% set pdfUrl = attribute(row.dtoData, 'pdfUrl')|default(null) %}
-            {% set docPageCount = attribute(row.dtoData, 'pageCount')|default(0) %}
-            {# Moving-image digital objects (NARA .mp4 reels, etc.) → native player. Detected by URL
-               extension so it works whether or not the page carries PageType::Video. #}
-            {% set videoPages = pages|filter(p => p.url matches '/\\.(mp4|mpe?g|mov|avi|wmv|m4v|webm)($|\\?)/i') %}
+            <div class="folio-detail-hero">
+                <div class="row g-4 align-items-end">
+                    <div class="col-lg-8">
+                        <nav class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
+                            {{ ux_icon('tabler:home', { class: 'icon icon-sm' }) }}
+                            <span>{{ ctx.folioCode }}</span>
+                            <span>/</span>
+                            <span>{{ core.code }}</span>
+                            {% if row.dtoType %}
+                                <span>/</span>
+                                <span>{{ row.dtoType }}</span>
+                            {% endif %}
+                        </nav>
 
-            {% if videoPages|length > 0 %}
-                {# Video → HTML5 <video>, one player per moving-image digital object. #}
-                <div id="doc-viewer" class="card mb-3">
-                    <div class="card-body">
-                        {% for page in videoPages %}
-                            <video controls preload="metadata" class="w-100 mb-2 bg-dark rounded" style="max-height: 70vh;">
-                                <source src="{{ page.url }}">
-                                Your browser can't play this video — <a href="{{ page.url }}">download it</a>.
-                            </video>
+                        <h1 class="folio-detail-title mb-3">{{ tombstoneTitle }}</h1>
+
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                            {% if tombstoneYear %}
+                                <span class="badge rounded-pill bg-warning-lt px-3">
+                                    {{ ux_icon('tabler:calendar', { class: 'icon me-1' }) }}
+                                    {{ tombstoneYear }}
+                                </span>
+                            {% endif %}
+
+                            {% if tombstoneDimensions %}
+                                <span class="badge rounded-pill bg-white text-muted border px-3">
+                                    {{ ux_icon('tabler:ruler-measure', { class: 'icon me-1' }) }}
+                                    {{ tombstoneDimensions is iterable ? tombstoneDimensions|json_encode : tombstoneDimensions }}
+                                </span>
+                            {% endif %}
+
+                            {% if tombstoneUrl %}
+                                <a href="{{ tombstoneUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
+                                    Citation {{ ux_icon('tabler:external-link', { class: 'icon ms-1' }) }}
+                                </a>
+                            {% endif %}
+                        </div>
+
+                        {% if tombstoneDenseSummary %}
+                            <p class="text-muted mb-0" style="max-width: 58rem;">{{ tombstoneDenseSummary }}</p>
+                        {% elseif tombstoneDescription %}
+                            <p class="text-muted mb-0" style="max-width: 58rem;">
+                                {{ tombstoneDescription|striptags|u.truncate(280, '...') }}
+                            </p>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-lg-4">
+                        {% if pageAiUrls|length > 0 or th %}
+                            <div class="d-flex flex-wrap justify-content-lg-end gap-2">
+                                <a href="{{ path('survos_folio_chat', {provider: provider, dataset: dataset}) }}"
+                                   class="btn text-white border-0 shadow-sm rounded-pill px-4"
+                                   style="background: linear-gradient(135deg, #2b0b4f, #5b2aa0);">
+                                    {{ ux_icon('tabler:sparkles', { class: 'icon me-1' }) }}
+                                    Ask the Scholar
+                                </a>
+
+                                {% if folioAiRoute|default(null) and pageAiUrls|length > 0 %}
+                                    <a
+                                        id="folio-ai-page-link"
+                                        href="{{ path(folioAiRoute, {url: pageAiUrls|first, task: 'ocr_mistral'}) }}"
+                                        data-ai-url-template="{{ path(folioAiRoute, {url: '__URL__', task: 'ocr_mistral'}) }}"
+                                        data-ai-images="{{ pageAiUrls|json_encode|e('html_attr') }}"
+                                        tar the schoget="_blank"
+                                        rel="noopener"
+                                        class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill"
+                                    >
+                                        {{ ux_icon('tabler:wand', { class: 'icon me-1' }) }}
+                                        AI tools
+                                    </a>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="row row-cards">
+                <div class="col-lg-8" id="doc-main-col">
+                    {% if videoPages|length > 0 %}
+                        <div id="doc-viewer" class="card mb-3">
+                            <div class="card-body">
+                                {% for page in videoPages %}
+                                    <video controls preload="metadata" class="w-100 mb-2 bg-dark rounded" style="max-height: 70vh;">
+                                        <source src="{{ page.url }}">
+                                        Your browser can't play this video — <a href="{{ page.url }}">download it</a>.
+                                    </video>
+                                {% endfor %}
+                            </div>
+                            <div class="card-footer py-2 small text-muted">
+                                {{ videoPages|length }} video file{{ videoPages|length > 1 ? 's' : '' }}
+                            </div>
+                        </div>
+
+                    {% elseif pdfUrl %}
+                        <div id="doc-viewer" class="card mb-3">
+                            <div class="card-body p-0">
+                                <twig:iiif:pdf
+                                    :url="pdfUrl"
+                                    :pageCount="docPageCount"
+                                    :height="600"
+                                    :showLinks="true"
+                                />
+                            </div>
+
+                            <div id="doc-page-status" class="card-footer py-2 small text-muted">
+                                {{ docPageCount ? 'PDF · ' ~ docPageCount ~ ' pages' : 'PDF' }}{{ hasOcr ? '' : ' — no extracted text' }}
+                            </div>
+                        </div>
+
+                    {% elseif pages|length > 0 %}
+                        {% set rowManifestUrl = url('survos_folio_iiif_manifest', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId}) %}
+                        {% set viewerImages = [] %}
+                        {% set viewerHires = [] %}
+
+                        {% for page in pages %}
+                            {% set pageImg = page.url %}
+                            {% set pageHires = page.url %}
+                            {% guard filter imgproxy %}
+                                {% set pageImg = page.url|imgproxy('thumb') %}
+                                {% set pageHires = page.url|imgproxy('archive') %}
+                            {% endguard %}
+                            {% set viewerImages = viewerImages|merge([pageImg]) %}
+                            {% set viewerHires = viewerHires|merge([pageHires]) %}
                         {% endfor %}
+
+                        <div id="doc-viewer" class="card mb-3">
+                            <div class="card-body p-0">
+                                <twig:iiif:viewer
+                                    :images="viewerImages"
+                                    :hiresImages="viewerHires"
+                                    :height="600"
+                                    :showLinks="false"
+                                />
+                            </div>
+
+                            <div id="doc-page-status" class="card-footer py-2 small text-muted">
+                                Page 1 of {{ viewerImages|length }}{{ pageTexts|first|trim ? '' : ' — no extracted text' }}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if pdfUrl or pages|length > 0 %}
+                        <script>
+                            (function () {
+                                var texts = null;
+                                function pageTexts() {
+                                    if (texts === null) {
+                                        var el = document.getElementById('doc-ocr-text');
+                                        try { texts = el ? JSON.parse(el.dataset.pageTexts || '[]') : []; }
+                                        catch (err) { texts = []; }
+                                    }
+                                    return texts;
+                                }
+                                document.addEventListener('iiif-viewer:page', function (e) {
+                                    var i = e.detail.index, total = e.detail.total;
+                                    var text = (pageTexts()[i] || '').trim();
+                                    var status = document.getElementById('doc-page-status');
+                                    if (status) {
+                                        status.textContent = 'Page ' + (i + 1) + ' of ' + total + (text ? '' : ' — no extracted text');
+                                    }
+                                    var ocrEl = document.getElementById('doc-ocr-text');
+                                    if (ocrEl) {
+                                        ocrEl.textContent = text || '(no extracted text for this page)';
+                                    }
+                                    var ocrPage = document.getElementById('doc-ocr-page');
+                                    if (ocrPage) {
+                                        ocrPage.textContent = 'page ' + (i + 1) + ' of ' + total;
+                                    }
+                                });
+                            })();
+                        </script>
+                    {% endif %}
+
+                    {% if pages|length > 1 and videoPages|length == 0 %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>
+                                <div class="btn-list">
+                                    <a href="{{ path('survos_iiif_debug', {manifest: rowManifestUrl}) }}"
+                                       target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                                        {{ ux_icon('tabler:book', { class: 'icon me-1' }) }}
+                                        Open viewer
+                                    </a>
+                                </div>
+                            </div>
+
+                            <div class="card-body">
+                                <div class="row g-2">
+                                    {% for page in pages|slice(0, 60) %}
+                                        {% set src = page.url %}
+                                        {% set thumb = src %}
+                                        {% guard filter imgproxy %}
+                                            {% set thumb = src|imgproxy('thumb') %}
+                                        {% endguard %}
+
+                                        <div class="col-4 col-md-3 col-lg-2">
+                                            <a href="#" class="js-osd-page" data-page-index="{{ loop.index0 }}" title="p. {{ page.seq }}">
+                                                <img
+                                                    src="{{ thumb }}"
+                                                    alt="p. {{ page.seq }}"
+                                                    class="img-fluid rounded border"
+                                                    style="aspect-ratio: 1; object-fit: cover"
+                                                    loading="lazy"
+                                                >
+                                            </a>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+
+                                {% if pages|length > 60 %}
+                                    <div class="text-muted small mt-2">
+                                        Showing first 60 of {{ pages|length }} pages.
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title mb-0">DTO Data</h2>
+                        </div>
+
+                        {% set imageFields = ['thumbnailUrl', 'largeImageUrl', 'iiifBase', 'iiifManifest', 'iiifInfo', 'imageCount', 'hasImages', 'sourceUrl'] %}
+                        <div class="table-responsive">
+                            <table class="table table-vcenter card-table">
+                                <tbody>
+                                    {% for field in columns %}
+                                        {% set value = attribute(row.dtoData, field)|default(null) %}
+                                        {% if value is not empty and field not in termFields and field not in imageFields and field not in promotedFields %}
+                                            <tr>
+                                                <th class="w-25 font-monospace text-muted d-none d-md-table-cell">
+                                                    {{ field }}
+                                                </th>
+                                                <td>
+                                                    <div class="d-md-none mb-1">
+                                                        <span class="font-monospace text-muted small">{{ field }}</span>
+                                                    </div>
+                                                    <div class="text-break">
+                                                        {{ folio_row.render_value(value) }}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        {% endif %}
+                                    {% else %}
+                                        {% for field, value in row.dtoData %}
+                                            {% if field not in termFields and field not in imageFields and field not in promotedFields %}
+                                                <tr>
+                                                    <th class="w-25 font-monospace text-muted">{{ field }}</th>
+                                                    <td>{{ folio_row.render_value(value) }}</td>
+                                                </tr>
+                                            {% endif %}
+                                        {% else %}
+                                            <tr>
+                                                <td class="text-muted">No DTO data captured.</td>
+                                            </tr>
+                                        {% endfor %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {% set imageMetaFields = imageFields|filter(field => attribute(row.dtoData, field)|default(null) is not empty) %}
+
+                        {% if imageMetaFields is not empty %}
+                            <details class="px-3 pb-3">
+                                <summary class="text-muted small" style="cursor: pointer">
+                                    Source image fields ({{ imageMetaFields|length }})
+                                </summary>
+
+                                <table class="table table-sm card-table mt-2 mb-0">
+                                    <tbody>
+                                        {% for field in imageMetaFields %}
+                                            <tr>
+                                                <th class="w-25 font-monospace text-muted small">{{ field }}</th>
+                                                <td class="small text-break">
+                                                    {{ folio_row.render_value(attribute(row.dtoData, field)) }}
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </details>
+                        {% endif %}
                     </div>
-                    <div class="card-footer py-2 small text-muted">
-                        {{ videoPages|length }} video file{{ videoPages|length > 1 ? 's' : '' }}
-                    </div>
+
+                    {% if claims|default([]) is not empty %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h2 class="card-title mb-0">Claims <span class="text-muted">({{ claims|length }})</span></h2>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-vcenter card-table">
+                                    <tbody>
+                                        {% for claim in claims %}
+                                            <tr>
+                                                <th class="w-25 align-top font-monospace text-muted">
+                                                    {{ claim.predicate }}
+                                                </th>
+                                                <td>
+                                                    <div style="white-space: pre-wrap; word-break: break-word;">{{ claim.value }}</div>
+                                                    <div class="text-muted small mt-1">
+                                                        <span class="badge text-bg-light border">{{ claim.source }}</span>
+                                                        {% if claim.confidence is not null %}
+                                                            <span title="confidence">{{ (claim.confidence * 100)|round }}%</span>
+                                                        {% endif %}
+                                                        {% if claim.agent %}
+                                                            <span class="mx-1">&middot;</span><span class="font-monospace">{{ claim.agent }}</span>
+                                                        {% endif %}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    {% endif %}
                 </div>
 
-            {% elseif pdfUrl %}
-                {# PDF document → pdf.js viewer (page-by-page, emits iiif-viewer:page, OCR-ready). #}
-                <div id="doc-viewer" class="card mb-3">
-                    <div class="card-body p-0">
-                        <twig:iiif:pdf
-                            :url="pdfUrl"
-                            :pageCount="docPageCount"
-                            :height="600"
-                            :showLinks="true"
-                        />
+                <div class="col-lg-4" id="doc-side-col">
+                    {% if hasOcr and not isSingleImage %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex align-items-center gap-2">
+                                <h2 class="card-title mb-0">Extracted text</h2>
+                                <span class="badge bg-blue-lt">OCR</span>
+                                <span id="doc-ocr-page" class="ms-auto text-muted small">page 1 of {{ pages|length }}</span>
+                            </div>
+                            <div class="card-body">
+                                <div id="doc-ocr-text"
+                                     data-page-texts="{{ pageTexts|json_encode|e('html_attr') }}"
+                                     style="white-space: pre-wrap; word-break: break-word; max-height: 600px; overflow-y: auto; font-size: 0.875rem; line-height: 1.4;">{{ pageTexts|first|trim ?: '(no extracted text for this page)' }}</div>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if observationProse %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex align-items-center gap-2">
+                                <h2 class="card-title mb-0">What's in the picture</h2>
+                                <span class="badge bg-purple-lt">AI observation</span>
+                            </div>
+                            <div class="card-body">
+                                <div style="white-space: pre-wrap; word-break: break-word;">{{ observationProse }}</div>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if tombstoneDescription %}
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h2 class="card-title mb-0">Source caption</h2>
+                            </div>
+
+                            <div class="card-body">
+                                <div style="max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+                                    {{ tombstoneDescription }}
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if ocrText %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h2 class="card-title mb-0">Transcription</h2>
+
+                                {% if pageCount %}
+                                    <span class="text-muted small">{{ pageCount }} pages</span>
+                                {% endif %}
+                            </div>
+
+                            <div class="card-body">
+                                <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
+                                    {{ ocrText }}
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h2 class="card-title mb-0">Row</h2>
+                        </div>
+
+                        <div class="card-body">
+                            <dl class="mb-0">
+                                <dt>ID</dt>
+                                <dd class="font-monospace">{{ row.localId }}</dd>
+
+                                <dt>Type</dt>
+                                <dd>{{ row.dtoType ?: '(none)' }}</dd>
+
+                                <dt>DTO Class</dt>
+                                <dd class="font-monospace small">{{ dtoClass ?: '(generic)' }}</dd>
+                            </dl>
+                        </div>
                     </div>
 
-                    <div id="doc-page-status" class="card-footer py-2 small text-muted">
-                        {{ docPageCount ? 'PDF · ' ~ docPageCount ~ ' pages' : 'PDF' }}{{ hasOcr ? '' : ' — no extracted text' }}
-                    </div>
+                    {% if terms %}
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h2 class="card-title mb-0">Terms</h2>
+                            </div>
+
+                            <div class="list-group list-group-flush">
+                                {% for set, values in terms %}
+                                    <div class="list-group-item bg-transparent">
+                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ set }}</div>
+
+                                        {% for value in values %}
+                                            {% if value.term %}
+                                                <a
+                                                    class="badge text-bg-light border me-1 text-decoration-none"
+                                                    href="{{ path('survos_folio_term_show', {
+                                                        provider: provider,
+                                                        dataset: dataset,
+                                                        setCode: set,
+                                                        termCode: value.code
+                                                    }) }}"
+                                                >
+                                                    {{ value.label }}
+                                                </a>
+                                            {% else %}
+                                                <span class="badge text-bg-light border me-1">
+                                                    {{ value.label }}
+                                                </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% set otherLinks = links|default([])|filter(l => l.core != 'image') %}
+
+                    {% if otherLinks %}
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h2 class="card-title mb-0">Relations</h2>
+                            </div>
+
+                            <div class="list-group list-group-flush">
+                                {% for link in otherLinks %}
+                                    {% set target = link.row %}
+
+                                    <div class="list-group-item bg-transparent">
+                                        <div class="text-muted small font-monospace">{{ link.code }}</div>
+
+                                        <div>
+                                            {{ ux_icon(link.core, {class: 'icon me-1'}) }}<span>{{ link.label ?: link.code }}</span>
+
+                                            {% if target %}
+                                                <a href="{{ path('survos_folio_row_show', {
+                                                    provider: provider,
+                                                    dataset: dataset,
+                                                    coreCode: link.core,
+                                                    dtoType: target.dtoType ?: 'row',
+                                                    localId: target.localId
+                                                }) }}">
+                                                    {{ target.label ?: target.localId }}
+                                                </a>
+                                            {% else %}
+                                                <span class="font-monospace">
+                                                    {{ link.core }}/{{ link.localId }}
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if extras %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h2 class="card-title mb-0">Extras</h2>
+
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-secondary"
+                                    onclick="navigator.clipboard.writeText(this.closest('.card').querySelector('pre').innerText).then(() => { const t = this.innerText; this.innerText = 'Copied!'; setTimeout(() => this.innerText = t, 1200); })"
+                                >
+                                    Copy
+                                </button>
+                            </div>
+
+                            <div class="card-body">
+                                <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word; user-select: all;">{{ extras|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+                            </div>
+                        </div>
+                    {% endif %}
                 </div>
+            </div>
 
-            {% elseif pages|length > 0 %}
-                {# This row's IIIF Presentation manifest — shared by the OpenSeadragon
-                   viewer, the diva.js comparison viewer, and the external link below.
-                   Absolute (url(), not path()) so it resolves correctly when diva.js
-                   fetches it and when it's passed as a query param to the debug viewer. #}
-                {% set rowManifestUrl = url('survos_folio_iiif_manifest', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId}) %}
-                {% set viewerImages = [] %}
-                {% set viewerHires = [] %}
-                {% for page in pages %}
-                    {% set pageImg = page.url %}
-                    {% set pageHires = page.url %}
-                    {# Page with the cached 'thumb' rendition for instant flipping; the
-                       viewer overlays the readable 'archive' rendition on zoom. #}
-                    {% guard filter imgproxy %}
-                        {% set pageImg = page.url|imgproxy('thumb') %}
-                        {% set pageHires = page.url|imgproxy('archive') %}
-                    {% endguard %}
-                    {% set viewerImages = viewerImages|merge([pageImg]) %}
-                    {% set viewerHires = viewerHires|merge([pageHires]) %}
-                {% endfor %}
-                {# pageAiUrls stays the RAW page url (set at top): mediary imgproxies internally, and a
-                   pre-imgproxy'd webp url fails its fetch. Don't override with viewerHires here. #}
-
-                <div id="doc-viewer" class="card mb-3">
-                    <div class="card-body p-0">
-                        <twig:iiif:viewer
-                            :images="viewerImages"
-                            :hiresImages="viewerHires"
-                            :height="600"
-                            :showLinks="false"
-                        />
-                    </div>
-
-                    <div id="doc-page-status" class="card-footer py-2 small text-muted">
-                        Page 1 of {{ viewerImages|length }}{{ pageTexts|first|trim ? '' : ' — no extracted text' }}
-                    </div>
-                </div>
-            {% endif %}
-
-            {# Shared across both viewers — they emit the identical iiif-viewer:page event. Updates the
-               footer status AND the OCR panel (page.text, indexed in lock-step with the pages). #}
-            {% if pdfUrl or pages|length > 0 %}
+            {% set firstPage = pages|first %}
+            {% if firstPage and firstPage.url %}
+                {% set aspectProbe = firstPage.url %}
+                {% guard filter imgproxy %}{% set aspectProbe = aspectProbe|imgproxy('thumb') %}{% endguard %}
                 <script>
                     (function () {
-                        // Look up #doc-ocr-text lazily (inside the handler): it lives in the right
-                        // column, AFTER this script in the DOM, so it isn't parsed yet at script-run.
-                        var texts = null;
-                        function pageTexts() {
-                            if (texts === null) {
-                                var el = document.getElementById('doc-ocr-text');
-                                try { texts = el ? JSON.parse(el.dataset.pageTexts || '[]') : []; }
-                                catch (err) { texts = []; }
+                        var probe = {{ aspectProbe|json_encode|raw }};
+                        var img = new Image();
+                        img.onload = function () {
+                            if (img.naturalWidth && img.naturalHeight > img.naturalWidth * 1.15) {
+                                var main = document.getElementById('doc-main-col');
+                                var side = document.getElementById('doc-side-col');
+                                if (main) { main.classList.replace('col-lg-8', 'col-lg-6'); }
+                                if (side) { side.classList.replace('col-lg-4', 'col-lg-6'); }
                             }
-                            return texts;
-                        }
-                        document.addEventListener('iiif-viewer:page', function (e) {
-                            var i = e.detail.index, total = e.detail.total;
-                            var text = (pageTexts()[i] || '').trim();
-                            var status = document.getElementById('doc-page-status');
-                            if (status) {
-                                status.textContent = 'Page ' + (i + 1) + ' of ' + total + (text ? '' : ' — no extracted text');
-                            }
-                            var ocrEl = document.getElementById('doc-ocr-text');
-                            if (ocrEl) {
-                                ocrEl.textContent = text || '(no extracted text for this page)';
-                            }
-                            var ocrPage = document.getElementById('doc-ocr-page');
-                            if (ocrPage) {
-                                ocrPage.textContent = 'page ' + (i + 1) + ' of ' + total;
-                            }
-                        });
+                        };
+                        img.src = probe;
                     })();
                 </script>
             {% endif %}
 
-            {# Image listing — every page as a thumbnail gallery. Skipped for video (the players are
-               shown above; rowManifestUrl/viewerImages are only set in the image branch). #}
-            {% if pages|length > 1 and videoPages|length == 0 %}
-                <div class="card mb-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>
-                        <div class="btn-list">
-                            {# diva.js standalone debug viewer (iiif-bundle), fed this row's manifest (rowManifestUrl set above) #}
-                            <a href="{{ path('survos_iiif_debug', {manifest: rowManifestUrl}) }}"
-                               target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
-                                <i class="ti ti-book"></i> Open viewer
-                            </a>
-                        </div>
-                    </div>
+            <script>
+                function updateFolioAiLink(pageIndex) {
+                    const link = document.getElementById('folio-ai-page-link');
 
-                    <div class="card-body">
-                        <div class="row g-2">
-                            {% for page in pages|slice(0, 60) %}
-                                {% set src = page.url %}
-                                {% set thumb = src %}
-                                {% guard filter imgproxy %}
-                                    {% set thumb = src|imgproxy('thumb') %}
-                                {% endguard %}
-
-                                <div class="col-4 col-md-3 col-lg-2">
-                                    <a href="#" class="js-osd-page" data-page-index="{{ loop.index0 }}" title="p. {{ page.seq }}">
-                                        <img
-                                            src="{{ thumb }}"
-                                            alt="p. {{ page.seq }}"
-                                            class="img-fluid rounded border"
-                                            style="aspect-ratio: 1; object-fit: cover"
-                                            loading="lazy"
-                                        >
-                                    </a>
-                                </div>
-                            {% endfor %}
-                        </div>
-
-                        {% if pages|length > 60 %}
-                            <div class="text-muted small mt-2">
-                                Showing first 60 of {{ pages|length }} pages.
-                            </div>
-                        {% endif %}
-                    </div>
-                </div>
-            {% endif %}
-
-            <div class="card">
-                <div class="card-header">
-                    <h2 class="card-title mb-0">DTO Data</h2>
-                </div>
-
-                {% set imageFields = ['thumbnailUrl', 'largeImageUrl', 'iiifBase', 'iiifManifest', 'iiifInfo', 'imageCount', 'hasImages', 'sourceUrl'] %}
-                <div class="table-responsive">
-                    <table class="table table-vcenter card-table">
-                        <tbody>
-                            {% for field in columns %}
-                                {% set value = attribute(row.dtoData, field)|default(null) %}
-                                {% if value is not empty and field not in termFields and field not in imageFields and field not in promotedFields %}
-                                    <tr>
-                                        <th class="w-25 font-monospace text-muted d-none d-md-table-cell"
-                                            style="background: var(--tblr-bg-surface); position: sticky; left: 0;">
-                                            {{ field }}
-                                        </th>
-                                        <td>
-                                            <div class="d-md-none mb-1">
-                                                <span class="font-monospace text-muted small">{{ field }}</span>
-                                            </div>
-                                            <div class="text-break">
-                                                {{ folio_row.render_value(value) }}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                {% endif %}
-                            {% else %}
-                                {% for field, value in row.dtoData %}
-                                    {% if field not in termFields and field not in imageFields and field not in promotedFields %}
-                                        <tr>
-                                            <th class="w-25 font-monospace text-muted" style="background: var(--tblr-bg-surface); position: sticky; left: 0;">{{ field }}</th>
-                                            <td>{{ folio_row.render_value(value) }}</td>
-                                        </tr>
-                                    {% endif %}
-                                {% else %}
-                                    <tr>
-                                        <td class="text-muted">No DTO data captured.</td>
-                                    </tr>
-                                {% endfor %}
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-
-                {% set imageMetaFields = imageFields|filter(field => attribute(row.dtoData, field)|default(null) is not empty) %}
-
-                {% if imageMetaFields is not empty %}
-                    <details class="px-3 pb-3">
-                        <summary class="text-muted small" style="cursor: pointer">
-                            Source image fields ({{ imageMetaFields|length }})
-                        </summary>
-
-                        <table class="table table-sm card-table mt-2 mb-0">
-                            <tbody>
-                                {% for field in imageMetaFields %}
-                                    <tr>
-                                        <th class="w-25 font-monospace text-muted small">{{ field }}</th>
-                                        <td class="small text-break">
-                                            {{ folio_row.render_value(attribute(row.dtoData, field)) }}
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </details>
-                {% endif %}
-            </div>
-
-            {# Claims — AI/OCR/human assertions for this row (folio `claim` table).
-               Populated e.g. by running ai-workflow Observe via mediary and landing
-               the result here. Predicate-keyed, with source + confidence provenance. #}
-            {% if claims|default([]) is not empty %}
-                <div class="card mb-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h2 class="card-title mb-0">Claims <span class="text-muted">({{ claims|length }})</span></h2>
-                    </div>
-
-                    <div class="table-responsive">
-                        <table class="table table-vcenter card-table">
-                            <tbody>
-                                {% for claim in claims %}
-                                    <tr>
-                                        <th class="w-25 align-top font-monospace text-muted" style="background: var(--tblr-bg-surface)">
-                                            {{ claim.predicate }}
-                                        </th>
-                                        <td>
-                                            <div style="white-space: pre-wrap; word-break: break-word;">{{ claim.value }}</div>
-                                            <div class="text-muted small mt-1">
-                                                <span class="badge text-bg-light border">{{ claim.source }}</span>
-                                                {% if claim.confidence is not null %}
-                                                    <span title="confidence">{{ (claim.confidence * 100)|round }}%</span>
-                                                {% endif %}
-                                                {% if claim.agent %}
-                                                    <span class="mx-1">&middot;</span><span class="font-monospace">{{ claim.agent }}</span>
-                                                {% endif %}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            {% endif %}
-        </div>
-
-        <div class="col-lg-4" id="doc-side-col">
-            {# Item actions — available for EVERY row that has an image, single or multi. The OCR/Observe
-               button (folio_ai → mediary) and "Ask the Scholar" (the document chat) must work even on a
-               single thumbnail: that's exactly the no-OCR item where we want to start a conversation. #}
-            {% if pageAiUrls|length > 0 or th %}
-                <div class="card mb-3">
-                    <div class="card-body d-flex flex-wrap gap-2">
-                        {% if folioAiRoute|default(null) and pageAiUrls|length > 0 %}
-                            <a
-                                id="folio-ai-page-link"
-                                href="{{ path(folioAiRoute, {url: pageAiUrls|first, task: 'ocr_mistral'}) }}"
-                                data-ai-url-template="{{ path(folioAiRoute, {url: '__URL__', task: 'ocr_mistral'}) }}"
-                                data-ai-images="{{ pageAiUrls|json_encode|e('html_attr') }}"
-                                target="_blank"
-                                rel="noopener"
-                                class="btn btn-sm btn-outline-purple"
-                            >
-                                <i class="ti ti-sparkles"></i> AI
-                            </a>
-                        {% endif %}
-
-                        <a
-                            href="{{ path('survos_folio_chat', {provider: provider, dataset: dataset}) }}"
-                            class="btn btn-sm btn-outline-primary"
-                        >
-                            <i class="ti ti-school"></i> Ask the Scholar
-                        </a>
-                    </div>
-                </div>
-            {% endif %}
-
-            {# Extracted text (OCR) for the current page — beside the viewer, replacing the old
-               thumbnail (redundant with the viewer). The shared iiif-viewer:page listener swaps the
-               body + page counter as you flip pages. Shown only for multi-page/doc rows; a single
-               image already shows in the main column. #}
-            {% if hasOcr and not isSingleImage %}
-                <div class="card mb-3">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <h2 class="card-title mb-0">Extracted text</h2>
-                        <span class="badge bg-blue-lt">OCR</span>
-                        <span id="doc-ocr-page" class="ms-auto text-muted small">page 1 of {{ pages|length }}</span>
-                    </div>
-                    <div class="card-body">
-                        <div id="doc-ocr-text"
-                             data-page-texts="{{ pageTexts|json_encode|e('html_attr') }}"
-                             style="white-space: pre-wrap; word-break: break-word; max-height: 600px; overflow-y: auto; font-size: 0.875rem; line-height: 1.4;">{{ pageTexts|first|trim ?: '(no extracted text for this page)' }}</div>
-                    </div>
-                </div>
-            {% endif %}
-
-            {# Objective AI observation of the image (first-pass "describe this picture") — the
-               primary visual description beside the photo, not the institution's caption. #}
-            {% if observationProse %}
-                <div class="card mb-3">
-                    <div class="card-header d-flex align-items-center gap-2">
-                        <h2 class="card-title mb-0">What's in the picture</h2>
-                        <span class="badge bg-purple-lt">AI observation</span>
-                    </div>
-                    <div class="card-body">
-                        <div style="white-space: pre-wrap; word-break: break-word;">{{ observationProse }}</div>
-                    </div>
-                </div>
-            {% endif %}
-
-            {% if tombstoneDescription %}
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <h2 class="card-title mb-0 text-muted">Source caption</h2>
-                    </div>
-
-                    <div class="card-body">
-                        <div style="max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-                            {{ tombstoneDescription }}
-                        </div>
-                    </div>
-                </div>
-            {% endif %}
-
-            {% if ocrText %}
-                <div class="card mb-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h2 class="card-title mb-0">Transcription</h2>
-
-                        {% if pageCount %}
-                            <span class="text-muted small">{{ pageCount }} pages</span>
-                        {% endif %}
-                    </div>
-
-                    <div class="card-body">
-                        <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-                            {{ ocrText }}
-                        </div>
-                    </div>
-                </div>
-            {% endif %}
-
-            <div class="card mb-3">
-                <div class="card-header">
-                    <h2 class="card-title mb-0">Row</h2>
-                </div>
-
-                <div class="card-body">
-                    <dl class="mb-0">
-                        <dt>ID</dt>
-                        <dd class="font-monospace">{{ row.localId }}</dd>
-
-                        <dt>Type</dt>
-                        <dd>{{ row.dtoType ?: '(none)' }}</dd>
-
-                        <dt>DTO Class</dt>
-                        <dd class="font-monospace small">{{ dtoClass ?: '(generic)' }}</dd>
-                    </dl>
-                </div>
-            </div>
-
-            {% if terms %}
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <h2 class="card-title mb-0">Terms</h2>
-                    </div>
-
-                    <div class="list-group list-group-flush">
-                        {% for set, values in terms %}
-                            <div class="list-group-item">
-                                <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ set }}</div>
-
-                                {% for value in values %}
-                                    {% if value.term %}
-                                        <a
-                                            class="badge text-bg-light border me-1 text-decoration-none"
-                                            href="{{ path('survos_folio_term_show', {
-                                                provider: provider,
-                                                dataset: dataset,
-                                                setCode: set,
-                                                termCode: value.code
-                                            }) }}"
-                                        >
-                                            {{ value.label }}
-                                        </a>
-                                    {% else %}
-                                        <span class="badge text-bg-light border me-1">
-                                            {{ value.label }}
-                                        </span>
-                                    {% endif %}
-                                {% endfor %}
-                            </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            {% endif %}
-
-            {% set otherLinks = links|filter(l => l.core != 'image') %}
-
-            {% if otherLinks %}
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <h2 class="card-title mb-0">Relations</h2>
-                    </div>
-
-                    <div class="list-group list-group-flush">
-                        {% for link in otherLinks %}
-                            {% set target = link.row %}
-
-                            <div class="list-group-item">
-                                <div class="text-muted small font-monospace">{{ link.code }}</div>
-
-                                <div>
-                                    {{ ux_icon(link.core, {class: 'icon me-1'}) }}<span>{{ link.label ?: link.code }}</span>
-
-                                    {% if target %}
-                                        <a href="{{ path('survos_folio_row_show', {
-                                            provider: provider,
-                                            dataset: dataset,
-                                            coreCode: link.core,
-                                            dtoType: target.dtoType ?: 'row',
-                                            localId: target.localId
-                                        }) }}">
-                                            {{ target.label ?: target.localId }}
-                                        </a>
-                                    {% else %}
-                                        <span class="font-monospace">
-                                            {{ link.core }}/{{ link.localId }}
-                                        </span>
-                                    {% endif %}
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            {% endif %}
-
-            {% if extras %}
-                <div class="card mb-3">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <h2 class="card-title mb-0">Extras</h2>
-
-                        <button
-                            type="button"
-                            class="btn btn-sm btn-outline-secondary"
-                            onclick="navigator.clipboard.writeText(this.closest('.card').querySelector('pre').innerText).then(() => { const t = this.innerText; this.innerText = 'Copied!'; setTimeout(() => this.innerText = t, 1200); })"
-                        >
-                            Copy
-                        </button>
-                    </div>
-
-                    <div class="card-body">
-                        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word; user-select: all;">{{ extras|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
-                    </div>
-                </div>
-            {% endif %}
-        </div>
-    </div>
-
-    {# Adaptive layout: portrait imagery (documents) rebalances to a 6/6 split so the viewer isn't
-       stranded in black bars and the OCR/sidebar gets room; landscape keeps the wide 8/4. Measured
-       client-side from the first page (we have no stored page dimensions). #}
-    {% set firstPage = pages|first %}
-    {% if firstPage and firstPage.url %}
-        {% set aspectProbe = firstPage.url %}
-        {% guard filter imgproxy %}{% set aspectProbe = aspectProbe|imgproxy('thumb') %}{% endguard %}
-        <script>
-            (function () {
-                var probe = {{ aspectProbe|json_encode|raw }};
-                var img = new Image();
-                img.onload = function () {
-                    if (img.naturalWidth && img.naturalHeight > img.naturalWidth * 1.15) {
-                        var main = document.getElementById('doc-main-col');
-                        var side = document.getElementById('doc-side-col');
-                        if (main) { main.classList.replace('col-lg-8', 'col-lg-6'); }
-                        if (side) { side.classList.replace('col-lg-4', 'col-lg-6'); }
-                    }
-                };
-                img.src = probe;
-            })();
-        </script>
-    {% endif %}
-
-    <script>
-        function updateFolioAiLink(pageIndex) {
-            const link = document.getElementById('folio-ai-page-link');
-
-            if (!link) {
-                return;
-            }
-
-            let images = [];
-
-            try {
-                images = JSON.parse(link.dataset.aiImages || '[]');
-            } catch (e) {
-                images = [];
-            }
-
-            const index = Number(pageIndex);
-            const imageUrl = Number.isInteger(index) ? images[index] : null;
-            const template = link.dataset.aiUrlTemplate || '';
-
-            if (!imageUrl || !template) {
-                return;
-            }
-
-            link.href = template.replace('__URL__', encodeURIComponent(imageUrl));
-        }
-
-        function initFolioDetailViewerControls() {
-            const viewerEl = document.querySelector(
-                '[data-controller="survos--iiif-bundle--iiif-viewer"]'
-            );
-
-            updateFolioAiLink(0);
-
-            if (!viewerEl) {
-                return;
-            }
-
-            document.querySelectorAll('.js-osd-page').forEach((thumb) => {
-                thumb.onclick = (event) => {
-                    event.preventDefault();
-
-                    const pageIndex = Number(thumb.dataset.pageIndex);
-
-                    if (!viewerEl.viewer || !Number.isInteger(pageIndex)) {
+                    if (!link) {
                         return;
                     }
 
-                    viewerEl.viewer.goToPage(pageIndex);
-                    updateFolioAiLink(pageIndex);
+                    let images = [];
 
-                    document.querySelectorAll('.js-osd-page img').forEach((img) => {
-                        img.classList.remove('border-primary');
+                    try {
+                        images = JSON.parse(link.dataset.aiImages || '[]');
+                    } catch (e) {
+                        images = [];
+                    }
+
+                    const index = Number(pageIndex);
+                    const imageUrl = Number.isInteger(index) ? images[index] : null;
+                    const template = link.dataset.aiUrlTemplate || '';
+
+                    if (!imageUrl || !template) {
+                        return;
+                    }
+
+                    link.href = template.replace('__URL__', encodeURIComponent(imageUrl));
+                }
+
+                function initFolioDetailViewerControls() {
+                    const viewerEl = document.querySelector(
+                        '[data-controller="survos--iiif-bundle--iiif-viewer"]'
+                    );
+
+                    updateFolioAiLink(0);
+
+                    if (!viewerEl) {
+                        return;
+                    }
+
+                    document.querySelectorAll('.js-osd-page').forEach((thumb) => {
+                        thumb.onclick = (event) => {
+                            event.preventDefault();
+
+                            const pageIndex = Number(thumb.dataset.pageIndex);
+
+                            if (!viewerEl.viewer || !Number.isInteger(pageIndex)) {
+                                return;
+                            }
+
+                            viewerEl.viewer.goToPage(pageIndex);
+                            updateFolioAiLink(pageIndex);
+
+                            document.querySelectorAll('.js-osd-page img').forEach((img) => {
+                                img.classList.remove('border-primary');
+                            });
+
+                            thumb.querySelector('img')?.classList.add('border-primary');
+                        };
                     });
+                }
 
-                    thumb.querySelector('img')?.classList.add('border-primary');
-                };
-            });
-        }
+                document.addEventListener('iiif-viewer:page', (e) => updateFolioAiLink(e.detail.index));
+                document.addEventListener('turbo:load', initFolioDetailViewerControls);
+                document.addEventListener('DOMContentLoaded', initFolioDetailViewerControls);
+            </script>
 
-        document.addEventListener('iiif-viewer:page', (e) => updateFolioAiLink(e.detail.index));
-        document.addEventListener('turbo:load', initFolioDetailViewerControls);
-        document.addEventListener('DOMContentLoaded', initFolioDetailViewerControls);
-    </script>
+            <style>
+                .page {
+                    background:
+                        radial-gradient(circle at top left, rgba(255, 238, 198, .9), transparent 34%),
+                        radial-gradient(circle at top right, rgba(232, 218, 255, .9), transparent 32%),
+                        linear-gradient(135deg, #fff8e8 0%, #fff 46%, #f5f0e8 100%);
+                }
+
+                .navbar {
+                    display: none;
+                }
+
+                .folio-detail-shell {
+                    max-width: 1320px;
+                    margin: 0 auto;
+                    padding: 1.5rem;
+                    border-radius: 1.5rem;
+                    background: rgba(255, 255, 255, .62);
+                    border: 1px solid rgba(120, 100, 70, .14);
+                    box-shadow: 0 24px 70px rgba(33, 37, 41, .08);
+                    backdrop-filter: blur(18px);
+                }
+
+                .folio-detail-hero {
+                    padding: 1.75rem;
+                    margin-bottom: 1.5rem;
+                    border-radius: 1.25rem;
+                    background:
+                        radial-gradient(circle at top left, rgba(255,244,220,.85), transparent 34%),
+                        radial-gradient(circle at top right, rgba(235,222,255,.75), transparent 32%),
+                        rgba(255,255,255,.72);
+                    border: 1px solid rgba(120,100,70,.12);
+                }
+
+                .folio-detail-title,
+                .folio-detail-section-title,
+                .folio-detail-shell .card-title {
+                    font-family: Georgia, serif;
+                    letter-spacing: -.025em;
+                    color: #283142;
+                }
+
+                .folio-detail-title {
+                    font-size: clamp(2rem, 4vw, 3.35rem);
+                    line-height: 1.05;
+                    letter-spacing: -.04em;
+                }
+
+                .folio-detail-shell .card {
+                    background: rgba(255,255,255,.72);
+                    border: 1px solid rgba(120,100,70,.12);
+                    border-radius: 1.25rem;
+                    box-shadow: 0 12px 34px rgba(33,37,41,.055);
+                    backdrop-filter: blur(14px);
+                    overflow: hidden;
+                }
+
+                .folio-detail-shell .card-header {
+                    background: transparent;
+                    border-bottom-color: rgba(120,100,70,.10);
+                }
+
+                #doc-viewer {
+
+                }
+
+                .folio-detail-shell pre {
+                    background: #111827;
+                    color: #fff;
+                    border-radius: 1rem;
+                    padding: 1rem;
+                }
+
+                .folio-section-icon {
+                    width: 2.75rem;
+                    height: 2.75rem;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                    border-radius: 999px;
+                    background: radial-gradient(circle at top left, rgba(255,244,220,.9), rgba(255,255,255,.95));
+                    border: 1px solid rgba(120,100,70,.12);
+                    color: #6b4f1d;
+                }
+
+                .folio-section-icon svg {
+                    width: 1.25rem;
+                    height: 1.25rem;
+                }
+
+                .folio-detail-shell {
+                    max-width: none;
+                    padding: 0;
+                    border-radius: 0;
+                    background: none;
+                    border: none;
+                    box-shadow: none;
+                    backdrop-filter: none;
+                }
+
+                .page-header {
+                    display: none;
+                }
+            </style>
+        </div>
+    </div>
 {% endblock %}
