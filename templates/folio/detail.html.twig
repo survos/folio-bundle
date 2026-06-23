@@ -118,18 +118,23 @@
                                     Ask the Scholar
                                 </a>
 
-                                {% if folioAiRoute|default(null) and pageAiUrls|length > 0 %}
-                                    <a
-                                        id="folio-ai-page-link"
-                                        href="{{ path(folioAiRoute, {url: pageAiUrls|first, task: 'ocr_mistral'}) }}"
-                                        data-ai-url-template="{{ path(folioAiRoute, {url: '__URL__', task: 'ocr_mistral'}) }}"
-                                        data-ai-images="{{ pageAiUrls|json_encode|e('html_attr') }}"
-                                        tar the schoget="_blank"
-                                        rel="noopener"
-                                        class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill"
-                                    >
-                                        {{ ux_icon('tabler:wand', { class: 'icon me-1' }) }}
-                                        AI tools
+                                {# OCR / Handwriting run a mediary AI task against THIS row's current
+                                   page (folio identifiers, not a bare url) via survos_folio_ai, which
+                                   persists the result onto the right Page. hrefs follow the viewer's
+                                   page (see the iiif-viewer:page listener below). #}
+                                {% if pages|length > 0 %}
+                                    {% set aiBase = path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId}) %}
+                                    <a class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill js-folio-ai-btn"
+                                       data-ai-base="{{ aiBase }}" data-ai-task="ocr_mistral"
+                                       href="{{ path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, task: 'ocr_mistral', run: 1, page: 0}) }}">
+                                        {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}
+                                        OCR
+                                    </a>
+                                    <a class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill js-folio-ai-btn"
+                                       data-ai-base="{{ aiBase }}" data-ai-task="handwriting"
+                                       href="{{ path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, task: 'handwriting', run: 1, page: 0}) }}">
+                                        {{ ux_icon('tabler:writing', { class: 'icon me-1' }) }}
+                                        Handwriting
                                     </a>
                                 {% endif %}
                             </div>
@@ -230,6 +235,10 @@
                                     if (ocrPage) {
                                         ocrPage.textContent = 'page ' + (i + 1) + ' of ' + total;
                                     }
+                                    // Point the OCR/Handwriting buttons at the page currently shown.
+                                    document.querySelectorAll('.js-folio-ai-btn').forEach(function (b) {
+                                        b.href = b.dataset.aiBase + '?task=' + encodeURIComponent(b.dataset.aiTask) + '&run=1&page=' + i;
+                                    });
                                 });
                             })();
                         </script>
@@ -418,9 +427,8 @@
                             </div>
 
                             <div class="card-body">
-                                <div style="max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-                                    {{ tombstoneDescription }}
-                                </div>
+                                {# flush + trim: with pre-wrap, template indentation would otherwise render as literal whitespace #}
+                                <div style="max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">{{ tombstoneDescription|trim }}</div>
                             </div>
                         </div>
                     {% endif %}
@@ -436,9 +444,7 @@
                             </div>
 
                             <div class="card-body">
-                                <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">
-                                    {{ ocrText }}
-                                </div>
+                                <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">{{ ocrText|trim }}</div>
                             </div>
                         </div>
                     {% endif %}

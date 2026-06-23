@@ -1,0 +1,99 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+
+{% block title %}AI · {{ row.label ?: row.localId }}{% endblock %}
+
+{% block body %}
+    <div class="container-xl py-3">
+        <div class="mb-3">
+            <a class="text-decoration-none text-secondary"
+               href="{{ path('survos_folio_row_show', {
+                   provider: provider, dataset: dataset, coreCode: core.code,
+                   dtoType: row.dtoType ?: 'row', localId: row.localId,
+               }) }}">
+                {{ ux_icon('tabler:arrow-left') }} {{ row.label ?: row.localId }}
+            </a>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-lg-5">
+                {% if imageUrl %}
+                    <img src="{{ imageUrl }}" class="img-fluid rounded border" alt="{{ row.label ?: row.localId }}">
+                {% endif %}
+                {% if pageCount > 1 %}
+                    <div class="text-muted small mt-2">Page {{ pageIndex + 1 }} of {{ pageCount }}</div>
+                {% endif %}
+            </div>
+
+            <div class="col-lg-7">
+                {% set base = {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, page: pageIndex} %}
+                <div class="btn-list mb-3">
+                    {# OCR (typeset text). ocr_mistral works today; a free tesseract task is the next mediary lever. #}
+                    <a class="btn {{ task == 'ocr_mistral' ? 'btn-primary' : 'btn-outline-primary' }} js-ai-task"
+                       href="{{ path('survos_folio_ai', base|merge({task: 'ocr_mistral', run: 1})) }}">
+                        {{ ux_icon('tabler:file-text') }} OCR
+                    </a>
+                    {# Handwriting (vision). Needs a mediary 'handwriting' task; errors surface below until wired. #}
+                    <a class="btn {{ task == 'handwriting' ? 'btn-primary' : 'btn-outline-primary' }} js-ai-task"
+                       href="{{ path('survos_folio_ai', base|merge({task: 'handwriting', run: 1})) }}">
+                        {{ ux_icon('tabler:writing') }} Handwriting
+                    </a>
+                </div>
+
+                <div id="ai-spinner" class="d-none align-items-center gap-2 text-muted my-4">
+                    <span class="spinner-border" role="status" aria-hidden="true"></span>
+                    <span>Running <strong>{{ task ?: 'task' }}</strong> via mediary — this can take a moment…</span>
+                </div>
+
+                {% if error %}
+                    <div class="alert alert-warning"><strong>mediary:</strong> {{ error }}</div>
+                {% elseif run and result is not null %}
+                    {% if result.result is not defined %}
+                        <div class="alert alert-warning">
+                            <strong>mediary error{% if result.status is defined %} ({{ result.status }}){% endif %}:</strong>
+                            {{ result.detail ?? result.title ?? result.error ?? 'Unexpected response from mediary.' }}
+                        </div>
+                    {% else %}
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="badge bg-blue-lt">{{ result.task ?? task }}</span>
+                            <span class="text-muted small">{{ result.cached ?? false ? 'from S3 sidecar cache' : 'freshly computed' }}</span>
+                            {% if persisted %}<span class="badge bg-green-lt">saved to page</span>{% endif %}
+                        </div>
+                        {% set r = result.result %}
+                        {% if r.text is defined and r.text %}
+                            <div class="card">
+                                <div class="card-header"><h2 class="card-title mb-0">Extracted text</h2></div>
+                                <div class="card-body">
+                                    <pre style="white-space:pre-wrap;word-break:break-word;max-height:560px;overflow:auto;margin:0">{{ r.text }}</pre>
+                                </div>
+                            </div>
+                        {% elseif r.description is defined %}
+                            <div class="card"><div class="card-body" style="white-space:pre-wrap">{{ r.description }}</div></div>
+                        {% else %}
+                            <pre class="small text-muted">{{ r|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+                        {% endif %}
+                    {% endif %}
+                {% else %}
+                    <p class="text-muted">Pick a task above to run it. Nothing is computed (or charged) until you click — mediary caches the result on S3 and records claims; the text is also written straight onto this page so it shows immediately.</p>
+                    {% if page and page.text %}
+                        <div class="card mt-3">
+                            <div class="card-header"><h2 class="card-title mb-0">Current text</h2></div>
+                            <div class="card-body">
+                                <pre style="white-space:pre-wrap;word-break:break-word;max-height:360px;overflow:auto;margin:0">{{ page.text }}</pre>
+                            </div>
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# Reveal the spinner on click — the run is a full-page sync request, so this gives feedback while it loads. #}
+    <script>
+        document.querySelectorAll('.js-ai-task').forEach(function (el) {
+            el.addEventListener('click', function () {
+                var s = document.getElementById('ai-spinner');
+                if (s) { s.classList.remove('d-none'); s.classList.add('d-flex'); }
+            });
+        });
+    </script>
+{% endblock %}

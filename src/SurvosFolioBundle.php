@@ -9,7 +9,8 @@ use Survos\ImgproxyBundle\SurvosImgproxyBundle;
 use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand};
 use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioContextListener,FolioFtsIndexListener};
 use Survos\FolioBundle\Menu\FolioMenu;
-use Survos\FolioBundle\Controller\{FolioCollectionController,FolioController,FolioSearchController};
+use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
+use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,TermRepository,TermSetRepository};
 use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
@@ -109,6 +110,9 @@ final class SurvosFolioBundle extends AbstractBundle
             foreach ([FolioCollectionController::class, FolioController::class, FolioSearchController::class] as $class) {
                 $services->set($class)->autowire()->autoconfigure()->public();
             }
+            // imgproxy-bundle is optional → pass null when absent (controller skips url unwrapping).
+            $services->set(FolioAiController::class)->autowire()->autoconfigure()->public()
+                ->arg('$imgproxy', new Reference(ImgproxyUrlBuilder::class, ContainerInterface::NULL_ON_INVALID_REFERENCE));
         }
         if (interface_exists(\ApiPlatform\State\ProviderInterface::class)) {
             $services->set(FolioRowProvider::class)->autowire()->autoconfigure()->public();
