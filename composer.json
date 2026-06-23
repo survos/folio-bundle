@@ -27,6 +27,7 @@
     "ext-pdo_sqlite": "*"
   },
   "suggest": {
+    "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",
     "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios."
   },
   "autoload": { "psr-4": { "Survos\\FolioBundle\\": "src/" } },
@@ -36,6 +37,7 @@
     "phpstan/phpstan": "^2.1",
     "api-platform/core": "^4.3",
     "symfony/ux-chartjs": "^3.0",
+    "survos/fetch-bundle": "^2.5",
     "survos/tabler-bundle": "^2.5",
     "survos/imgproxy-bundle": "^2.5",
     "survos/iiif-bundle": "^2.5"

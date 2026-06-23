@@ -11,6 +11,13 @@
 {% if selectedDtoType|default(null) %}
     {% set hitOptions = hitOptions|merge({dtoType: selectedDtoType}) %}
 {% endif %}
+{% set fixedFilters = {} %}
+{% if selectedCore|default(null) %}
+    {% set fixedFilters = fixedFilters|merge({core: selectedCore}) %}
+{% endif %}
+{% if selectedDtoType|default(null) %}
+    {% set fixedFilters = fixedFilters|merge({dtoType: selectedDtoType}) %}
+{% endif %}
 
 {#
 {% block page_pretitle %}Folio Search{% endblock %}
@@ -64,6 +71,7 @@
         <twig:Mezcalito:UxSearch:Layout
             name="folio_row"
             :options="hitOptions"
+            :fixedFilters="fixedFilters"
         />
     </div>
 

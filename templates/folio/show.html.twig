@@ -26,6 +26,26 @@
 {% block title %}{{ folioLabel }}{% endblock %}
 
 {% block body %}
+    {% set installCommand = 'bin/console folio:pull --dataset ' ~ ctx.folioCode %}
+
+    <div class="card mb-4" {{ stimulus_controller('clipboard', { successContent: 'Copied!' }) }}>
+        <div class="card-header d-flex align-items-center justify-content-between gap-2">
+            <h2 class="card-title mb-0">Install Folio</h2>
+            <button
+                type="button"
+                class="btn btn-sm btn-ghost-secondary"
+                {{ stimulus_action('clipboard', 'copy') }}
+                {{ stimulus_target('clipboard', 'button') }}
+                title="Copy to clipboard"
+            >
+                {% guard function ux_icon %}{{ ux_icon('clipboard') }}{% else %}Copy{% endguard %}
+            </button>
+        </div>
+        <div class="card-body">
+            <pre class="mb-0 font-monospace" {{ stimulus_target('clipboard', 'source') }}>{{ installCommand }}</pre>
+        </div>
+    </div>
+
     {# Cores — each is first-class, with its own links and counts. #}
     <div class="row row-cards mb-4">
         {% for summary in coreSummaries %}

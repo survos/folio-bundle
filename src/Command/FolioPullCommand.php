@@ -6,11 +6,13 @@ namespace Survos\FolioBundle\Command;
 
 use League\Flysystem\FilesystemOperator;
 use Psr\Log\LoggerInterface;
+use Survos\FetchBundle\Service\ChunkDownloader;
 use Survos\FolioBundle\Service\{FolioArchiveService,FolioService};
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\DependencyInjection\Attribute\Target;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Zenstruck\Bytes;
@@ -25,7 +27,9 @@ final class FolioPullCommand
         #[Target('folio_archive.storage')]
         private readonly ?FilesystemOperator $archiveStorage = null,
         private readonly ?HttpClientInterface $http = null,
+        private readonly ?ChunkDownloader $downloader = null,
         // survos_folio.folio_server — the live folio site; the default API source for pulls.
+        #[Autowire('%survos_folio.folio_server%')]
         private readonly ?string $folioServer = null,
         private readonly ?LoggerInterface $logger = null,
     ) {}
@@ -121,8 +125,12 @@ final class FolioPullCommand
             $io->error('No HTTP client available (require symfony/http-client).');
             return Command::FAILURE;
         }
-
         $baseUrl = rtrim($baseUrl, '/');
+
+        // Direct dataset pulls should not need the registry or archive storage credentials.
+        if ($dataset !== null && $dataset !== '') {
+            return $this->pullSingleFromApi($io, $baseUrl, $dataset, $force);
+        }
 
         // Nothing requested → just show what's available (first page of the registry).
         if (($dataset === null || $dataset === '') && ($provider === null || $provider === '') && !$all) {
@@ -133,6 +141,10 @@ final class FolioPullCommand
         if ($entries === []) {
             $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
             return Command::SUCCESS;
+        }
+        if ($this->downloader === null) {
+            $io->error('HTTP folio downloads require survos/fetch-bundle. Install it to use folio:pull from a folio server.');
+            return Command::FAILURE;
         }
 
         $io->title(sprintf('Pulling %d folio(s) from %s', count($entries), $baseUrl));
@@ -157,14 +169,9 @@ final class FolioPullCommand
             }
 
             $localGz = $tmpDir . '/' . str_replace('/', '_', $code) . '.folio.gz';
-            $out = fopen($localGz, 'wb');
             $this->logger?->info('folio:pull downloading folio', ['code' => $code, 'url' => $downloadUrl]);
-            $response = $this->http->request('GET', $downloadUrl);
-            foreach ($this->http->stream($response) as $chunk) {
-                fwrite($out, $chunk->getContent());
-            }
-            fclose($out);
-            $io->text(sprintf('Downloaded: %s (%s)', $downloadUrl, Bytes::parse(filesize($localGz) ?: 0)->humanize()));
+            $bytes = $this->downloader->download($downloadUrl, $localGz, null, ['overwrite' => true, 'timeout' => 120.0]);
+            $io->text(sprintf('Downloaded: %s (%s)', $downloadUrl, Bytes::parse($bytes)->humanize()));
 
             // restore() gunzips → working folio AND inflates (indexes + FTS + views).
             $result = $this->archiveService->restore($localGz, $code, $force);
@@ -180,6 +187,65 @@ final class FolioPullCommand
         $this->rmdir($tmpDir);
         $io->success(sprintf('Pulled %d folio(s) from API, skipped %d existing', $pulled, $skipped));
         return Command::SUCCESS;
+    }
+
+    private function pullSingleFromApi(SymfonyStyle $io, string $baseUrl, string $code, bool $force): int
+    {
+        $io->title(sprintf('Pulling %s from %s', $code, $baseUrl));
+        if ($this->downloader === null) {
+            $io->error('HTTP folio downloads require survos/fetch-bundle. Install it to use folio:pull from a folio server.');
+            return Command::FAILURE;
+        }
+
+        $target = $this->folios->path($code);
+        if (is_file($target) && !$force) {
+            $io->text('Exists, skipping (use --force to replace)');
+            return Command::SUCCESS;
+        }
+
+        $tmpDir = sys_get_temp_dir() . '/folio_pull_' . uniqid();
+        mkdir($tmpDir, 0775, true);
+
+        $localGz = $tmpDir . '/' . str_replace('/', '_', $code) . '.folio.gz';
+        $downloadUrl = $this->downloadUrl($baseUrl, $code);
+        $io->text('Downloading: ' . $downloadUrl);
+        $this->logger?->info('folio:pull downloading folio', ['code' => $code, 'url' => $downloadUrl]);
+
+        $bytes = $this->downloader->download(
+            $downloadUrl,
+            $localGz,
+            static function (int $written, ?int $total, float $bps) use ($io): void {
+                if ($total !== null && $total > 0) {
+                    $io->write(sprintf("\r  %s / %s", Bytes::parse($written)->humanize(), Bytes::parse($total)->humanize()));
+                }
+            },
+            ['overwrite' => true, 'timeout' => 120.0],
+        );
+        $io->writeln('');
+        $io->text(sprintf('Downloaded: %s', Bytes::parse($bytes)->humanize()));
+
+        $result = $this->archiveService->restore($localGz, $code, $force);
+        $io->text(sprintf(
+            'Inflated: %s (%s, %s FTS rows)',
+            $result['target'],
+            Bytes::parse($result['targetBytes'])->humanize(),
+            number_format($result['indexedRows']),
+        ));
+
+        $this->rmdir($tmpDir);
+        $io->success(sprintf('Pulled %s from API', $code));
+
+        return Command::SUCCESS;
+    }
+
+    private function downloadUrl(string $baseUrl, string $code): string
+    {
+        [$provider, $dataset] = array_pad(explode('/', $code, 2), 2, '');
+        if ($provider === '' || $dataset === '') {
+            throw new \InvalidArgumentException(sprintf('Invalid folio code "%s". Expected provider/dataset.', $code));
+        }
+
+        return sprintf('%s/folio/%s/%s/download', $baseUrl, rawurlencode($provider), rawurlencode($dataset));
     }
 
     /**

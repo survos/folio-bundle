@@ -84,6 +84,10 @@
     {# AI image URLs for OCR/Observe — computed here (not inside the viewer's for-loop, whose set
        doesn't leak) so the AI button works for single-image rows too. Raw page url; mediary fetches it. #}
     {% set pageAiUrls = pages|map(p => p.url) %}
+    {# Per-page extracted text (OCR shipped by the source, e.g. NARA digitalObjects.extractedText →
+       page.text). Drives the OCR panel beside the viewer, indexed in lock-step with the pages. #}
+    {% set pageTexts = pages|map(p => p.text|default('')) %}
+    {% set hasOcr = pageTexts|filter(t => t|trim is not empty)|length > 0 %}
     {# A single-image row (e.g. a photograph) gets one clean image + the description beside it —
        no zoomable OSD viewer AND a separate thumbnail. Multi-page docs keep the page viewer. #}
     {% set isSingleImage = pages|length == 1 and not attribute(row.dtoData, 'pdfUrl')|default(null) %}
@@ -131,7 +135,7 @@
                     </div>
 
                     <div id="doc-page-status" class="card-footer py-2 small text-muted">
-                        {{ docPageCount ? 'PDF · ' ~ docPageCount ~ ' pages' : 'PDF' }} — OCR not wired yet
+                        {{ docPageCount ? 'PDF · ' ~ docPageCount ~ ' pages' : 'PDF' }}{{ hasOcr ? '' : ' — no extracted text' }}
                     </div>
                 </div>
 
@@ -169,20 +173,44 @@
                     </div>
 
                     <div id="doc-page-status" class="card-footer py-2 small text-muted">
-                        Page 1 of {{ viewerImages|length }} — OCR not wired yet
+                        Page 1 of {{ viewerImages|length }}{{ pageTexts|first|trim ? '' : ' — no extracted text' }}
                     </div>
                 </div>
             {% endif %}
 
-            {# Shared across both viewers — they emit the identical iiif-viewer:page event. #}
+            {# Shared across both viewers — they emit the identical iiif-viewer:page event. Updates the
+               footer status AND the OCR panel (page.text, indexed in lock-step with the pages). #}
             {% if pdfUrl or pages|length > 0 %}
                 <script>
-                    document.addEventListener('iiif-viewer:page', function (e) {
-                        var el = document.getElementById('doc-page-status');
-                        if (el) {
-                            el.textContent = 'Now on page ' + (e.detail.index + 1) + ' of ' + e.detail.total + ' — no OCR';
+                    (function () {
+                        // Look up #doc-ocr-text lazily (inside the handler): it lives in the right
+                        // column, AFTER this script in the DOM, so it isn't parsed yet at script-run.
+                        var texts = null;
+                        function pageTexts() {
+                            if (texts === null) {
+                                var el = document.getElementById('doc-ocr-text');
+                                try { texts = el ? JSON.parse(el.dataset.pageTexts || '[]') : []; }
+                                catch (err) { texts = []; }
+                            }
+                            return texts;
                         }
-                    });
+                        document.addEventListener('iiif-viewer:page', function (e) {
+                            var i = e.detail.index, total = e.detail.total;
+                            var text = (pageTexts()[i] || '').trim();
+                            var status = document.getElementById('doc-page-status');
+                            if (status) {
+                                status.textContent = 'Page ' + (i + 1) + ' of ' + total + (text ? '' : ' — no extracted text');
+                            }
+                            var ocrEl = document.getElementById('doc-ocr-text');
+                            if (ocrEl) {
+                                ocrEl.textContent = text || '(no extracted text for this page)';
+                            }
+                            var ocrPage = document.getElementById('doc-ocr-page');
+                            if (ocrPage) {
+                                ocrPage.textContent = 'page ' + (i + 1) + ' of ' + total;
+                            }
+                        });
+                    })();
                 </script>
             {% endif %}
 
@@ -371,24 +399,21 @@
                 </div>
             {% endif %}
 
-            {# Thumbnail — only for multi-image/doc rows; a single image already shows in the main column. #}
-            {% if th and not isSingleImage %}
+            {# Extracted text (OCR) for the current page — beside the viewer, replacing the old
+               thumbnail (redundant with the viewer). The shared iiif-viewer:page listener swaps the
+               body + page counter as you flip pages. Shown only for multi-page/doc rows; a single
+               image already shows in the main column. #}
+            {% if hasOcr and not isSingleImage %}
                 <div class="card mb-3">
-                    <div class="card-body text-center">
-                        {% set imageUrl = th %}
-                        {% guard filter imgproxy %}
-                            {% set imageUrl = th|imgproxy('display') %}
-                        {% endguard %}
-
-                        <a href="{{ th }}" target="_blank">
-                            <img
-                                src="{{ imageUrl }}"
-                                alt="{{ row.label ?: row.localId }}"
-                                class="img-fluid rounded"
-                                style="max-height: 360px; object-fit: contain"
-                                loading="lazy"
-                            >
-                        </a>
+                    <div class="card-header d-flex align-items-center gap-2">
+                        <h2 class="card-title mb-0">Extracted text</h2>
+                        <span class="badge bg-blue-lt">OCR</span>
+                        <span id="doc-ocr-page" class="ms-auto text-muted small">page 1 of {{ pages|length }}</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="doc-ocr-text"
+                             data-page-texts="{{ pageTexts|json_encode|e('html_attr') }}"
+                             style="white-space: pre-wrap; word-break: break-word; max-height: 600px; overflow-y: auto; font-size: 0.875rem; line-height: 1.4;">{{ pageTexts|first|trim ?: '(no extracted text for this page)' }}</div>
                     </div>
                 </div>
             {% endif %}

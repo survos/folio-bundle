@@ -12,8 +12,10 @@ use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 
@@ -70,6 +72,25 @@ final class FolioController extends AbstractController
             'views'         => $views,
             'linkTypes'     => $folio?->linkTypes ?? [],
         ]);
+    }
+
+    #[Route('/{provider}/{dataset}/download', name: 'survos_folio_download')]
+    public function download(string $provider, string $dataset): BinaryFileResponse
+    {
+        $folioCode = "$provider/$dataset";
+        $archivePath = $this->folios->archivePath($folioCode);
+        if (!is_file($archivePath)) {
+            throw $this->createNotFoundException(sprintf('Folio archive not found: %s', $folioCode));
+        }
+
+        $response = new BinaryFileResponse($archivePath);
+        $response->headers->set('Content-Type', 'application/gzip');
+        $response->setContentDisposition(
+            ResponseHeaderBag::DISPOSITION_ATTACHMENT,
+            sprintf('%s_%s.folio.gz', $provider, $dataset),
+        );
+
+        return $response;
     }
 
     #[Route('/{provider}/{dataset}/schema', name: 'survos_folio_schema')]

@@ -25,6 +25,13 @@ final class BuildFolioRequestedListener
 {
     public function __construct(
         private readonly FolioBuildCommand $folioBuild,
+        /**
+         * When true (publishing/prod hosts), inline workflow builds also write the compressed
+         * .folio.gz archive and register the FOLIO_ARCHIVE artifact, so the dataset is immediately
+         * pullable. Off locally — the .gz is slow and unused for browsing. Bound via
+         * survos_folio.build_archive (typically an env var).
+         */
+        private readonly bool $buildArchive = false,
     ) {
     }
 
@@ -34,6 +41,6 @@ final class BuildFolioRequestedListener
         // no console (dispatched outside a command).
         $io = $event->io ?? new SymfonyStyle(new ArrayInput([]), new NullOutput());
 
-        ($this->folioBuild)($io, dataset: $event->datasetKey, core: $event->core);
+        ($this->folioBuild)($io, dataset: $event->datasetKey, core: $event->core, gz: $this->buildArchive);
     }
 }

@@ -35,6 +35,9 @@ final class SurvosFolioBundle extends AbstractBundle
             ->booleanNode('admin_navbar_menu')->defaultTrue()
                 ->info('Set false to disable this bundle\'s admin navbar menu entries.')
             ->end()
+            ->booleanNode('build_archive')->defaultFalse()
+                ->info('Also build the compressed .folio.gz archive + register the FOLIO_ARCHIVE artifact on inline workflow builds (set true on publishing/prod hosts; off locally — the .gz is slow and unused for browsing).')
+            ->end()
             ->scalarNode('extension')->defaultValue('folio')->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
             ->scalarNode('folio_server')
@@ -52,6 +55,7 @@ final class SurvosFolioBundle extends AbstractBundle
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         $this->captureRouteConfig($config);
+        $builder->setParameter('survos_folio.folio_server', $config['folio_server']);
         $services = $container->services();
         foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');
@@ -95,9 +99,11 @@ final class SurvosFolioBundle extends AbstractBundle
             '$folioServer' => $config['folio_server'],
             '$kernelDebug' => '%kernel.debug%',
         ]);
-        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioContextListener::class, BuildFolioRequestedListener::class, FolioDtoTypeResolver::class] as $class) {
+        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
+        $services->set(BuildFolioRequestedListener::class)->autowire()->autoconfigure()->public()
+            ->arg('$buildArchive', $config['build_archive']);
         if ($config['routes_enabled']) {
             foreach ([FolioCollectionController::class, FolioController::class, FolioSearchController::class] as $class) {
                 $services->set($class)->autowire()->autoconfigure()->public();
