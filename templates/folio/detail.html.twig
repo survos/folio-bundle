@@ -4,7 +4,7 @@
 
 {% macro render_value(value) %}
     {% if value is iterable %}
-        <pre class="mb-0">{{ value|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+        <pre class="mb-0">{{ value|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
     {% elseif value is url %}
         {{ value|urlize }}
     {% else %}
@@ -20,6 +20,11 @@
 {% set pageAiUrls = [] %}
 
 {% set tombstoneTitle = attribute(row.dtoData, 'title')|default(attribute(row.extras, 'dcterms:title')|default(row.label ?: row.localId)) %}
+{# Strip a wrapping-quote data artifact (e.g. SMK titles arrive fully quoted); only when the WHOLE
+   value is quoted, so legitimate internal quotes are preserved. Deeper cleanup belongs at normalize. #}
+{% if tombstoneTitle starts with '"' and tombstoneTitle ends with '"' %}
+    {% set tombstoneTitle = tombstoneTitle|trim('"') %}
+{% endif %}
 {% set tombstoneDescription = attribute(row.dtoData, 'description')|default(attribute(row.extras, 'dcterms:description')|default(null)) %}
 {% set tombstoneDate = attribute(row.dtoData, 'date')|default(attribute(row.extras, 'dcterms:date')|default(null)) %}
 {% set tombstoneDimensions = attribute(row.dtoData, 'dimensions')|default(attribute(row.dtoData, 'dimensionsRaw')|default(null)) %}
@@ -289,9 +294,15 @@
                         </div>
                     {% endif %}
 
+                    {# Title the data card with the (translatable) DTO class name, e.g. "Artifact",
+                       not the developer phrase "DTO Data". dto.<Name> lives in the 'system' domain
+                       (built by trans:system); fall back to the bare short name. #}
+                    {% set dtoLabel = dtoClass ? dtoClass|split('\\')|last|replace({'Dto': ''}) : (row.dtoType ?: 'Record') %}
+                    {% set dtoKey = 'dto.' ~ dtoLabel %}
+                    {% set dtoTrans = dtoKey|trans({}, 'system') %}
                     <div class="card">
                         <div class="card-header">
-                            <h2 class="card-title mb-0">DTO Data</h2>
+                            <h2 class="card-title mb-0">{{ dtoTrans == dtoKey ? dtoLabel : dtoTrans }}</h2>
                         </div>
 
                         {% set imageFields = ['thumbnailUrl', 'largeImageUrl', 'iiifBase', 'iiifManifest', 'iiifInfo', 'imageCount', 'hasImages', 'sourceUrl'] %}
@@ -449,25 +460,6 @@
                         </div>
                     {% endif %}
 
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            <h2 class="card-title mb-0">Row</h2>
-                        </div>
-
-                        <div class="card-body">
-                            <dl class="mb-0">
-                                <dt>ID</dt>
-                                <dd class="font-monospace">{{ row.localId }}</dd>
-
-                                <dt>Type</dt>
-                                <dd>{{ row.dtoType ?: '(none)' }}</dd>
-
-                                <dt>DTO Class</dt>
-                                <dd class="font-monospace small">{{ dtoClass ?: '(generic)' }}</dd>
-                            </dl>
-                        </div>
-                    </div>
-
                     {% if terms %}
                         <div class="card mb-3">
                             <div class="card-header">
@@ -520,8 +512,7 @@
                                         <div class="text-muted small font-monospace">{{ link.code }}</div>
 
                                         <div>
-                                            {{ ux_icon(link.core, {class: 'icon me-1'}) }}<span>{{ link.label ?: link.code }}</span>
-
+                                            {{ ux_icon(link.core, {class: 'icon me-1'}) }}{# predicate shown once above; here show the linked record #}
                                             {% if target %}
                                                 <a href="{{ path('survos_folio_row_show', {
                                                     provider: provider,
@@ -544,10 +535,11 @@
                         </div>
                     {% endif %}
 
-                    {% if extras %}
+                    {# Extras is the raw unmapped blob — developer noise. Show only in debug; hidden in production. #}
+                    {% if extras and app.debug %}
                         <div class="card mb-3">
                             <div class="card-header d-flex justify-content-between align-items-center">
-                                <h2 class="card-title mb-0">Extras</h2>
+                                <h2 class="card-title mb-0">Extras <span class="badge bg-secondary-lt ms-1">dev</span></h2>
 
                                 <button
                                     type="button"
@@ -559,7 +551,7 @@
                             </div>
 
                             <div class="card-body">
-                                <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word; user-select: all;">{{ extras|json_encode(constant('JSON_PRETTY_PRINT')) }}</pre>
+                                <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word; user-select: all;">{{ extras|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
                             </div>
                         </div>
                     {% endif %}
