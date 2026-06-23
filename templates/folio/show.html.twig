@@ -36,13 +36,13 @@
                 class="btn btn-sm btn-ghost-secondary"
                 {{ stimulus_action('clipboard', 'copy') }}
                 {{ stimulus_target('clipboard', 'button') }}
-                title="Copy to clipboard"
+                title="Copy folio pull command"
             >
-                {% guard function ux_icon %}{{ ux_icon('clipboard') }}{% else %}Copy{% endguard %}
+                {% guard function ux_icon %}{{ ux_icon('clipboard') }} Copy{% else %}Copy{% endguard %}
             </button>
         </div>
         <div class="card-body">
-            <pre class="mb-0 font-monospace" {{ stimulus_target('clipboard', 'source') }}>{{ installCommand }}</pre>
+            <code class="d-block text-break" {{ stimulus_target('clipboard', 'source') }}>{{ installCommand }}</code>
         </div>
     </div>
 
@@ -56,7 +56,13 @@
                     <div class="card-body">
                         <div class="d-flex align-items-start justify-content-between gap-2">
                             <div class="min-w-0">
-                                <div class="h3 mb-0 text-truncate">{{ core.label ?: core.code }}</div>
+                                {# Always translate (system domain, built by `trans:system`); fall back to the
+                                   bare code, never core.label — it's populated with the code and shadows the translation. #}
+                                {% set coreKey = 'core.' ~ core.code %}
+                                {% set coreLabel = coreKey|trans({}, 'system') %}
+                                <div class="h3 mb-0 text-truncate">
+                                    {{ ux_icon(core_icon(core.code), {class: 'icon me-1 text-muted'}) }}{{ coreLabel == coreKey ? core.code : coreLabel }}
+                                </div>
                                 <div class="text-muted font-monospace small">{{ core.code }}</div>
                             </div>
 
@@ -67,10 +73,10 @@
 
                         <div class="btn-list mt-3">
                             <a class="btn btn-sm btn-primary"
-                               href="{{ path('survos_folio_search', {
+                               href="{{ path('survos_folio_core_search', {
                                    provider: provider,
                                    dataset: dataset,
-                                   core: core.code
+                                   coreCode: core.code
                                }) }}">
                                 Grid
                             </a>

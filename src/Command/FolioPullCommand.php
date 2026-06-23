@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
+use Doctrine\ORM\EntityManagerInterface;
 use League\Flysystem\FilesystemOperator;
 use Psr\Log\LoggerInterface;
+use Survos\DatasetBundle\Entity\{Artifact,DatasetInfo,Provider};
 use Survos\FetchBundle\Service\ChunkDownloader;
-use Survos\FolioBundle\Service\{FolioArchiveService,FolioService};
+use Survos\FolioBundle\Service\{FolioArchiveService,FolioService,FolioSummaryService};
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
@@ -28,6 +30,8 @@ final class FolioPullCommand
         private readonly ?FilesystemOperator $archiveStorage = null,
         private readonly ?HttpClientInterface $http = null,
         private readonly ?ChunkDownloader $downloader = null,
+        private readonly ?EntityManagerInterface $datasetEntityManager = null,
+        private readonly ?FolioSummaryService $summaryService = null,
         // survos_folio.folio_server — the live folio site; the default API source for pulls.
         #[Autowire('%survos_folio.folio_server%')]
         private readonly ?string $folioServer = null,
@@ -106,6 +110,7 @@ final class FolioPullCommand
                 $inflated['views'],
                 $inflated['ftsRows'],
             ));
+            $this->registerRestoredFolio($code, $result['target']);
             $pulled++;
         }
 
@@ -181,6 +186,7 @@ final class FolioPullCommand
                 Bytes::parse($result['targetBytes'])->humanize(),
                 number_format($result['indexedRows']),
             ));
+            $this->registerRestoredFolio($code, $result['target']);
             $pulled++;
         }
 
@@ -231,6 +237,7 @@ final class FolioPullCommand
             Bytes::parse($result['targetBytes'])->humanize(),
             number_format($result['indexedRows']),
         ));
+        $this->registerRestoredFolio($code, $result['target']);
 
         $this->rmdir($tmpDir);
         $io->success(sprintf('Pulled %s from API', $code));
@@ -375,6 +382,7 @@ final class FolioPullCommand
                 Bytes::parse($result['targetBytes'])->humanize(),
                 number_format($result['indexedRows']),
             ));
+            $this->registerRestoredFolio($code, $result['target']);
             $pulled++;
         }
 
@@ -616,5 +624,60 @@ final class FolioPullCommand
             $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
         }
         rmdir($dir);
+    }
+
+    private function registerRestoredFolio(string $code, string $dbFile): void
+    {
+        if ($this->datasetEntityManager === null || $this->summaryService === null || !is_file($dbFile)) {
+            return;
+        }
+
+        $em = $this->datasetEntityManager;
+        $dataset = $em->find(DatasetInfo::class, $code);
+        if (!$dataset instanceof DatasetInfo) {
+            $dataset = new DatasetInfo($code);
+            $dataset->aggregator = $dataset->provider();
+            $em->persist($dataset);
+        }
+
+        $providerCode = $dataset->provider();
+        $provider = $em->find(Provider::class, $providerCode);
+        if (!$provider instanceof Provider) {
+            $provider = new Provider($providerCode);
+            $em->persist($provider);
+        }
+        $provider->setSyncedAt(new \DateTime());
+        $dataset->setProviderEntity($provider);
+
+        $summary = $this->summaryService->summarize($dbFile);
+        if (isset($summary->coreCounts['obj'])) {
+            $dataset->objCount = (int) $summary->coreCounts['obj'];
+        } elseif ($summary->rowCount !== null) {
+            $dataset->objCount = $summary->rowCount;
+        }
+
+        $artifact = $em->getRepository(Artifact::class)->findOneBy([
+            'dataset' => $dataset,
+            'type' => Artifact::TYPE_FOLIO,
+            'code' => Artifact::CODE_DEFAULT,
+        ]) ?? new Artifact($dataset, Artifact::TYPE_FOLIO);
+
+        $artifact->uri = $dbFile;
+        $artifact->sizeBytes = filesize($dbFile) ?: null;
+        $artifact->rowCount = $summary->rowCount;
+        $artifact->dtoCounts = $summary->dtoCounts ?: null;
+        $artifact->updatedAt = (new \DateTimeImmutable())->setTimestamp((int) filemtime($dbFile));
+        $artifact->discoveredAt = new \DateTimeImmutable();
+        $artifact->metadata = [
+            'relativePath' => $code . '.folio',
+            'cores' => $summary->cores,
+            'coreCounts' => $summary->coreCounts,
+            'registeredBy' => 'folio:pull',
+        ];
+
+        $dataset->addArtifact($artifact);
+        $em->persist($artifact);
+        $provider->setDatasetCount($em->getRepository(DatasetInfo::class)->count(['providerEntity' => $provider]));
+        $em->flush();
     }
 }

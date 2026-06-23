@@ -104,6 +104,7 @@ final class SurvosFolioBundle extends AbstractBundle
         }
         $services->set(BuildFolioRequestedListener::class)->autowire()->autoconfigure()->public()
             ->arg('$buildArchive', $config['build_archive']);
+        $services->set(\Survos\FolioBundle\Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public();
         if ($config['routes_enabled']) {
             foreach ([FolioCollectionController::class, FolioController::class, FolioSearchController::class] as $class) {
                 $services->set($class)->autowire()->autoconfigure()->public();

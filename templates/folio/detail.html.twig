@@ -93,7 +93,7 @@
     {% set isSingleImage = pages|length == 1 and not attribute(row.dtoData, 'pdfUrl')|default(null) %}
 
     <div class="row row-cards">
-        <div class="col-lg-8">
+        <div class="col-lg-8" id="doc-main-col">
             {# Pages — the canonical imagery of a row (a list of jpgs, or a PDF's pages). #}
 
             {# A row's canonical media is EITHER a PDF (pdfUrl set during normalization) or a
@@ -368,7 +368,7 @@
             {% endif %}
         </div>
 
-        <div class="col-lg-4">
+        <div class="col-lg-4" id="doc-side-col">
             {# Item actions — available for EVERY row that has an image, single or multi. The OCR/Observe
                button (folio_ai → mediary) and "Ask the Scholar" (the document chat) must work even on a
                single thumbnail: that's exactly the no-OCR item where we want to start a conversation. #}
@@ -580,6 +580,30 @@
             {% endif %}
         </div>
     </div>
+
+    {# Adaptive layout: portrait imagery (documents) rebalances to a 6/6 split so the viewer isn't
+       stranded in black bars and the OCR/sidebar gets room; landscape keeps the wide 8/4. Measured
+       client-side from the first page (we have no stored page dimensions). #}
+    {% set firstPage = pages|first %}
+    {% if firstPage and firstPage.url %}
+        {% set aspectProbe = firstPage.url %}
+        {% guard filter imgproxy %}{% set aspectProbe = aspectProbe|imgproxy('thumb') %}{% endguard %}
+        <script>
+            (function () {
+                var probe = {{ aspectProbe|json_encode|raw }};
+                var img = new Image();
+                img.onload = function () {
+                    if (img.naturalWidth && img.naturalHeight > img.naturalWidth * 1.15) {
+                        var main = document.getElementById('doc-main-col');
+                        var side = document.getElementById('doc-side-col');
+                        if (main) { main.classList.replace('col-lg-8', 'col-lg-6'); }
+                        if (side) { side.classList.replace('col-lg-4', 'col-lg-6'); }
+                    }
+                };
+                img.src = probe;
+            })();
+        </script>
+    {% endif %}
 
     <script>
         function updateFolioAiLink(pageIndex) {

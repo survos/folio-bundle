@@ -44,13 +44,17 @@
                         <span class="text-secondary small">Cores</span>
 
                         {% for core in cores %}
+                            {# Always translate (system domain, built by `trans:system`); fall back to the
+                               bare code, never core.label — it's populated with the code and shadows the translation. #}
+                            {% set coreKey = 'core.' ~ core.code %}
+                            {% set coreLabel = coreKey|trans({}, 'system') %}
                             <a class="btn btn-sm {{ selectedCore|default(null) == core.code ? 'btn-primary' : 'btn-outline-secondary' }}"
                             href="{{ path('survos_folio_core_search', {
                                 provider: provider,
                                 dataset: dataset,
                                 coreCode: core.code
                             }) }}">
-                                {{ core.label ?: core.code }}
+                                {{ coreLabel == coreKey ? core.code : coreLabel }}
                                 {% if core.rowCount %}
                                     &middot; {{ core.rowCount|number_format }}
                                 {% endif %}
