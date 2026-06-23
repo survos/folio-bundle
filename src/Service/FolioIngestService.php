@@ -690,7 +690,7 @@ final class FolioIngestService
         unset($dtoData['unmapped']);
 
         $known = array_fill_keys(array_keys(get_object_vars($dto)), true);
-        foreach (['class', 'content_type', 'contentType', 'dto_type', 'dtoType'] as $alias) {
+        foreach (['class', 'content_type', 'contentType', 'dto_type', 'dtoType', 'dtoClass'] as $alias) {
             $known[$alias] = true;
         }
 
