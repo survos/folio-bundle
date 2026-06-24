@@ -606,40 +606,82 @@
                     link.href = template.replace('__URL__', encodeURIComponent(imageUrl));
                 }
 
+                function getPageFromUrl() {
+                    const params = new URLSearchParams(window.location.search);
+                    const page = Number(params.get('page'));
+
+                    // URL is human-friendly: ?page=1 means first page
+                    if (!Number.isInteger(page) || page < 1) {
+                        return 0;
+                    }
+
+                    return page - 1;
+                }
+
+                function setPageInUrl(pageIndex) {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('page', pageIndex + 1);
+                    window.history.replaceState({}, '', url);
+                }
+
+                function setActiveThumb(pageIndex) {
+                    document.querySelectorAll('.js-osd-page img').forEach((img) => {
+                        img.classList.remove('border-primary');
+                    });
+
+                    const activeThumb = document.querySelector(`.js-osd-page[data-page-index="${pageIndex}"] img`);
+
+                    if (activeThumb) {
+                        activeThumb.classList.add('border-primary');
+                    }
+                }
+
                 function initFolioDetailViewerControls() {
                     const viewerEl = document.querySelector(
                         '[data-controller="survos--iiif-bundle--iiif-viewer"]'
                     );
 
-                    updateFolioAiLink(0);
-
                     if (!viewerEl) {
                         return;
                     }
+
+                    const initialPageIndex = getPageFromUrl();
+
+                    const goToPage = (pageIndex, updateUrl = true) => {
+                        if (!viewerEl.viewer || !Number.isInteger(pageIndex)) {
+                            return;
+                        }
+
+                        viewerEl.viewer.goToPage(pageIndex);
+                        updateFolioAiLink(pageIndex);
+                        setActiveThumb(pageIndex);
+
+                        if (updateUrl) {
+                            setPageInUrl(pageIndex);
+                        }
+                    };
 
                     document.querySelectorAll('.js-osd-page').forEach((thumb) => {
                         thumb.onclick = (event) => {
                             event.preventDefault();
 
                             const pageIndex = Number(thumb.dataset.pageIndex);
-
-                            if (!viewerEl.viewer || !Number.isInteger(pageIndex)) {
-                                return;
-                            }
-
-                            viewerEl.viewer.goToPage(pageIndex);
-                            updateFolioAiLink(pageIndex);
-
-                            document.querySelectorAll('.js-osd-page img').forEach((img) => {
-                                img.classList.remove('border-primary');
-                            });
-
-                            thumb.querySelector('img')?.classList.add('border-primary');
+                            goToPage(pageIndex);
                         };
                     });
+
+                    // Wait a tick so the IIIF viewer has time to initialize.
+                    setTimeout(() => {
+                        goToPage(initialPageIndex, false);
+                    }, 100);
                 }
 
-                document.addEventListener('iiif-viewer:page', (e) => updateFolioAiLink(e.detail.index));
+                document.addEventListener('iiif-viewer:page', (e) => {
+                    updateFolioAiLink(e.detail.index);
+                    setActiveThumb(e.detail.index);
+                    setPageInUrl(e.detail.index);
+                });
+
                 document.addEventListener('turbo:load', initFolioDetailViewerControls);
                 document.addEventListener('DOMContentLoaded', initFolioDetailViewerControls);
             </script>
