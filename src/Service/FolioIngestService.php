@@ -383,17 +383,32 @@ final class FolioIngestService
             return 0;
         }
 
-        // Page-targeting predicate → page column. Only these predicates fold onto pages.
-        // ai:layoutBlock carries Mistral's structured layout (typed blocks + bboxes) → the viewer
-        // renders it as the "pretty" version, falling back to flat page.text when absent. These are
-        // our preferred AI versions, so they OVERRIDE any source value (prefer-AI), not fill-empty.
-        $columnFor = ['ai:ocrText' => 'text', 'ai:denseSummary' => 'dense_summary', 'ai:layoutBlock' => 'layout'];
+        // Single-valued page claims → page column. These OVERRIDE any source value (prefer-AI).
+        $columnFor = ['ai:ocrText' => 'text', 'ai:denseSummary' => 'dense_summary'];
+
+        // ai:layoutBlock is emitted as ONE CLAIM PER BLOCK, so we accumulate every block for a
+        // media id and write the whole array to page.layout once — the viewer renders it as the
+        // structured "pretty" layout (falling back to flat page.text when a page has no blocks).
+        $layoutByMedia = [];
 
         $count = 0;
         foreach (JsonlReader::open($claimsFile) as $data) {
             $predicate = is_scalar($data['predicate'] ?? null) ? (string) $data['predicate'] : '';
             $mediaId = is_scalar($data['subjectId'] ?? null) ? (string) $data['subjectId'] : '';
-            if ($mediaId === '' || !isset($pageMedia[$mediaId], $columnFor[$predicate])) {
+            if ($mediaId === '' || !isset($pageMedia[$mediaId])) {
+                continue;
+            }
+
+            if ($predicate === 'ai:layoutBlock') {
+                $raw = $data['value'] ?? null;
+                $block = is_array($raw) ? $raw : (is_string($raw) ? json_decode($raw, true) : null);
+                if (is_array($block) && $block !== []) {
+                    $layoutByMedia[$mediaId][] = $block;
+                }
+                continue;
+            }
+
+            if (!isset($columnFor[$predicate])) {
                 continue;
             }
             $value = $this->claimValue($data['value'] ?? null);
@@ -403,6 +418,19 @@ final class FolioIngestService
             $count += $conn->executeStatement(
                 sprintf('UPDATE page SET %s = ? WHERE media_id = ?', $columnFor[$predicate]),
                 [$value, $mediaId],
+            );
+        }
+
+        // Write each page's accumulated blocks in reading order (page, then top-to-bottom, left-to-right).
+        foreach ($layoutByMedia as $mediaId => $blocks) {
+            usort($blocks, static fn (array $a, array $b): int => [
+                $a['page'] ?? 0, $a['bbox']['y'] ?? 0, $a['bbox']['x'] ?? 0,
+            ] <=> [
+                $b['page'] ?? 0, $b['bbox']['y'] ?? 0, $b['bbox']['x'] ?? 0,
+            ]);
+            $count += $conn->executeStatement(
+                'UPDATE page SET layout = ? WHERE media_id = ?',
+                [json_encode($blocks, JSON_UNESCAPED_UNICODE), $mediaId],
             );
         }
 
