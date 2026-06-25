@@ -31,6 +31,8 @@
 {% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
 {% set sourceUrl = attribute(row.dtoData, 'url')|default(null) %}
 {% set tombstoneUrl = citationUrl ?: sourceUrl %}
+{% set tombstoneCredit = attribute(row.dtoData, 'citation')|default(null) %}
+{% set tombstoneSourceImage = attribute(row.dtoData, 'largeImageUrl')|default(attribute(row.dtoData, 'iiifBase')|default(null)) %}
 {% set promotedFields = ['title', 'description', 'date', 'dimensions', 'dimensionsRaw', 'weight', 'citationUrl', 'ocrText'] %}
 
 {% if sourceUrl and (sourceUrl == citationUrl or citationUrl is empty) %}
@@ -102,7 +104,17 @@
                                     Citation {{ ux_icon('tabler:external-link', { class: 'icon ms-1' }) }}
                                 </a>
                             {% endif %}
+
+                            {% if tombstoneSourceImage %}
+                                <a href="{{ tombstoneSourceImage }}" target="_blank" rel="noopener" class="text-decoration-none">
+                                    Source image {{ ux_icon('tabler:photo', { class: 'icon ms-1' }) }}
+                                </a>
+                            {% endif %}
                         </div>
+
+                        {% if tombstoneCredit %}
+                            <div class="small text-muted mb-3">{{ tombstoneCredit }}</div>
+                        {% endif %}
 
                         {% if tombstoneDenseSummary %}
                             <p class="text-muted mb-0" style="max-width: 58rem;">{{ tombstoneDenseSummary }}</p>
@@ -207,9 +219,15 @@
                                 />
                             </div>
 
-                            <div id="doc-page-status" class="card-footer py-2 small text-muted">
-                                Page 1 of {{ viewerImages|length }}{{ pageTexts|first|trim ? '' : ' — no extracted text' }}
-                            </div>
+                            {# Multi-image only: the page counter + OCR-status footer is meaningful when
+                               there's more than one page. For a single image (e.g. a photograph) it was
+                               just "Page 1 of 1 — no extracted text" noise; the OCR panel below already
+                               reports text presence. JS updates this element only on page-change events. #}
+                            {% if viewerImages|length > 1 %}
+                                <div id="doc-page-status" class="card-footer py-2 small text-muted">
+                                    Page 1 of {{ viewerImages|length }}{{ pageTexts|first|trim ? '' : ' — no extracted text' }}
+                                </div>
+                            {% endif %}
                         </div>
                     {% endif %}
 

@@ -689,25 +689,19 @@ final class FolioIngestService
             : array_filter(get_object_vars($dto), static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
         unset($dtoData['unmapped']);
 
-        $known = array_fill_keys(array_keys(get_object_vars($dto)), true);
-        foreach (['class', 'content_type', 'contentType', 'dto_type', 'dtoType', 'dtoClass'] as $alias) {
-            $known[$alias] = true;
-        }
-
-        $extras = [];
-        foreach ($data as $key => $value) {
-            if (!isset($known[$key])) {
-                $extras[$key] = $value;
-            }
-        }
-
-        // Values that couldn't hydrate onto their (type-mismatched) DTO property land in unmapped —
-        // they're a known prop name so the loop above skips them; keep them in extras so a provider
-        // reusing a DTO-typed key (e.g. a `dimensions` string) doesn't silently lose the value.
+        // The DTO curates its own leftovers: fromNormalized() collects unmatched keys in
+        // $dto->unmapped and drops the ones it consumed as #[Map] aliases (so a raw alias like
+        // dcterms:date doesn't shadow its mapped property). That IS the extras set — trust it
+        // instead of re-scanning the raw row, which would re-introduce those consumed keys. Fall
+        // back to a raw-row scan only when the DTO doesn't hydrate (no fromNormalized()).
         if (is_array($dto->unmapped ?? null)) {
-            foreach ($dto->unmapped as $key => $value) {
-                $extras[$key] ??= $value;
-            }
+            $extras = $dto->unmapped;
+        } else {
+            $known = array_fill_keys(array_keys(get_object_vars($dto)), true);
+            $extras = array_filter($data, static fn (string $key): bool => !isset($known[$key]), ARRAY_FILTER_USE_KEY);
+        }
+        foreach (['class', 'content_type', 'contentType', 'dto_type', 'dtoType', 'dtoClass'] as $internal) {
+            unset($extras[$internal]);
         }
 
         return [$dtoData, $extras];

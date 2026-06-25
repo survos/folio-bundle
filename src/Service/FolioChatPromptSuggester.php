@@ -97,9 +97,11 @@ final class FolioChatPromptSuggester
         }
 
         $placeholders = implode(',', array_fill(0, count($fields), '?'));
+        // item_facet_count is partitioned by core (core='' = all-cores aggregate); read that row so
+        // per-core partitions don't double-count totals here.
         $stmt = $pdo->prepare(
             "SELECT field, value, total FROM item_facet_count
-             WHERE field IN ($placeholders) AND value IS NOT NULL AND value != ''
+             WHERE core = '' AND field IN ($placeholders) AND value IS NOT NULL AND value != ''
              ORDER BY total DESC",
         );
         $stmt->execute($fields);

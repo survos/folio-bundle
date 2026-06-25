@@ -88,8 +88,13 @@ final class FolioFtsIndexer
         $pdo->exec('CREATE TABLE item_facet (item_rowid INTEGER NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL)');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_facet_field_value_rowid ON item_facet(field, value, item_rowid)');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_facet_rowid_field ON item_facet(item_rowid, field)');
-        $pdo->exec('CREATE TABLE item_facet_count (field TEXT NOT NULL, value TEXT NOT NULL, total INTEGER NOT NULL, PRIMARY KEY (field, value))');
-        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_facet_count_field_total ON item_facet_count(field, total DESC)');
+        // Partitioned by core: core='' is the all-cores aggregate (used when no core is selected);
+        // core='<coreCode>' is the per-core aggregate. A core-scoped search page (the common case)
+        // then reads facet counts straight from this table instead of a per-facet JOIN+GROUP over
+        // item_facet — the global '' row would be wrong for a single core, which is why faceting on
+        // a core page previously fell back to the slow live aggregation. PK + index lead with core.
+        $pdo->exec('CREATE TABLE item_facet_count (core TEXT NOT NULL, field TEXT NOT NULL, value TEXT NOT NULL, total INTEGER NOT NULL, PRIMARY KEY (core, field, value))');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_facet_count_core_field_total ON item_facet_count(core, field, total DESC)');
 
         $fields = $this->facetFields($pdo);
         if ($fields === []) {
@@ -103,13 +108,15 @@ final class FolioFtsIndexer
         }
 
         $insertFacet = $pdo->prepare('INSERT INTO item_facet(item_rowid, field, value) VALUES (:itemRowid, :field, :value)');
-        $insertCount = $pdo->prepare('INSERT INTO item_facet_count(field, value, total) VALUES (:field, :value, :total)');
+        $insertCount = $pdo->prepare('INSERT INTO item_facet_count(core, field, value, total) VALUES (:core, :field, :value, :total)');
 
         $pdo->beginTransaction();
         try {
             while ($row = $select->fetch(\PDO::FETCH_ASSOC)) {
                 $data = $this->decodeJson($row['dto_data'] ?? null);
                 $itemRowid = (int) $row['rowid'];
+                // Reuse the 'core' facet extraction (core code from core_id) to key per-core counts.
+                $coreCode = $this->rowFacetValues('core', $row, [])[0] ?? '';
                 foreach ($fields as $field) {
                     foreach ($this->rowFacetValues($field, $row, is_array($data) ? $data : []) as $value) {
                         $insertFacet->execute([
@@ -117,18 +124,25 @@ final class FolioFtsIndexer
                             'field' => $field,
                             'value' => $value,
                         ]);
-                        $counts[$field][$value] = ($counts[$field][$value] ?? 0) + 1;
+                        // Tally into the all-cores aggregate and (when known) the row's own core.
+                        $counts[''][$field][$value] = ($counts[''][$field][$value] ?? 0) + 1;
+                        if ($coreCode !== '') {
+                            $counts[$coreCode][$field][$value] = ($counts[$coreCode][$field][$value] ?? 0) + 1;
+                        }
                     }
                 }
             }
 
-            foreach ($counts as $field => $values) {
-                foreach ($values as $value => $total) {
-                    $insertCount->execute([
-                        'field' => $field,
-                        'value' => $value,
-                        'total' => $total,
-                    ]);
+            foreach ($counts as $core => $fieldValues) {
+                foreach ($fieldValues as $field => $values) {
+                    foreach ($values as $value => $total) {
+                        $insertCount->execute([
+                            'core' => $core,
+                            'field' => $field,
+                            'value' => $value,
+                            'total' => $total,
+                        ]);
+                    }
                 }
             }
             $pdo->commit();
