@@ -62,6 +62,10 @@
     {% set pages = pageTableExists ? row.pages : [] %}
     {% set pageAiUrls = pages|map(p => p.url) %}
     {% set pageTexts = pages|map(p => p.text|default('')) %}
+    {# Mistral structured layout per page (typed blocks + bboxes). When present the viewer renders the
+       pretty, layout-aware version; otherwise it falls back to the flat OCR text (pageTexts). #}
+    {% set pageLayouts = pages|map(p => p.layout|default(null)) %}
+    {% set hasLayout = pages|filter(p => p.layout is not empty)|length > 0 %}
     {% set pageAskUrls = [] %}
     {% for page in pages %}
         {% set pageAskUrls = pageAskUrls|merge([path('survos_folio_page_chat', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: page.seq})]) %}
@@ -270,29 +274,48 @@
                     {% if pdfUrl or pages|length > 0 %}
                         <script>
                             (function () {
-                                var texts = null;
-                                function pageTexts() {
-                                    if (texts === null) {
-                                        var el = document.getElementById('doc-ocr-text');
-                                        try { texts = el ? JSON.parse(el.dataset.pageTexts || '[]') : []; }
-                                        catch (err) { texts = []; }
-                                    }
-                                    return texts;
+                                var texts = null, layouts = null;
+                                function dataArr(attr) {
+                                    var el = document.getElementById('doc-ocr-text');
+                                    try { return el ? JSON.parse(el.dataset[attr] || '[]') : []; } catch (err) { return []; }
                                 }
-                                document.addEventListener('iiif-viewer:page', function (e) {
-                                    var i = e.detail.index, total = e.detail.total;
-                                    var text = (pageTexts()[i] || '').trim();
-                                    var status = document.getElementById('doc-page-status');
-                                    if (status) {
-                                        status.textContent = 'Page ' + (i + 1) + ' of ' + total + (text ? '' : ' — no extracted text');
-                                    }
+                                function pageTexts() { if (texts === null) texts = dataArr('pageTexts'); return texts; }
+                                function pageLayouts() { if (layouts === null) layouts = dataArr('pageLayouts'); return layouts; }
+                                function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+                                // Mistral block type → bootstrap styling, so the layout reads like a document, not a dump.
+                                var BLOCK_CLASS = { headline: 'fw-bold fs-5 mb-2', subheadline: 'fw-semibold mb-2', caption: 'fst-italic text-muted small mb-2', byline: 'fst-italic small text-muted mb-2', column: 'mb-2', paragraph: 'mb-2', other: 'mb-2' };
+                                function renderLayout(blocks) {
+                                    return blocks.map(function (b) {
+                                        var t = (b && b.text || '').trim();
+                                        if (!t || b.type === 'image' || b.type === 'advertisement') return '';
+                                        return '<div class="ocr-block ' + (BLOCK_CLASS[b.type] || 'mb-2') + '" data-block-type="' + esc(b.type || '') + '" style="white-space: pre-wrap;">' + esc(t) + '</div>';
+                                    }).join('');
+                                }
+                                function renderPage(i, total) {
                                     var ocrEl = document.getElementById('doc-ocr-text');
-                                    if (ocrEl) {
-                                        ocrEl.textContent = text || '(no extracted text for this page)';
+                                    if (!ocrEl) return;
+                                    var layout = pageLayouts()[i], badge = document.getElementById('doc-ocr-badge');
+                                    if (layout && layout.length) {
+                                        ocrEl.innerHTML = renderLayout(layout) || '<span class="text-muted">(no text on this page)</span>';
+                                        if (badge) { badge.textContent = 'Layout'; badge.className = 'badge bg-purple-lt'; }
+                                    } else {
+                                        ocrEl.textContent = (pageTexts()[i] || '').trim() || '(no extracted text for this page)';
+                                        if (badge) { badge.textContent = 'OCR'; badge.className = 'badge bg-blue-lt'; }
                                     }
                                     var ocrPage = document.getElementById('doc-ocr-page');
-                                    if (ocrPage) {
-                                        ocrPage.textContent = 'page ' + (i + 1) + ' of ' + total;
+                                    if (ocrPage && total) ocrPage.textContent = 'page ' + (i + 1) + ' of ' + total;
+                                }
+                                // Render page 1 once the panel exists (this script runs before it in the DOM).
+                                document.addEventListener('DOMContentLoaded', function () {
+                                    renderPage(0, Math.max(pageTexts().length, pageLayouts().length));
+                                });
+                                document.addEventListener('iiif-viewer:page', function (e) {
+                                    var i = e.detail.index, total = e.detail.total;
+                                    renderPage(i, total);
+                                    var hasText = ((pageTexts()[i] || '').trim()) || ((pageLayouts()[i] || []).length);
+                                    var status = document.getElementById('doc-page-status');
+                                    if (status) {
+                                        status.textContent = 'Page ' + (i + 1) + ' of ' + total + (hasText ? '' : ' — no extracted text');
                                     }
                                     // Point the OCR/Handwriting buttons and page Scholar link at the page currently shown.
                                     document.querySelectorAll('.js-folio-ai-btn').forEach(function (b) {
@@ -467,17 +490,19 @@
                 </div>
 
                 <div class="col-lg-4" id="doc-side-col">
-                    {% if hasOcr and not isSingleImage %}
+                    {% if (hasOcr or hasLayout) and not isSingleImage %}
                         <div class="card mb-3">
                             <div class="card-header d-flex align-items-center gap-2">
                                 <h2 class="card-title mb-0">Extracted text</h2>
-                                <span class="badge bg-blue-lt">OCR</span>
+                                {# Badge flips to "Layout" when this page has Mistral's structured layout. #}
+                                <span id="doc-ocr-badge" class="badge {{ hasLayout ? 'bg-purple-lt' : 'bg-blue-lt' }}">{{ hasLayout ? 'Layout' : 'OCR' }}</span>
                                 <span id="doc-ocr-page" class="ms-auto text-muted small">page 1 of {{ pages|length }}</span>
                             </div>
                             <div class="card-body">
                                 <div id="doc-ocr-text"
                                      data-page-texts="{{ pageTexts|json_encode|e('html_attr') }}"
-                                     style="white-space: pre-wrap; word-break: break-word; max-height: 600px; overflow-y: auto; font-size: 0.875rem; line-height: 1.4;">{{ pageTexts|first|trim ?: '(no extracted text for this page)' }}</div>
+                                     data-page-layouts="{{ pageLayouts|json_encode|e('html_attr') }}"
+                                     style="white-space: pre-wrap; word-break: break-word; max-height: 600px; overflow-y: auto; font-size: 0.875rem; line-height: 1.45;">{{ pageTexts|first|trim ?: '(no extracted text for this page)' }}</div>
                             </div>
                         </div>
                     {% endif %}

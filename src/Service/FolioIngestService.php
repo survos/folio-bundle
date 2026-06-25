@@ -384,13 +384,10 @@ final class FolioIngestService
         }
 
         // Page-targeting predicate → page column. Only these predicates fold onto pages.
-        $columnFor = ['ai:ocrText' => 'text', 'ai:denseSummary' => 'dense_summary'];
-        $statements = [];
-        foreach (array_unique(array_values($columnFor)) as $col) {
-            $statements[$col] = $conn->prepare(
-                sprintf("UPDATE page SET %s = :v WHERE media_id = :mid AND (%s IS NULL OR %s = '')", $col, $col, $col),
-            );
-        }
+        // ai:layoutBlock carries Mistral's structured layout (typed blocks + bboxes) → the viewer
+        // renders it as the "pretty" version, falling back to flat page.text when absent. These are
+        // our preferred AI versions, so they OVERRIDE any source value (prefer-AI), not fill-empty.
+        $columnFor = ['ai:ocrText' => 'text', 'ai:denseSummary' => 'dense_summary', 'ai:layoutBlock' => 'layout'];
 
         $count = 0;
         foreach (JsonlReader::open($claimsFile) as $data) {
@@ -403,7 +400,10 @@ final class FolioIngestService
             if ($value === null || $value === '') {
                 continue;
             }
-            $count += (int) $statements[$columnFor[$predicate]]->executeStatement(['v' => $value, 'mid' => $mediaId]);
+            $count += $conn->executeStatement(
+                sprintf('UPDATE page SET %s = ? WHERE media_id = ?', $columnFor[$predicate]),
+                [$value, $mediaId],
+            );
         }
 
         return $count;
