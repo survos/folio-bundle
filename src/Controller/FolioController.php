@@ -223,6 +223,197 @@ final class FolioController extends AbstractController
     }
 
 
+    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/chat', name: 'survos_folio_item_chat', options: ['expose' => true])]
+    public function itemChat(Request $request, string $provider, string $dataset, string $coreCode, string $dtoType, string $localId): Response
+    {
+        $folioCode = "$provider/$dataset";
+        $ctx = $this->folios->context($folioCode);
+        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+            ?? throw $this->createNotFoundException($coreCode);
+        $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
+            ?? throw $this->createNotFoundException($localId);
+
+        if ($row->dtoType && $dtoType !== $row->dtoType) {
+            return $this->redirectToRoute('survos_folio_item_chat', [
+                'provider' => $provider,
+                'dataset' => $dataset,
+                'coreCode' => $coreCode,
+                'dtoType' => $row->dtoType,
+                'localId' => $localId,
+            ]);
+        }
+
+        $pages = array_values($row->pages->toArray());
+        $question = trim($request->request->getString('q', $request->query->getString('q')));
+        $conversationId = trim($request->request->getString('conversation', $request->query->getString('conversation')));
+        if ($conversationId === '') {
+            $conversationId = bin2hex(random_bytes(16));
+        }
+        $contextSections = $this->itemScholarContext($core, $row, $pages);
+        $result = $question !== ''
+            ? $this->chat->askScoped($ctx, $question, 'Document: ' . ($row->label ?: $row->localId), $contextSections, $conversationId)
+            : null;
+
+        return $this->render('@SurvosFolioBundle/folio/item_chat.html.twig', [
+            'ctx' => $ctx,
+            'core' => $core,
+            'row' => $row,
+            'pages' => $pages,
+            'question' => $question,
+            'conversationId' => $conversationId,
+            'contextSections' => $contextSections,
+            'result' => $result,
+        ]);
+    }
+
+    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/page/{seq}/chat', name: 'survos_folio_page_chat', requirements: ['seq' => '\d+'], options: ['expose' => true])]
+    public function pageChat(Request $request, string $provider, string $dataset, string $coreCode, string $dtoType, string $localId, int $seq): Response
+    {
+        $folioCode = "$provider/$dataset";
+        $ctx = $this->folios->context($folioCode);
+        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+            ?? throw $this->createNotFoundException($coreCode);
+        $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
+            ?? throw $this->createNotFoundException($localId);
+
+        if ($row->dtoType && $dtoType !== $row->dtoType) {
+            return $this->redirectToRoute('survos_folio_page_chat', [
+                'provider' => $provider,
+                'dataset' => $dataset,
+                'coreCode' => $coreCode,
+                'dtoType' => $row->dtoType,
+                'localId' => $localId,
+                'seq' => $seq,
+            ]);
+        }
+
+        $pages = array_values($row->pages->toArray());
+        $page = null;
+        foreach ($pages as $candidate) {
+            if ($candidate->seq === $seq) {
+                $page = $candidate;
+                break;
+            }
+        }
+
+        if ($page === null) {
+            throw $this->createNotFoundException(sprintf('Page %d was not found for %s.', $seq, $localId));
+        }
+
+        $question = trim($request->request->getString('q', $request->query->getString('q')));
+        $conversationId = trim($request->request->getString('conversation', $request->query->getString('conversation')));
+        if ($conversationId === '') {
+            $conversationId = bin2hex(random_bytes(16));
+        }
+        $contextSections = $this->pageScholarContext($core, $row, $page);
+        $result = $question !== ''
+            ? $this->chat->askScoped($ctx, $question, sprintf('Page %d of document %s', $page->seq, $row->label ?: $row->localId), $contextSections, $conversationId)
+            : null;
+
+        return $this->render('@SurvosFolioBundle/folio/page_chat.html.twig', [
+            'ctx' => $ctx,
+            'core' => $core,
+            'row' => $row,
+            'page' => $page,
+            'pages' => $pages,
+            'question' => $question,
+            'conversationId' => $conversationId,
+            'contextSections' => $contextSections,
+            'result' => $result,
+        ]);
+    }
+
+    /**
+     * @param list<object> $pages
+     * @return array<string, mixed>
+     */
+    private function itemScholarContext(Core $core, Row $row, array $pages): array
+    {
+        $sections = [
+            'Document identity' => $this->cleanContext([
+                'localId' => $row->localId,
+                'label' => $row->label,
+                'core' => $core->code,
+                'dtoType' => $row->dtoType,
+                'citationUrl' => $row->getCitationUrl(),
+                'pageCount' => count($pages),
+            ]),
+            'Source metadata' => $row->dtoData ?? [],
+            'Source extras' => $row->extras ?? [],
+        ];
+
+        if (count($pages) === 1) {
+            $sections['Single page context'] = $this->pageContextData($pages[0]);
+        } elseif ($pages !== []) {
+            $sections['Page inventory'] = array_map(
+                fn (object $page): array => $this->cleanContext([
+                    'seq' => $page->seq ?? null,
+                    'type' => isset($page->type) && $page->type instanceof \BackedEnum ? $page->type->value : ($page->type ?? null),
+                    'mediaId' => $page->mediaId ?? null,
+                    'hasOcr' => isset($page->text) && is_string($page->text) && trim($page->text) !== '',
+                    'hasDescription' => isset($page->denseSummary) && is_string($page->denseSummary) && trim($page->denseSummary) !== '',
+                ]),
+                array_slice($pages, 0, 100),
+            );
+            if (count($pages) > 100) {
+                $sections['Page inventory note'] = sprintf('Showing metadata for the first 100 of %d pages.', count($pages));
+            }
+        }
+
+        return $this->cleanContext($sections);
+    }
+
+    /** @return array<string, mixed> */
+    private function pageScholarContext(Core $core, Row $row, object $page): array
+    {
+        return $this->cleanContext([
+            'Document identity' => $this->cleanContext([
+                'localId' => $row->localId,
+                'label' => $row->label,
+                'core' => $core->code,
+                'dtoType' => $row->dtoType,
+                'citationUrl' => $row->getCitationUrl(),
+            ]),
+            'Document source metadata' => $row->dtoData ?? [],
+            'Document source extras' => $row->extras ?? [],
+            'Page context' => $this->pageContextData($page),
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function pageContextData(object $page): array
+    {
+        return $this->cleanContext([
+            'seq' => $page->seq ?? null,
+            'pageIndex' => $page->pageIndex ?? null,
+            'type' => isset($page->type) && $page->type instanceof \BackedEnum ? $page->type->value : ($page->type ?? null),
+            'url' => $page->url ?? null,
+            'mediaId' => $page->mediaId ?? null,
+            'width' => $page->width ?? null,
+            'height' => $page->height ?? null,
+            'ocrText' => $page->text ?? null,
+            'description' => $page->denseSummary ?? null,
+            'ledger' => $page->ledger ?? null,
+            'layout' => $page->layout ?? null,
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function cleanContext(array $data): array
+    {
+        $clean = [];
+        foreach ($data as $key => $value) {
+            if ($value === null || $value === '' || $value === []) {
+                continue;
+            }
+            $clean[$key] = $value;
+        }
+
+        return $clean;
+    }
 
     #[Route('/{provider}/{dataset}/term/{setCode}/{termCode}', name: 'survos_folio_term_show')]
     public function termShow(string $provider, string $dataset, string $setCode, string $termCode): Response

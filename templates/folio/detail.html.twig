@@ -62,6 +62,10 @@
     {% set pages = pageTableExists ? row.pages : [] %}
     {% set pageAiUrls = pages|map(p => p.url) %}
     {% set pageTexts = pages|map(p => p.text|default('')) %}
+    {% set pageAskUrls = [] %}
+    {% for page in pages %}
+        {% set pageAskUrls = pageAskUrls|merge([path('survos_folio_page_chat', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: page.seq})]) %}
+    {% endfor %}
     {% set hasOcr = pageTexts|filter(t => t|trim is not empty)|length > 0 %}
     {% set isSingleImage = pages|length == 1 and not attribute(row.dtoData, 'pdfUrl')|default(null) %}
     {% set pdfUrl = attribute(row.dtoData, 'pdfUrl')|default(null) %}
@@ -148,12 +152,22 @@
                     <div class="col-lg-4">
                         {% if pageAiUrls|length > 0 or th %}
                             <div class="d-flex flex-wrap justify-content-lg-end gap-2">
-                                <a href="{{ path('survos_folio_chat', {provider: provider, dataset: dataset}) }}"
+                                <a href="{{ path('survos_folio_item_chat', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId}) }}"
                                    class="btn text-white border-0 shadow-sm rounded-pill px-4"
                                    style="background: linear-gradient(135deg, #2b0b4f, #5b2aa0);">
                                     {{ ux_icon('tabler:sparkles', { class: 'icon me-1' }) }}
-                                    Ask the Scholar
+                                    Ask document
                                 </a>
+
+                                {% if pages|length > 1 and pageAskUrls is not empty %}
+                                    <a href="{{ pageAskUrls|first }}"
+                                       id="doc-page-scholar-link"
+                                       data-page-chat-urls="{{ pageAskUrls|json_encode|e('html_attr') }}"
+                                       class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill">
+                                        {{ ux_icon('tabler:message-chatbot', { class: 'icon me-1' }) }}
+                                        Ask page
+                                    </a>
+                                {% endif %}
 
                                 {# OCR / Handwriting run a mediary AI task against THIS row's current
                                    page (folio identifiers, not a bare url) via survos_folio_ai, which
@@ -278,10 +292,19 @@
                                     if (ocrPage) {
                                         ocrPage.textContent = 'page ' + (i + 1) + ' of ' + total;
                                     }
-                                    // Point the OCR/Handwriting buttons at the page currently shown.
+                                    // Point the OCR/Handwriting buttons and page Scholar link at the page currently shown.
                                     document.querySelectorAll('.js-folio-ai-btn').forEach(function (b) {
                                         b.href = b.dataset.aiBase + '?task=' + encodeURIComponent(b.dataset.aiTask) + '&run=1&page=' + i;
                                     });
+                                    var pageScholar = document.getElementById('doc-page-scholar-link');
+                                    if (pageScholar) {
+                                        try {
+                                            var urls = JSON.parse(pageScholar.dataset.pageChatUrls || '[]');
+                                            if (urls[i]) {
+                                                pageScholar.href = urls[i];
+                                            }
+                                        } catch (err) {}
+                                    }
                                 });
                             })();
                         </script>

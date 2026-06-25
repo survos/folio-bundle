@@ -1,0 +1,162 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+
+{% set parts = ctx.folioCode|split('/') %}
+{% set provider = parts[0] %}
+{% set dataset = parts[1] %}
+{% set title = attribute(row.dtoData, 'title')|default(row.label ?: row.localId) %}
+{% set description = attribute(row.dtoData, 'description')|default(attribute(row.extras, 'dcterms:description')|default(null)) %}
+
+{% block title %}Ask the Scholar · page {{ page.seq }} · {{ title }}{% endblock %}
+
+{% block body %}
+    <div class="container-xl py-4 py-lg-5">
+        <div class="mb-3">
+            <a class="text-decoration-none text-secondary" href="{{ path('survos_folio_row_show', {
+                provider: provider,
+                dataset: dataset,
+                coreCode: core.code,
+                dtoType: row.dtoType ?: 'row',
+                localId: row.localId,
+            }) }}">
+                {{ ux_icon('tabler:arrow-left', {class: 'icon'}) }} {{ title }}
+            </a>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <div>
+                            <h1 class="card-title h2 mb-1">Ask the Scholar</h1>
+                            <div class="text-muted">Page {{ page.seq }} of {{ pages|length }}</div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-info">
+                            I can add historical knowledge about this page.
+                        </div>
+
+                        <form method="post" action="{{ path('survos_folio_page_chat', {
+                            provider: provider,
+                            dataset: dataset,
+                            coreCode: core.code,
+                            dtoType: row.dtoType ?: 'row',
+                            localId: row.localId,
+                            seq: page.seq,
+                        }) }}">
+                            <input type="hidden" name="conversation" value="{{ conversationId }}">
+                            <div class="mb-3">
+                                <label class="form-label" for="folio-page-question">Question</label>
+                                <textarea class="form-control" id="folio-page-question" name="q" rows="4" required>{{ question }}</textarea>
+                            </div>
+                            <button class="btn btn-primary" type="submit">
+                                {{ ux_icon('tabler:message-question', {class: 'icon'}) }} Ask page
+                            </button>
+                        </form>
+
+                        {% if result %}
+                            <div class="border-top mt-4 pt-4">
+                                <h2 class="h4">Scholar response</h2>
+                                <div class="prose">{{ result.answer|markdown_to_html }}</div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if page.url %}
+                    <div class="card mb-3">
+                        <div class="card-header"><h2 class="card-title mb-0">Page image</h2></div>
+                        <div class="card-body">
+                            {% set imageUrl = page.url %}
+                            {% guard filter imgproxy %}
+                                {% set imageUrl = page.url|imgproxy('display') %}
+                            {% endguard %}
+                            <img src="{{ imageUrl }}" class="img-fluid rounded border" alt="Page {{ page.seq }}">
+                        </div>
+                    </div>
+                {% endif %}
+
+                {% if page.text %}
+                    <div class="card mb-3">
+                        <div class="card-header"><h2 class="card-title mb-0">OCR</h2></div>
+                        <div class="card-body" style="white-space: pre-wrap; word-break: break-word; max-height: 560px; overflow: auto;">{{ page.text|trim }}</div>
+                    </div>
+                {% endif %}
+
+                {% if page.denseSummary %}
+                    <div class="card mb-3">
+                        <div class="card-header"><h2 class="card-title mb-0">Description</h2></div>
+                        <div class="card-body" style="white-space: pre-wrap; word-break: break-word;">{{ page.denseSummary|trim }}</div>
+                    </div>
+                {% endif %}
+
+                {% if description %}
+                    <div class="card mb-3">
+                        <div class="card-header"><h2 class="card-title mb-0">Document source description</h2></div>
+                        <div class="card-body" style="white-space: pre-wrap; word-break: break-word;">{{ description|trim }}</div>
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="col-lg-5">
+                <div class="card mb-3">
+                    <div class="card-header"><h2 class="card-title mb-0">Page data</h2></div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-4">Page</dt><dd class="col-sm-8">{{ page.seq }}</dd>
+                            <dt class="col-sm-4">Source index</dt><dd class="col-sm-8">{{ page.pageIndex }}</dd>
+                            <dt class="col-sm-4">Type</dt><dd class="col-sm-8">{{ page.type ? page.type.value : 'unknown' }}</dd>
+                            <dt class="col-sm-4">Media ID</dt><dd class="col-sm-8 font-monospace text-break">{{ page.mediaId ?: 'none' }}</dd>
+                            <dt class="col-sm-4">Size</dt><dd class="col-sm-8">{{ page.width and page.height ? page.width ~ ' x ' ~ page.height : 'unknown' }}</dd>
+                        </dl>
+                    </div>
+                    {% if page.ledger %}
+                        <details class="border-top p-3">
+                            <summary class="text-muted small">Ledger</summary>
+                            <pre class="small mt-2 mb-0" style="white-space: pre-wrap; word-break: break-word;">{{ page.ledger|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
+                        </details>
+                    {% endif %}
+                    {% if page.layout %}
+                        <details class="border-top p-3">
+                            <summary class="text-muted small">Layout</summary>
+                            <pre class="small mt-2 mb-0" style="white-space: pre-wrap; word-break: break-word;">{{ page.layout|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
+                        </details>
+                    {% endif %}
+                </div>
+
+                <div class="card">
+                    <div class="card-header"><h2 class="card-title mb-0">Document data</h2></div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-4">ID</dt><dd class="col-sm-8 font-monospace">{{ row.localId }}</dd>
+                            <dt class="col-sm-4">Core</dt><dd class="col-sm-8">{{ core.code }}</dd>
+                            <dt class="col-sm-4">Type</dt><dd class="col-sm-8">{{ row.dtoType ?: 'row' }}</dd>
+                        </dl>
+                    </div>
+                    <details class="border-top p-3">
+                        <summary class="text-muted small">DTO data</summary>
+                        <pre class="small mt-2 mb-0" style="white-space: pre-wrap; word-break: break-word;">{{ row.dtoData|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
+                    </details>
+                </div>
+
+                <div class="card mt-3">
+                    <div class="card-header"><h2 class="card-title mb-0">Context sent to Scholar</h2></div>
+                    {% if result %}
+                        <div class="card-body">
+                            <pre class="small mb-0" style="white-space: pre-wrap; word-break: break-word;">{{ result.contextPrompt }}</pre>
+                        </div>
+                    {% else %}
+                        <div class="list-group list-group-flush">
+                            {% for label, section in contextSections %}
+                                <details class="list-group-item">
+                                    <summary>{{ label }}</summary>
+                                    <pre class="small mt-2 mb-0" style="white-space: pre-wrap; word-break: break-word;">{{ section is iterable ? section|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) : section }}</pre>
+                                </details>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -13,6 +13,7 @@ use Survos\FolioBundle\Model\FolioContext;
 use Symfony\AI\Agent\AgentInterface;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
+use Symfony\AI\Platform\Result\TextResult;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 final readonly class FolioChatService
@@ -47,6 +48,73 @@ final readonly class FolioChatService
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $contextSections
+     */
+    public function askScoped(FolioContext $ctx, string $question, string $scope, array $contextSections, ?string $conversationId = null): FolioChatResult
+    {
+        $question = trim($question);
+        $contextPrompt = $this->scopedContextPrompt($question, $scope, $contextSections);
+        if ($question === '') {
+            return new FolioChatResult('', '', $contextPrompt, [], []);
+        }
+
+        if ($this->agent === null) {
+            return new FolioChatResult(
+                question: $question,
+                answer: 'The Scholar agent is not configured, but the source context for this scope is shown on this page.',
+                contextPrompt: $contextPrompt,
+                hits: [],
+                cards: [],
+            );
+        }
+
+        $this->holder->set($ctx);
+        try {
+            $result = $this->agent->call(
+                new MessageBag(
+                    Message::forSystem($this->scopedSystemPrompt()),
+                    Message::ofUser($contextPrompt),
+                ),
+                [
+                    'folio_chat' => [
+                        'conversation_id' => $conversationId,
+                        'folio_code' => $ctx->folioCode,
+                    ],
+                ],
+            );
+        } catch (\Throwable) {
+            return new FolioChatResult(
+                question: $question,
+                answer: 'I could not complete the Scholar response right now. The source context for this scope is shown on this page.',
+                contextPrompt: $contextPrompt,
+                hits: [],
+                cards: [],
+            );
+        } finally {
+            $this->holder->set(null);
+        }
+
+        $answer = $result instanceof TextResult ? $result->getContent() : $result->getContent();
+        if (!\is_string($answer) || trim($answer) === '') {
+            $answer = 'I could not produce a useful Scholar response from the available context.';
+        }
+
+        $chatResult = new FolioChatResult(
+            question: $question,
+            answer: trim($answer),
+            contextPrompt: $contextPrompt,
+            hits: [],
+            cards: [],
+        );
+
+        if ($conversationId !== null && $this->dispatcher !== null) {
+            $this->dispatcher->dispatch(new FolioChatTurnEvent($ctx, $conversationId, $chatResult));
+        }
+
+        return $chatResult;
     }
 
     /**
@@ -182,6 +250,65 @@ final readonly class FolioChatService
         }
 
         return trim(implode("\n", $lines));
+    }
+
+    /**
+     * @param array<string, mixed> $contextSections
+     */
+    private function scopedContextPrompt(string $question, string $scope, array $contextSections): string
+    {
+        $lines = [
+            'Question: ' . ($question !== '' ? $question : '(no question yet)'),
+            'Scope: ' . $scope,
+            '',
+            'Available source context:',
+        ];
+
+        foreach ($contextSections as $label => $value) {
+            $body = $this->contextValueToText($value);
+            if ($body === '') {
+                continue;
+            }
+            $lines[] = '';
+            $lines[] = '## ' . $label;
+            $lines[] = $body;
+        }
+
+        return trim(implode("\n", $lines));
+    }
+
+    private function contextValueToText(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        if (\is_scalar($value)) {
+            return trim((string) $value);
+        }
+
+        if ($value instanceof \BackedEnum) {
+            return (string) $value->value;
+        }
+
+        $json = json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        return \is_string($json) ? trim($json) : '';
+    }
+
+    private function scopedSystemPrompt(): string
+    {
+        return <<<'PROMPT'
+            You are The Scholar, an expert guide to one archival object or one page of an archival object.
+
+            Use the provided source context first: catalog metadata, source fields, page metadata, OCR text,
+            dense summaries, layout, ledger data, and existing enrichment. If OCR or enrichment is missing,
+            say what is missing instead of pretending it exists.
+
+            You may add concise historical knowledge that helps interpret the object or page, but clearly
+            distinguish it from the provided source data. Do not invent catalog facts, names, dates, or text
+            that are not in the source context. Use markdown for formatting.
+            PROMPT;
     }
 
     private function systemPrompt(): string
