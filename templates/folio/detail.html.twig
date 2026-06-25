@@ -153,6 +153,7 @@
                         {% if pageAiUrls|length > 0 or th %}
                             <div class="d-flex flex-wrap justify-content-lg-end gap-2">
                                 <a href="{{ path('survos_folio_item_chat', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId}) }}"
+                                   data-turbo="false"
                                    class="btn text-white border-0 shadow-sm rounded-pill px-4"
                                    style="background: linear-gradient(135deg, #2b0b4f, #5b2aa0);">
                                     {{ ux_icon('tabler:sparkles', { class: 'icon me-1' }) }}
@@ -162,6 +163,7 @@
                                 {% if pages|length > 1 and pageAskUrls is not empty %}
                                     <a href="{{ pageAskUrls|first }}"
                                        id="doc-page-scholar-link"
+                                       data-turbo="false"
                                        data-page-chat-urls="{{ pageAskUrls|json_encode|e('html_attr') }}"
                                        class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill">
                                         {{ ux_icon('tabler:message-chatbot', { class: 'icon me-1' }) }}

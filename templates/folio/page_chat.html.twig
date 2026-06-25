@@ -8,6 +8,13 @@
 
 {% block title %}Ask the Scholar · page {{ page.seq }} · {{ title }}{% endblock %}
 
+{% block head %}
+    {{ parent() }}
+    <meta name="turbo-cache-control" content="no-cache">
+{% endblock %}
+
+{% block body_start %}data-turbo="false"{% endblock %}
+
 {% block body %}
     <style>
         .folio-scholar-thread {
@@ -93,7 +100,7 @@
 
     <div class="container-xl py-4 py-lg-5">
         <div class="mb-3">
-            <a class="text-decoration-none text-secondary" href="{{ path('survos_folio_row_show', {
+            <a class="text-decoration-none text-secondary" data-turbo="false" href="{{ path('survos_folio_row_show', {
                 provider: provider,
                 dataset: dataset,
                 coreCode: core.code,
@@ -270,10 +277,26 @@
 
     <script>
         (function () {
-            if (window.folioScopedChatBound) {
-                return;
+            if (window.folioScopedChatCleanup) {
+                window.folioScopedChatCleanup();
             }
-            window.folioScopedChatBound = true;
+
+            const listenerController = new AbortController();
+            const activeStreams = new Set();
+            let isLeavingPage = false;
+
+            window.folioScopedChatCleanup = function () {
+                isLeavingPage = true;
+                listenerController.abort();
+                activeStreams.forEach(function (controller) {
+                    controller.abort();
+                });
+                activeStreams.clear();
+                window.folioScopedChatCleanup = null;
+            };
+
+            document.addEventListener('turbo:before-cache', window.folioScopedChatCleanup, { once: true });
+            window.addEventListener('pagehide', window.folioScopedChatCleanup, { once: true });
 
             function scrollThread(panel) {
                 const thread = panel.querySelector('[data-folio-chat-thread]');
@@ -442,10 +465,14 @@
                     submitLabel.textContent = 'Thinking...';
                 }
 
+                const streamController = new AbortController();
+                activeStreams.add(streamController);
+
                 try {
                     const response = await fetch(form.dataset.folioChatStreamAction || form.action, {
                         method: form.method || 'POST',
                         body: formData,
+                        signal: streamController.signal,
                         headers: {
                             'Accept': 'text/event-stream',
                             'X-Requested-With': 'XMLHttpRequest'
@@ -504,6 +531,10 @@
                     }
                     input.focus();
                 } catch (error) {
+                    if (isLeavingPage || streamController.signal.aborted) {
+                        return;
+                    }
+
                     if (pending) {
                         pending.innerHTML = `
                             <div class="d-flex gap-2 align-items-center mb-2 text-danger">
@@ -521,8 +552,10 @@
                         submitLabel.textContent = 'Ask page';
                     }
                     input.focus();
+                } finally {
+                    activeStreams.delete(streamController);
                 }
-            });
+            }, { signal: listenerController.signal });
 
             document.querySelectorAll('[data-folio-chat-panel]').forEach(scrollThread);
 
@@ -534,7 +567,7 @@
 
                 event.preventDefault();
                 input.closest('[data-folio-chat-form]')?.requestSubmit();
-            });
+            }, { signal: listenerController.signal });
         })();
     </script>
 {% endblock %}
