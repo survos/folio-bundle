@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Psr\Log\LoggerInterface;
 use Survos\FolioBundle\Event\FolioChatTurnEvent;
 use Survos\FolioBundle\Model\FolioChatAnswer;
 use Survos\FolioBundle\Model\FolioChatCard;
@@ -13,6 +14,8 @@ use Survos\FolioBundle\Model\FolioContext;
 use Symfony\AI\Agent\AgentInterface;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
+use Symfony\AI\Platform\Result\Stream\Delta\TextDelta;
+use Symfony\AI\Platform\Result\StreamResult;
 use Symfony\AI\Platform\Result\TextResult;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
@@ -23,6 +26,7 @@ final readonly class FolioChatService
         private FolioChatContextHolder $holder,
         private ?AgentInterface $agent = null,
         private ?EventDispatcherInterface $dispatcher = null,
+        private ?LoggerInterface $logger = null,
     ) {}
 
     public function ask(FolioContext $ctx, string $question, ?string $coreCode = null, ?string $dtoType = null, int $limit = 12, ?string $conversationId = null): FolioChatResult
@@ -78,20 +82,22 @@ final readonly class FolioChatService
                     Message::forSystem($this->scopedSystemPrompt()),
                     Message::ofUser($contextPrompt),
                 ),
-                [
-                    'folio_chat' => [
-                        'conversation_id' => $conversationId,
-                        'folio_code' => $ctx->folioCode,
-                    ],
-                ],
             );
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $this->logger?->error('Scoped folio Scholar call failed.', [
+                'exception' => $e,
+                'folio' => $ctx->folioCode,
+                'scope' => $scope,
+                'conversationId' => $conversationId,
+            ]);
+
             return new FolioChatResult(
                 question: $question,
-                answer: 'I could not complete the Scholar response right now. The source context for this scope is shown on this page.',
+                answer: $this->scopedFailureAnswer($e),
                 contextPrompt: $contextPrompt,
                 hits: [],
                 cards: [],
+                error: sprintf('%s: %s', $e::class, $e->getMessage()),
             );
         } finally {
             $this->holder->set(null);
@@ -100,6 +106,100 @@ final readonly class FolioChatService
         $answer = $result instanceof TextResult ? $result->getContent() : $result->getContent();
         if (!\is_string($answer) || trim($answer) === '') {
             $answer = 'I could not produce a useful Scholar response from the available context.';
+        }
+
+        $chatResult = new FolioChatResult(
+            question: $question,
+            answer: trim($answer),
+            contextPrompt: $contextPrompt,
+            hits: [],
+            cards: [],
+        );
+
+        if ($conversationId !== null && $this->dispatcher !== null) {
+            $this->dispatcher->dispatch(new FolioChatTurnEvent($ctx, $conversationId, $chatResult));
+        }
+
+        return $chatResult;
+    }
+
+    /**
+     * @param array<string, mixed> $contextSections
+     * @param callable(string): void $onText
+     */
+    public function streamScoped(FolioContext $ctx, string $question, string $scope, array $contextSections, callable $onText, ?string $conversationId = null): FolioChatResult
+    {
+        $question = trim($question);
+        $contextPrompt = $this->scopedContextPrompt($question, $scope, $contextSections);
+        if ($question === '') {
+            return new FolioChatResult('', '', $contextPrompt, [], []);
+        }
+
+        if ($this->agent === null) {
+            $answer = 'The Scholar agent is not configured, but the source context for this scope is shown on this page.';
+            $onText($answer);
+
+            return new FolioChatResult($question, $answer, $contextPrompt, [], []);
+        }
+
+        $answer = '';
+        $this->holder->set($ctx);
+        try {
+            $result = $this->agent->call(
+                new MessageBag(
+                    Message::forSystem($this->scopedSystemPrompt()),
+                    Message::ofUser($contextPrompt),
+                ),
+                ['stream' => true],
+            );
+
+            if ($result instanceof StreamResult) {
+                foreach ($result->getContent() as $delta) {
+                    if (!$delta instanceof TextDelta) {
+                        continue;
+                    }
+
+                    $text = $delta->getText();
+                    if ($text === '') {
+                        continue;
+                    }
+
+                    $answer .= $text;
+                    $onText($text);
+                }
+            } else {
+                $content = $result instanceof TextResult ? $result->getContent() : $result->getContent();
+                $answer = \is_string($content) ? $content : '';
+                if ($answer !== '') {
+                    $onText($answer);
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->logger?->error('Streaming scoped folio Scholar call failed.', [
+                'exception' => $e,
+                'folio' => $ctx->folioCode,
+                'scope' => $scope,
+                'conversationId' => $conversationId,
+            ]);
+
+            $answer = $this->scopedFailureAnswer($e);
+            $onText($answer);
+
+            return new FolioChatResult(
+                question: $question,
+                answer: $answer,
+                contextPrompt: $contextPrompt,
+                hits: [],
+                cards: [],
+                error: sprintf('%s: %s', $e::class, $e->getMessage()),
+            );
+        } finally {
+            $this->holder->set(null);
+        }
+
+        if (trim($answer) === '') {
+            $answer = 'I could not produce a useful Scholar response from the available context.';
+            $onText($answer);
         }
 
         $chatResult = new FolioChatResult(
@@ -144,14 +244,16 @@ final readonly class FolioChatService
                 ),
                 [
                     'response_format' => FolioChatAnswer::class,
-                    'folio_chat' => [
-                        'conversation_id' => $conversationId,
-                        'folio_code' => $ctx->folioCode,
-                    ],
                 ],
             );
             $answer = $result->getContent();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $this->logger?->error('Folio Scholar collection call failed.', [
+                'exception' => $e,
+                'folio' => $ctx->folioCode,
+                'conversationId' => $conversationId,
+            ]);
+
             return [$this->extractiveAnswer($hits), $this->fallbackCards($hits)];
         } finally {
             $this->holder->set(null);
@@ -309,6 +411,18 @@ final readonly class FolioChatService
             distinguish it from the provided source data. Do not invent catalog facts, names, dates, or text
             that are not in the source context. Use markdown for formatting.
             PROMPT;
+    }
+
+    private function scopedFailureAnswer(\Throwable $e): string
+    {
+        if (
+            $e instanceof \Symfony\AI\Platform\Exception\InvalidArgumentException
+            && str_contains($e->getMessage(), 'API key must not be empty')
+        ) {
+            return 'The Scholar agent is configured, but its API key is empty. Set `OPENAI_API_KEY` in your local environment and try again.';
+        }
+
+        return 'I could not complete the Scholar response right now. The source context for this scope is shown on this page.';
     }
 
     private function systemPrompt(): string

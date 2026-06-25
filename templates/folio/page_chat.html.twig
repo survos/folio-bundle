@@ -9,6 +9,88 @@
 {% block title %}Ask the Scholar · page {{ page.seq }} · {{ title }}{% endblock %}
 
 {% block body %}
+    <style>
+        .folio-scholar-thread {
+            max-height: 42rem;
+            overflow: auto;
+        }
+
+        .folio-scholar-bubble {
+            border-radius: 1rem;
+            max-width: 46rem;
+        }
+
+        .folio-scholar-bubble-user {
+            background: var(--tblr-primary, #206bc4);
+            color: #fff;
+            margin-left: auto;
+        }
+
+        .folio-scholar-bubble-assistant {
+            background: var(--tblr-bg-surface, #fff);
+            border: 1px solid rgba(98, 105, 118, .16);
+        }
+
+        .folio-scholar-bubble-assistant .prose > :first-child { margin-top: 0; }
+        .folio-scholar-bubble-assistant .prose > :last-child { margin-bottom: 0; }
+        .folio-scholar-bubble-assistant .prose p { line-height: 1.65; margin: 0 0 .85rem; }
+        .folio-scholar-bubble-assistant .prose h1,
+        .folio-scholar-bubble-assistant .prose h2,
+        .folio-scholar-bubble-assistant .prose h3,
+        .folio-scholar-bubble-assistant .prose h4 {
+            font-weight: 700;
+            letter-spacing: 0;
+            margin: 1rem 0 .5rem;
+        }
+        .folio-scholar-bubble-assistant .prose h1 { font-size: 1.35rem; }
+        .folio-scholar-bubble-assistant .prose h2 { font-size: 1.2rem; }
+        .folio-scholar-bubble-assistant .prose h3 { font-size: 1.08rem; }
+        .folio-scholar-bubble-assistant .prose h4 { font-size: 1rem; }
+        .folio-scholar-bubble-assistant .prose ul,
+        .folio-scholar-bubble-assistant .prose ol { margin: .25rem 0 .9rem 1.25rem; padding: 0; }
+        .folio-scholar-bubble-assistant .prose li { line-height: 1.55; margin: .25rem 0; }
+        .folio-scholar-bubble-assistant .prose blockquote {
+            border-left: 3px solid rgba(32, 107, 196, .25);
+            color: #475467;
+            margin: .9rem 0;
+            padding: .15rem 0 .15rem .9rem;
+        }
+        .folio-scholar-bubble-assistant .prose code {
+            background: #f2f4f7;
+            border-radius: .35rem;
+            color: #111827;
+            padding: .1rem .3rem;
+        }
+        .folio-scholar-bubble-assistant .prose img {
+            background: #f6f8fb;
+            border: 1px solid rgba(98, 105, 118, .18);
+            border-radius: .75rem;
+            display: block;
+            margin: .85rem 0;
+            max-height: 420px;
+            max-width: 100%;
+            object-fit: contain;
+        }
+
+        .folio-scholar-loading span {
+            animation: folio-scholar-pulse 1.2s infinite ease-in-out;
+            display: inline-block;
+        }
+
+        .folio-scholar-loading span:nth-child(2) {
+            animation-delay: .15s;
+        }
+
+        .folio-scholar-loading span:nth-child(3) {
+            animation-delay: .3s;
+        }
+
+        @keyframes folio-scholar-pulse {
+            0%, 80%, 100% { opacity: .35; transform: translateY(0); }
+            40% { opacity: 1; transform: translateY(-2px); }
+        }
+    </style>
+
     <div class="container-xl py-4 py-lg-5">
         <div class="mb-3">
             <a class="text-decoration-none text-secondary" href="{{ path('survos_folio_row_show', {
@@ -24,19 +106,51 @@
 
         <div class="row g-3">
             <div class="col-lg-7">
-                <div class="card mb-3">
+                <div class="card mb-3" data-folio-chat-panel>
                     <div class="card-header">
                         <div>
                             <h1 class="card-title h2 mb-1">Ask the Scholar</h1>
                             <div class="text-muted">Page {{ page.seq }} of {{ pages|length }}</div>
                         </div>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body folio-scholar-thread" data-folio-chat-thread>
                         <div class="alert alert-info">
                             I can add historical knowledge about this page.
                         </div>
 
-                        <form method="post" action="{{ path('survos_folio_page_chat', {
+                        <div class="vstack gap-3 mb-4" data-folio-chat-messages>
+                            {% if chatHistory|default([]) is not empty %}
+                                {% for turn in chatHistory %}
+                                    <div class="folio-scholar-bubble folio-scholar-bubble-user p-3">
+                                        <div class="small opacity-75 mb-1">You</div>
+                                        <div style="white-space: pre-wrap; word-break: break-word;">{{ turn.question }}</div>
+                                    </div>
+
+                                    <div class="folio-scholar-bubble folio-scholar-bubble-assistant p-3">
+                                        <div class="d-flex gap-2 align-items-center mb-2 text-primary">
+                                            {{ ux_icon('tabler:message-chatbot', {class: 'icon'}) }}
+                                            <strong>Scholar</strong>
+                                        </div>
+                                        <div class="prose">{{ turn.answer|markdown_to_html }}</div>
+                                        {% if app.debug and turn.error|default(null) %}
+                                            <div class="alert alert-warning mt-3 mb-0">
+                                                <div class="fw-semibold mb-1">Scholar diagnostic</div>
+                                                <code class="text-break">{{ turn.error }}</code>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+
+                        <form method="post" data-turbo="false" data-folio-chat-form data-folio-chat-stream-action="{{ path('survos_folio_page_chat_stream', {
+                            provider: provider,
+                            dataset: dataset,
+                            coreCode: core.code,
+                            dtoType: row.dtoType ?: 'row',
+                            localId: row.localId,
+                            seq: page.seq,
+                        }) }}" action="{{ path('survos_folio_page_chat', {
                             provider: provider,
                             dataset: dataset,
                             coreCode: core.code,
@@ -47,19 +161,13 @@
                             <input type="hidden" name="conversation" value="{{ conversationId }}">
                             <div class="mb-3">
                                 <label class="form-label" for="folio-page-question">Question</label>
-                                <textarea class="form-control" id="folio-page-question" name="q" rows="4" required>{{ question }}</textarea>
+                                <textarea class="form-control" data-folio-chat-input id="folio-page-question" name="q" rows="4" required></textarea>
                             </div>
-                            <button class="btn btn-primary" type="submit">
-                                {{ ux_icon('tabler:message-question', {class: 'icon'}) }} Ask page
+                            <button class="btn btn-primary" data-folio-chat-submit type="submit">
+                                {{ ux_icon('tabler:message-question', {class: 'icon'}) }}
+                                <span data-folio-chat-submit-label>Ask page</span>
                             </button>
                         </form>
-
-                        {% if result %}
-                            <div class="border-top mt-4 pt-4">
-                                <h2 class="h4">Scholar response</h2>
-                                <div class="prose">{{ result.answer|markdown_to_html }}</div>
-                            </div>
-                        {% endif %}
                     </div>
                 </div>
 
@@ -159,4 +267,274 @@
             </div>
         </div>
     </div>
+
+    <script>
+        (function () {
+            if (window.folioScopedChatBound) {
+                return;
+            }
+            window.folioScopedChatBound = true;
+
+            function scrollThread(panel) {
+                const thread = panel.querySelector('[data-folio-chat-thread]');
+                if (thread) {
+                    thread.scrollTop = thread.scrollHeight;
+                }
+            }
+
+            function escapeHtml(value) {
+                return value.replace(/[&<>"']/g, function (char) {
+                    return ({
+                        '&': '&amp;',
+                        '<': '&lt;',
+                        '>': '&gt;',
+                        '"': '&quot;',
+                        "'": '&#039;'
+                    })[char];
+                });
+            }
+
+            function renderMarkdown(markdown) {
+                const blocks = escapeHtml(markdown).split(/\n{2,}/).map(function (block) {
+                    const trimmed = block.trim();
+                    if (!trimmed) {
+                        return '';
+                    }
+
+                    if (/^#{1,6}\s/.test(trimmed)) {
+                        const level = Math.min(6, trimmed.match(/^#+/)[0].length);
+                        return '<h' + level + '>' + inlineMarkdown(trimmed.replace(/^#{1,6}\s+/, '')) + '</h' + level + '>';
+                    }
+
+                    if (/^[-*]\s/m.test(trimmed)) {
+                        const items = trimmed.split(/\n/).map(function (line) {
+                            return line.replace(/^[-*]\s+/, '');
+                        }).filter(Boolean).map(function (line) {
+                            return '<li>' + inlineMarkdown(line) + '</li>';
+                        }).join('');
+
+                        return '<ul>' + items + '</ul>';
+                    }
+
+                    if (/^\d+\.\s/m.test(trimmed)) {
+                        const items = trimmed.split(/\n/).map(function (line) {
+                            return line.replace(/^\d+\.\s+/, '');
+                        }).filter(Boolean).map(function (line) {
+                            return '<li>' + inlineMarkdown(line) + '</li>';
+                        }).join('');
+
+                        return '<ol>' + items + '</ol>';
+                    }
+
+                    if (/^&gt;\s/m.test(trimmed)) {
+                        return '<blockquote>' + inlineMarkdown(trimmed.replace(/^&gt;\s?/gm, '')).replace(/\n/g, '<br>') + '</blockquote>';
+                    }
+
+                    return '<p>' + inlineMarkdown(trimmed).replace(/\n/g, '<br>') + '</p>';
+                }).join('');
+
+                return blocks || '';
+            }
+
+            function inlineMarkdown(value) {
+                return value
+                    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy">')
+                    .replace(/`([^`]+)`/g, '<code>$1</code>')
+                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+            }
+
+            function appendPendingTurn(panel, question) {
+                const messages = panel.querySelector('[data-folio-chat-messages]');
+                if (!messages) {
+                    return;
+                }
+
+                messages.insertAdjacentHTML('beforeend', `
+                    <div class="folio-scholar-bubble folio-scholar-bubble-user p-3">
+                        <div class="small opacity-75 mb-1">You</div>
+                        <div style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(question)}</div>
+                    </div>
+                    <div class="folio-scholar-bubble folio-scholar-bubble-assistant p-3" data-folio-chat-pending>
+                        <div class="d-flex gap-2 align-items-center mb-2 text-primary">
+                            <strong>Scholar</strong>
+                        </div>
+                        <div class="folio-scholar-loading text-muted" data-folio-chat-loading>
+                            Thinking<span>.</span><span>.</span><span>.</span>
+                        </div>
+                        <div class="prose" data-folio-chat-pending-answer></div>
+                    </div>
+                `);
+                scrollThread(panel);
+
+                return messages.lastElementChild;
+            }
+
+            async function readSse(response, handlers) {
+                if (!response.body) {
+                    throw new Error('Streaming is not available in this browser.');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const chunk = await reader.read();
+                    if (chunk.done) {
+                        break;
+                    }
+
+                    buffer += decoder.decode(chunk.value, { stream: true });
+                    const parts = buffer.split(/\n\n/);
+                    buffer = parts.pop() || '';
+
+                    for (const part of parts) {
+                        const lines = part.split(/\n/);
+                        let event = 'message';
+                        const data = [];
+
+                        for (const line of lines) {
+                            if (line.startsWith('event:')) {
+                                event = line.slice(6).trim();
+                            } else if (line.startsWith('data:')) {
+                                data.push(line.slice(5).trimStart());
+                            }
+                        }
+
+                        const payload = data.length ? JSON.parse(data.join('\n')) : {};
+                        handlers[event]?.(payload);
+                    }
+                }
+            }
+
+            document.addEventListener('submit', async function (event) {
+                const form = event.target.closest('[data-folio-chat-form]');
+                if (!form) {
+                    return;
+                }
+
+                event.preventDefault();
+
+                const panel = form.closest('[data-folio-chat-panel]');
+                const input = form.querySelector('[data-folio-chat-input]');
+                const submit = form.querySelector('[data-folio-chat-submit]');
+                const submitLabel = form.querySelector('[data-folio-chat-submit-label]');
+                const question = input ? input.value.trim() : '';
+
+                if (!panel || !input || question === '') {
+                    input?.focus();
+                    return;
+                }
+
+                const formData = new FormData(form);
+
+                const pending = appendPendingTurn(panel, question);
+                input.value = '';
+                input.style.height = '';
+
+                if (submit) {
+                    submit.disabled = true;
+                    submit.classList.add('btn-loading');
+                }
+                if (submitLabel) {
+                    submitLabel.textContent = 'Thinking...';
+                }
+
+                try {
+                    const response = await fetch(form.dataset.folioChatStreamAction || form.action, {
+                        method: form.method || 'POST',
+                        body: formData,
+                        headers: {
+                            'Accept': 'text/event-stream',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Chat request failed with HTTP ' + response.status);
+                    }
+
+                    const pendingAnswer = pending?.querySelector('[data-folio-chat-pending-answer]');
+                    const loading = pending?.querySelector('[data-folio-chat-loading]');
+                    let streamedMarkdown = '';
+
+                    await readSse(response, {
+                        delta(payload) {
+                            if (loading) {
+                                loading.remove();
+                            }
+                            if (pendingAnswer) {
+                                streamedMarkdown += payload.text || '';
+                                pendingAnswer.innerHTML = renderMarkdown(streamedMarkdown);
+                                scrollThread(panel);
+                            }
+                        },
+                        html(payload) {
+                            if (pendingAnswer && payload.html) {
+                                pendingAnswer.innerHTML = payload.html;
+                                scrollThread(panel);
+                            }
+                        },
+                        done(payload) {
+                            if (loading) {
+                                loading.remove();
+                            }
+                            if (pendingAnswer && payload.answerHtml) {
+                                pendingAnswer.innerHTML = payload.answerHtml;
+                                scrollThread(panel);
+                            }
+                            if (payload.error && pending) {
+                                pending.insertAdjacentHTML('beforeend', '<div class="alert alert-warning mt-3 mb-0"><code class="text-break">' + escapeHtml(payload.error) + '</code></div>');
+                            }
+                            pending?.removeAttribute('data-folio-chat-pending');
+                        }
+                    });
+
+                    loading?.remove();
+                    pending?.removeAttribute('data-folio-chat-pending');
+
+                    if (submit) {
+                        submit.disabled = false;
+                        submit.classList.remove('btn-loading');
+                    }
+                    if (submitLabel) {
+                        submitLabel.textContent = 'Ask page';
+                    }
+                    input.focus();
+                } catch (error) {
+                    if (pending) {
+                        pending.innerHTML = `
+                            <div class="d-flex gap-2 align-items-center mb-2 text-danger">
+                                <strong>Scholar</strong>
+                            </div>
+                            <div class="alert alert-warning mb-0">${escapeHtml(error.message)}</div>
+                        `;
+                        pending.removeAttribute('data-folio-chat-pending');
+                    }
+                    if (submit) {
+                        submit.disabled = false;
+                        submit.classList.remove('btn-loading');
+                    }
+                    if (submitLabel) {
+                        submitLabel.textContent = 'Ask page';
+                    }
+                    input.focus();
+                }
+            });
+
+            document.querySelectorAll('[data-folio-chat-panel]').forEach(scrollThread);
+
+            document.addEventListener('keydown', function (event) {
+                const input = event.target.closest('[data-folio-chat-input]');
+                if (!input || event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+                    return;
+                }
+
+                event.preventDefault();
+                input.closest('[data-folio-chat-form]')?.requestSubmit();
+            });
+        })();
+    </script>
 {% endblock %}

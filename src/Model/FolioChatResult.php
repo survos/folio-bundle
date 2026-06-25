@@ -16,5 +16,6 @@ final readonly class FolioChatResult
         public string $contextPrompt,
         public array $hits,
         public array $cards = [],
+        public ?string $error = null,
     ) {}
 }

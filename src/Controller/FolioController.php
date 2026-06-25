@@ -16,8 +16,10 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Twig\Environment;
 
 #[Route('/folio')]
 #[FolioContext]
@@ -29,6 +31,7 @@ final class FolioController extends AbstractController
         private readonly FolioChatService $chat,
         private readonly FolioChatPromptSuggester $promptSuggester,
         private readonly FolioWordCloudService $wordCloud,
+        private readonly Environment $twig,
         private readonly ?ImgproxyUrlBuilder $imgproxy = null,
     ) {}
 
@@ -249,10 +252,16 @@ final class FolioController extends AbstractController
         if ($conversationId === '') {
             $conversationId = bin2hex(random_bytes(16));
         }
+        $chatScope = sprintf('item:%s:%s:%s', $ctx->folioCode, $core->code, $row->localId);
+        $chatHistory = $this->chatHistory($request, $chatScope, $conversationId);
         $contextSections = $this->itemScholarContext($core, $row, $pages);
+        $chatContextSections = $this->contextWithChatHistory($contextSections, $chatHistory);
         $result = $question !== ''
-            ? $this->chat->askScoped($ctx, $question, 'Document: ' . ($row->label ?: $row->localId), $contextSections, $conversationId)
+            ? $this->chat->askScoped($ctx, $question, 'Document: ' . ($row->label ?: $row->localId), $chatContextSections, $conversationId)
             : null;
+        if ($result !== null) {
+            $chatHistory = $this->appendChatTurn($request, $chatScope, $conversationId, $result);
+        }
 
         return $this->render('@SurvosFolioBundle/folio/item_chat.html.twig', [
             'ctx' => $ctx,
@@ -262,6 +271,7 @@ final class FolioController extends AbstractController
             'question' => $question,
             'conversationId' => $conversationId,
             'contextSections' => $contextSections,
+            'chatHistory' => $chatHistory,
             'result' => $result,
         ]);
     }
@@ -305,10 +315,16 @@ final class FolioController extends AbstractController
         if ($conversationId === '') {
             $conversationId = bin2hex(random_bytes(16));
         }
+        $chatScope = sprintf('page:%s:%s:%s:%d', $ctx->folioCode, $core->code, $row->localId, $page->seq);
+        $chatHistory = $this->chatHistory($request, $chatScope, $conversationId);
         $contextSections = $this->pageScholarContext($core, $row, $page);
+        $chatContextSections = $this->contextWithChatHistory($contextSections, $chatHistory);
         $result = $question !== ''
-            ? $this->chat->askScoped($ctx, $question, sprintf('Page %d of document %s', $page->seq, $row->label ?: $row->localId), $contextSections, $conversationId)
+            ? $this->chat->askScoped($ctx, $question, sprintf('Page %d of document %s', $page->seq, $row->label ?: $row->localId), $chatContextSections, $conversationId)
             : null;
+        if ($result !== null) {
+            $chatHistory = $this->appendChatTurn($request, $chatScope, $conversationId, $result);
+        }
 
         return $this->render('@SurvosFolioBundle/folio/page_chat.html.twig', [
             'ctx' => $ctx,
@@ -319,8 +335,214 @@ final class FolioController extends AbstractController
             'question' => $question,
             'conversationId' => $conversationId,
             'contextSections' => $contextSections,
+            'chatHistory' => $chatHistory,
             'result' => $result,
         ]);
+    }
+
+    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/chat/stream', name: 'survos_folio_item_chat_stream', methods: ['POST'], options: ['expose' => true])]
+    public function itemChatStream(Request $request, string $provider, string $dataset, string $coreCode, string $dtoType, string $localId): StreamedResponse
+    {
+        $folioCode = "$provider/$dataset";
+        $ctx = $this->folios->context($folioCode);
+        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+            ?? throw $this->createNotFoundException($coreCode);
+        $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
+            ?? throw $this->createNotFoundException($localId);
+
+        if ($row->dtoType && $dtoType !== $row->dtoType) {
+            throw $this->createNotFoundException(sprintf('DTO type "%s" does not match "%s".', $dtoType, $row->dtoType));
+        }
+
+        $pages = array_values($row->pages->toArray());
+        $question = trim($request->request->getString('q'));
+        $conversationId = trim($request->request->getString('conversation'));
+        if ($conversationId === '') {
+            $conversationId = bin2hex(random_bytes(16));
+        }
+
+        $chatScope = sprintf('item:%s:%s:%s', $ctx->folioCode, $core->code, $row->localId);
+        $chatHistory = $this->chatHistory($request, $chatScope, $conversationId);
+        $contextSections = $this->contextWithChatHistory($this->itemScholarContext($core, $row, $pages), $chatHistory);
+
+        return $this->streamScholarResponse(
+            $request,
+            $ctx,
+            $chatScope,
+            $conversationId,
+            $question,
+            'Document: ' . ($row->label ?: $row->localId),
+            $contextSections,
+        );
+    }
+
+    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/page/{seq}/chat/stream', name: 'survos_folio_page_chat_stream', requirements: ['seq' => '\d+'], methods: ['POST'], options: ['expose' => true])]
+    public function pageChatStream(Request $request, string $provider, string $dataset, string $coreCode, string $dtoType, string $localId, int $seq): StreamedResponse
+    {
+        $folioCode = "$provider/$dataset";
+        $ctx = $this->folios->context($folioCode);
+        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+            ?? throw $this->createNotFoundException($coreCode);
+        $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
+            ?? throw $this->createNotFoundException($localId);
+
+        if ($row->dtoType && $dtoType !== $row->dtoType) {
+            throw $this->createNotFoundException(sprintf('DTO type "%s" does not match "%s".', $dtoType, $row->dtoType));
+        }
+
+        $pages = array_values($row->pages->toArray());
+        $page = null;
+        foreach ($pages as $candidate) {
+            if ($candidate->seq === $seq) {
+                $page = $candidate;
+                break;
+            }
+        }
+
+        if ($page === null) {
+            throw $this->createNotFoundException(sprintf('Page %d was not found for %s.', $seq, $localId));
+        }
+
+        $question = trim($request->request->getString('q'));
+        $conversationId = trim($request->request->getString('conversation'));
+        if ($conversationId === '') {
+            $conversationId = bin2hex(random_bytes(16));
+        }
+
+        $chatScope = sprintf('page:%s:%s:%s:%d', $ctx->folioCode, $core->code, $row->localId, $page->seq);
+        $chatHistory = $this->chatHistory($request, $chatScope, $conversationId);
+        $contextSections = $this->contextWithChatHistory($this->pageScholarContext($core, $row, $page), $chatHistory);
+
+        return $this->streamScholarResponse(
+            $request,
+            $ctx,
+            $chatScope,
+            $conversationId,
+            $question,
+            sprintf('Page %d of document %s', $page->seq, $row->label ?: $row->localId),
+            $contextSections,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $contextSections
+     */
+    private function streamScholarResponse(Request $request, \Survos\FolioBundle\Model\FolioContext $ctx, string $chatScope, string $conversationId, string $question, string $scopeLabel, array $contextSections): StreamedResponse
+    {
+        return new StreamedResponse(function () use ($request, $ctx, $chatScope, $conversationId, $question, $scopeLabel, $contextSections): void {
+            $this->sendSse('start', ['conversationId' => $conversationId]);
+            $streamedMarkdown = '';
+            $lastHtmlLength = 0;
+            $lastHtmlTime = microtime(true);
+
+            $result = $this->chat->streamScoped(
+                $ctx,
+                $question,
+                $scopeLabel,
+                $contextSections,
+                function (string $text) use (&$streamedMarkdown, &$lastHtmlLength, &$lastHtmlTime): void {
+                    $streamedMarkdown .= $text;
+                    $this->sendSse('delta', ['text' => $text]);
+
+                    $now = microtime(true);
+                    if (\strlen($streamedMarkdown) - $lastHtmlLength >= 240 || $now - $lastHtmlTime >= 0.4) {
+                        $this->sendSse('html', ['html' => $this->renderScholarAnswerHtml($streamedMarkdown)]);
+                        $lastHtmlLength = \strlen($streamedMarkdown);
+                        $lastHtmlTime = $now;
+                    }
+                },
+                $conversationId,
+            );
+
+            $this->appendChatTurn($request, $chatScope, $conversationId, $result);
+            $this->sendSse('done', [
+                'conversationId' => $conversationId,
+                'error' => $result->error,
+                'answerHtml' => $this->renderScholarAnswerHtml($result->answer),
+            ]);
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache, no-transform',
+            'X-Accel-Buffering' => 'no',
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function sendSse(string $event, array $data): void
+    {
+        echo "event: {$event}\n";
+        echo 'data: ' . json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n\n";
+
+        if (\function_exists('ob_flush')) {
+            @ob_flush();
+        }
+        flush();
+    }
+
+    private function renderScholarAnswerHtml(string $markdown): string
+    {
+        try {
+            return $this->twig
+                ->createTemplate('{{ answer|markdown_to_html }}')
+                ->render(['answer' => $markdown]);
+        } catch (\Throwable) {
+            return nl2br(htmlspecialchars($markdown, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), false);
+        }
+    }
+
+    /**
+     * @return list<array{question: string, answer: string, error?: string|null}>
+     */
+    private function chatHistory(Request $request, string $scope, string $conversationId): array
+    {
+        if (!$request->hasSession()) {
+            return [];
+        }
+
+        $history = $request->getSession()->get($this->chatHistoryKey($scope, $conversationId), []);
+
+        return \is_array($history) ? array_values($history) : [];
+    }
+
+    /**
+     * @return list<array{question: string, answer: string, error?: string|null}>
+     */
+    private function appendChatTurn(Request $request, string $scope, string $conversationId, \Survos\FolioBundle\Model\FolioChatResult $result): array
+    {
+        $history = $this->chatHistory($request, $scope, $conversationId);
+        $history[] = $this->cleanContext([
+            'question' => $result->question,
+            'answer' => $result->answer,
+            'error' => $result->error,
+        ]);
+        $history = array_slice($history, -20);
+
+        if ($request->hasSession()) {
+            $request->getSession()->set($this->chatHistoryKey($scope, $conversationId), $history);
+        }
+
+        return $history;
+    }
+
+    /**
+     * @param array<string, mixed> $contextSections
+     * @param list<array{question: string, answer: string, error?: string|null}> $chatHistory
+     * @return array<string, mixed>
+     */
+    private function contextWithChatHistory(array $contextSections, array $chatHistory): array
+    {
+        if ($chatHistory === []) {
+            return $contextSections;
+        }
+
+        return ['Conversation so far' => array_slice($chatHistory, -8)] + $contextSections;
+    }
+
+    private function chatHistoryKey(string $scope, string $conversationId): string
+    {
+        return 'survos_folio.chat.' . hash('sha256', $scope . ':' . $conversationId);
     }
 
     /**
