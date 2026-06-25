@@ -66,8 +66,11 @@ final class FolioRegistry
 
     public function sourceFile(DatasetInfo $dataset, string $core = 'obj'): ?string
     {
+        // Prefer the enriched (_folio) stage, but only when it actually has rows. A 0-byte enriched
+        // file from a failed/interrupted `dataset:enrich` must never shadow a populated normalized
+        // source — otherwise folio:build ingests 0 rows while pages still load (every page orphaned).
         $enriched = $this->dataPaths->enrichFile($dataset->datasetKey, $core);
-        if (is_file($enriched)) {
+        if (is_file($enriched) && filesize($enriched) > 0) {
             return $enriched;
         }
 
