@@ -249,6 +249,15 @@ final class FolioBuildCommand implements SignalableCommandInterface
                     ));
                 }
                 $io->writeln('  browse   ' . $this->browseLink($code));
+                // Per-core counts + deep links, mirroring the search-result card.
+                foreach ($result['cores'] as $coreCode => $coreInfo) {
+                    $io->writeln(sprintf(
+                        '    <info>%-10s</info> %8s  %s',
+                        (string) $coreCode,
+                        number_format($coreInfo['count']),
+                        $this->coreLink($code, (string) $coreCode),
+                    ));
+                }
                 $this->dispatchArtifactUpdated(
                     datasetKey: $code,
                     type: Artifact::TYPE_FOLIO,
@@ -418,6 +427,25 @@ final class FolioBuildCommand implements SignalableCommandInterface
             $base = $this->folioServer !== null && $this->folioServer !== '' ? rtrim($this->folioServer, '/') : '';
 
             return $base . '/folio/' . $provider . '/' . $dataset;
+        }
+    }
+
+    /** Deep link to a single core's search within the folio (e.g. .../search/obj). */
+    private function coreLink(string $datasetKey, string $coreCode): string
+    {
+        [$provider, $dataset] = array_pad(explode('/', $datasetKey, 2), 2, $datasetKey);
+        $params = ['provider' => $provider, 'dataset' => $dataset, 'coreCode' => $coreCode];
+
+        try {
+            if ($this->folioServer !== null && $this->folioServer !== '') {
+                return rtrim($this->folioServer, '/') . $this->urlGenerator->generate('survos_folio_core_search', $params);
+            }
+
+            return $this->urlGenerator->generate('survos_folio_core_search', $params, UrlGeneratorInterface::ABSOLUTE_URL);
+        } catch (RouteNotFoundException) {
+            $base = $this->folioServer !== null && $this->folioServer !== '' ? rtrim($this->folioServer, '/') : '';
+
+            return $base . '/folio/' . $provider . '/' . $dataset . '/search/' . $coreCode;
         }
     }
 

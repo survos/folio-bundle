@@ -1,5 +1,7 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
 
+{% trans_default_domain 'system' %}
+
 {% import _self as folio_row %}
 
 {% macro render_value(value) %}
@@ -27,7 +29,8 @@
 {% endif %}
 {% set tombstoneDescription = attribute(row.dtoData, 'description')|default(attribute(row.extras, 'dcterms:description')|default(null)) %}
 {% set tombstoneDate = attribute(row.dtoData, 'date')|default(attribute(row.extras, 'dcterms:date')|default(null)) %}
-{% set tombstoneDimensions = attribute(row.dtoData, 'dimensions')|default(attribute(row.dtoData, 'dimensionsRaw')|default(null)) %}
+{% set tombstoneDimensions = attribute(row.dtoData, 'dimensions')|default(null) %}
+{% set tombstoneDimensionsRaw = attribute(row.dtoData, 'dimensionsRaw')|default(null) %}
 {% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
 {% set sourceUrl = attribute(row.dtoData, 'url')|default(null) %}
 {% set tombstoneUrl = citationUrl ?: sourceUrl %}
@@ -73,12 +76,26 @@
                     <div class="col-lg-8">
                         <nav class="d-flex flex-wrap align-items-center gap-2 small text-muted mb-3">
                             {{ ux_icon('tabler:home', { class: 'icon icon-sm' }) }}
-                            <span>{{ ctx.folioCode }}</span>
+
+                            {% set providerUrl = folio_provider_url(provider) %}
+                            {% if providerUrl %}
+                                <a href="{{ providerUrl }}" class="text-reset text-decoration-none">{{ provider }}</a>
+                            {% else %}
+                                <span>{{ provider }}</span>
+                            {% endif %}
+
                             <span>/</span>
-                            <span>{{ core.code }}</span>
+                            <a href="{{ path('survos_folio_show', { provider: provider, dataset: dataset }) }}"
+                               class="text-reset text-decoration-none">{{ dataset }}</a>
+
+                            <span>/</span>
+                            <a href="{{ path('survos_folio_core_search', { provider: provider, dataset: dataset, coreCode: core.code }) }}"
+                               class="text-reset text-decoration-none">{{ ('core.' ~ core.code)|trans }}</a>
+
                             {% if row.dtoType %}
                                 <span>/</span>
-                                <span>{{ row.dtoType }}</span>
+                                <a href="{{ path('survos_folio_core_type_search', { provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType }) }}"
+                                   class="text-reset text-decoration-none">{{ row.dtoType }}</a>
                             {% endif %}
                         </nav>
 
@@ -92,10 +109,13 @@
                                 </span>
                             {% endif %}
 
-                            {% if tombstoneDimensions %}
+                            {% if tombstoneDimensions is iterable and tombstoneDimensions is not empty %}
+                                {# Structured dimensions → dimensions-bundle renderer (icons + units, raw fallback) #}
+                                {{ dim_render(tombstoneDimensions, attribute(row.dtoData, 'weight')|default([]), tombstoneDimensionsRaw) }}
+                            {% elseif tombstoneDimensions or tombstoneDimensionsRaw %}
                                 <span class="badge rounded-pill bg-white text-muted border px-3">
                                     {{ ux_icon('tabler:ruler-measure', { class: 'icon me-1' }) }}
-                                    {{ tombstoneDimensions is iterable ? tombstoneDimensions|json_encode : tombstoneDimensions }}
+                                    {{ tombstoneDimensions ?: tombstoneDimensionsRaw }}
                                 </span>
                             {% endif %}
 
@@ -487,7 +507,7 @@
                             <div class="list-group list-group-flush">
                                 {% for set, values in terms %}
                                     <div class="list-group-item bg-transparent">
-                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ set }}</div>
+                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ ('term.' ~ set)|trans }}</div>
 
                                         {% for value in values %}
                                             {% if value.term %}

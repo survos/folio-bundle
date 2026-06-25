@@ -45,6 +45,14 @@ final class SurvosFolioBundle extends AbstractBundle
                 ->info('Base URL of the live folio site — hosts the full folio UX and the folio archive API. Used for browse links and as the default folio:pull source (GET <server>/folio/list.json).')
                 ->defaultValue('https://zm.survos.com')
             ->end()
+            ->scalarNode('search_route')
+                ->info('Host-app route that lists/searches datasets (e.g. zm\'s `app_search`). Set to enable provider breadcrumb links; null leaves the provider as plain text.')
+                ->defaultNull()
+            ->end()
+            ->scalarNode('search_provider_param')
+                ->info('Query param the search_route reads to pre-select a provider/aggregator facet.')
+                ->defaultValue('dataset_aggregator')
+            ->end()
         ->end();
     }
 
@@ -105,7 +113,9 @@ final class SurvosFolioBundle extends AbstractBundle
         }
         $services->set(BuildFolioRequestedListener::class)->autowire()->autoconfigure()->public()
             ->arg('$buildArchive', $config['build_archive']);
-        $services->set(\Survos\FolioBundle\Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public();
+        $services->set(\Survos\FolioBundle\Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public()
+            ->arg('$searchRoute', $config['search_route'])
+            ->arg('$searchProviderParam', $config['search_provider_param']);
         if ($config['routes_enabled']) {
             foreach ([FolioCollectionController::class, FolioController::class, FolioSearchController::class] as $class) {
                 $services->set($class)->autowire()->autoconfigure()->public();
