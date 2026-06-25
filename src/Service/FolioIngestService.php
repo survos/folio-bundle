@@ -195,6 +195,7 @@ final class FolioIngestService
         $linkResult = $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $sinceCommit, $io);
         $pageResult = $this->ingestPages($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
         $claimResult = $this->ingestClaims($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
+        $this->ingestPageClaims($ctx->em, $dataset->datasetKey);
 
         $this->finishIngestProgress($io);
 
@@ -357,6 +358,55 @@ final class FolioIngestService
         }
 
         return is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * Fold PAGE-level claims into the page table by media_id. Per-page OCR/AI claims (subjectId = the
+     * page's mediary media id — e.g. ocr_mistral's `ai:ocrText` / `ai:denseSummary`) can't join to
+     * items by local_id the way {@see ingestClaims()} does, so we match them to pages here. This is
+     * what surfaces per-page OCR in the document viewer / "summarize this document". Only fills an
+     * EMPTY column, so source OCR is never clobbered.
+     */
+    private function ingestPageClaims(EntityManagerInterface $em, string $datasetKey): int
+    {
+        $claimsFile = $this->dataPaths->claimsFile($datasetKey);
+        if (!is_file($claimsFile)) {
+            return 0;
+        }
+
+        $conn = $em->getConnection();
+        $pageMedia = array_fill_keys(
+            array_filter($conn->fetchFirstColumn('SELECT DISTINCT media_id FROM page WHERE media_id IS NOT NULL')),
+            true,
+        );
+        if ($pageMedia === []) {
+            return 0;
+        }
+
+        // Page-targeting predicate → page column. Only these predicates fold onto pages.
+        $columnFor = ['ai:ocrText' => 'text', 'ai:denseSummary' => 'dense_summary'];
+        $statements = [];
+        foreach (array_unique(array_values($columnFor)) as $col) {
+            $statements[$col] = $conn->prepare(
+                sprintf("UPDATE page SET %s = :v WHERE media_id = :mid AND (%s IS NULL OR %s = '')", $col, $col, $col),
+            );
+        }
+
+        $count = 0;
+        foreach (JsonlReader::open($claimsFile) as $data) {
+            $predicate = is_scalar($data['predicate'] ?? null) ? (string) $data['predicate'] : '';
+            $mediaId = is_scalar($data['subjectId'] ?? null) ? (string) $data['subjectId'] : '';
+            if ($mediaId === '' || !isset($pageMedia[$mediaId], $columnFor[$predicate])) {
+                continue;
+            }
+            $value = $this->claimValue($data['value'] ?? null);
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $count += (int) $statements[$columnFor[$predicate]]->executeStatement(['v' => $value, 'mid' => $mediaId]);
+        }
+
+        return $count;
     }
 
     /**
