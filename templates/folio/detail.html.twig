@@ -264,8 +264,27 @@
                                just "Page 1 of 1 — no extracted text" noise; the OCR panel below already
                                reports text presence. JS updates this element only on page-change events. #}
                             {% if viewerImages|length > 1 %}
-                                <div id="doc-page-status" class="card-footer py-2 small text-muted">
-                                    Page 1 of {{ viewerImages|length }}{{ pageTexts|first|trim ? '' : ' — no extracted text' }}
+                                <div id="doc-page-status" class="card-footer py-2 small text-muted d-flex justify-content-center align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-action rounded-pill border-0 js-folio-page-prev"
+                                            style="min-width: 1.25rem; min-height: 1rem;"
+                                            data-page-count="{{ viewerImages|length }}"
+                                            aria-label="Previous page"
+                                            title="Previous page"
+                                            disabled>
+                                        {{ ux_icon('tabler:chevron-left', { class: 'icon' }) }}
+                                    </button>
+                                    <span id="doc-page-status-text">
+                                        Page 1 of {{ viewerImages|length }}{{ pageTexts|first|trim ? '' : ' — no extracted text' }}
+                                    </span>
+                                    <button type="button"
+                                            class="btn btn-action rounded-pill border-0 js-folio-page-next"
+                                            style="min-width: 1.25rem; min-height: 1rem;"
+                                            data-page-count="{{ viewerImages|length }}"
+                                            aria-label="Next page"
+                                            title="Next page">
+                                        {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
+                                    </button>
                                 </div>
                             {% endif %}
                         </div>
@@ -314,7 +333,10 @@
                                     renderPage(i, total);
                                     var hasText = ((pageTexts()[i] || '').trim()) || ((pageLayouts()[i] || []).length);
                                     var status = document.getElementById('doc-page-status');
-                                    if (status) {
+                                    var statusText = document.getElementById('doc-page-status-text');
+                                    if (statusText) {
+                                        statusText.textContent = 'Page ' + (i + 1) + ' of ' + total + (hasText ? '' : ' — no extracted text');
+                                    } else if (status) {
                                         status.textContent = 'Page ' + (i + 1) + ' of ' + total + (hasText ? '' : ' — no extracted text');
                                     }
                                     // Point the OCR/Handwriting buttons and page Scholar link at the page currently shown.
@@ -496,7 +518,30 @@
                                 <h2 class="card-title mb-0">Extracted text</h2>
                                 {# Badge flips to "Layout" when this page has Mistral's structured layout. #}
                                 <span id="doc-ocr-badge" class="badge {{ hasLayout ? 'bg-purple-lt' : 'bg-blue-lt' }}">{{ hasLayout ? 'Layout' : 'OCR' }}</span>
-                                <span id="doc-ocr-page" class="ms-auto text-muted small">page 1 of {{ pages|length }}</span>
+                                <span class="ms-auto d-inline-flex align-items-center gap-1">
+                                    {% if pages|length > 1 %}
+                                        <button type="button"
+                                                class="btn btn-action rounded-pill border-0 js-folio-page-prev js-ocr-page-prev"
+                                                style="min-width: 1.25rem; min-height: 1rem;"
+                                                data-page-count="{{ pages|length }}"
+                                                aria-label="Previous page"
+                                                title="Previous page"
+                                                disabled>
+                                            {{ ux_icon('tabler:chevron-left', { class: 'icon' }) }}
+                                        </button>
+                                    {% endif %}
+                                    <span id="doc-ocr-page" class="text-muted small">Page 1 of {{ pages|length }}</span>
+                                    {% if pages|length > 1 %}
+                                        <button type="button"
+                                                class="btn btn-action rounded-pill border-0 js-folio-page-next js-ocr-page-next"
+                                                style="min-width: 1.25rem; min-height: 1rem;"
+                                                data-page-count="{{ pages|length }}"
+                                                aria-label="Next page"
+                                                title="Next page">
+                                            {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
+                                        </button>
+                                    {% endif %}
+                                </span>
                             </div>
                             <div class="card-body">
                                 <div id="doc-ocr-text"
@@ -724,6 +769,20 @@
                     }
                 }
 
+                function updateFolioPageNavButtons(pageIndex, total = 0) {
+                    const previousButtons = document.querySelectorAll('.js-folio-page-prev');
+                    const nextButtons = document.querySelectorAll('.js-folio-page-next');
+                    const pageCount = Number(previousButtons[0]?.dataset.pageCount || nextButtons[0]?.dataset.pageCount || total || 0);
+
+                    previousButtons.forEach((previousButton) => {
+                        previousButton.disabled = pageIndex <= 0;
+                    });
+
+                    nextButtons.forEach((nextButton) => {
+                        nextButton.disabled = !pageCount || pageIndex >= pageCount - 1;
+                    });
+                }
+
                 function initFolioDetailViewerControls() {
                     const viewerEl = document.querySelector(
                         '[data-controller="survos--iiif-bundle--iiif-viewer"]'
@@ -734,15 +793,23 @@
                     }
 
                     const initialPageIndex = getPageFromUrl();
+                    const previousButtons = document.querySelectorAll('.js-folio-page-prev');
+                    const nextButtons = document.querySelectorAll('.js-folio-page-next');
+                    const pageCount = Number(previousButtons[0]?.dataset.pageCount || nextButtons[0]?.dataset.pageCount || 0);
 
                     const goToPage = (pageIndex, updateUrl = true) => {
                         if (!viewerEl.viewer || !Number.isInteger(pageIndex)) {
                             return;
                         }
 
+                        if (pageCount && (pageIndex < 0 || pageIndex >= pageCount)) {
+                            return;
+                        }
+
                         viewerEl.viewer.goToPage(pageIndex);
                         updateFolioAiLink(pageIndex);
                         setActiveThumb(pageIndex);
+                        updateFolioPageNavButtons(pageIndex, pageCount);
 
                         if (updateUrl) {
                             setPageInUrl(pageIndex);
@@ -758,6 +825,18 @@
                         };
                     });
 
+                    previousButtons.forEach((previousButton) => {
+                        previousButton.onclick = () => {
+                            goToPage(getPageFromUrl() - 1);
+                        };
+                    });
+
+                    nextButtons.forEach((nextButton) => {
+                        nextButton.onclick = () => {
+                            goToPage(getPageFromUrl() + 1);
+                        };
+                    });
+
                     // Wait a tick so the IIIF viewer has time to initialize.
                     setTimeout(() => {
                         goToPage(initialPageIndex, false);
@@ -768,6 +847,7 @@
                     updateFolioAiLink(e.detail.index);
                     setActiveThumb(e.detail.index);
                     setPageInUrl(e.detail.index);
+                    updateFolioPageNavButtons(e.detail.index, e.detail.total);
                 });
 
                 document.addEventListener('turbo:load', initFolioDetailViewerControls);
