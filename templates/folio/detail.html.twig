@@ -204,7 +204,49 @@
                 </div>
             </div>
 
-            <div class="row row-cards">
+            {% if pages|length > 0 and (hasOcr or hasLayout or hasHtr) and not isSingleImage and videoPages|length == 0 %}
+                <div class="folio-viewer-toolbar-card">
+                    <div class="card-header d-flex flex-column flex-md-row align-items-md-center justify-content-end gap-3">
+                        <div class="btn-group folio-view-mode-control" role="group" aria-label="Document viewer mode">
+                            <input type="radio"
+                                   class="btn-check js-folio-view-mode"
+                                   name="folio-view-mode"
+                                   id="folio-view-mode-osd"
+                                   value="osd"
+                                   autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="folio-view-mode-osd">
+                                {{ ux_icon('tabler:photo', { class: 'icon me-1' }) }}
+                                OSD Viewer
+                            </label>
+
+                            <input type="radio"
+                                   class="btn-check js-folio-view-mode"
+                                   name="folio-view-mode"
+                                   id="folio-view-mode-text"
+                                   value="text"
+                                   autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="folio-view-mode-text">
+                                {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}
+                                OCR Text
+                            </label>
+
+                            <input type="radio"
+                                   class="btn-check js-folio-view-mode"
+                                   name="folio-view-mode"
+                                   id="folio-view-mode-side-by-side"
+                                   value="side-by-side"
+                                   autocomplete="off"
+                                   checked>
+                            <label class="btn btn-outline-secondary" for="folio-view-mode-side-by-side">
+                                {{ ux_icon('tabler:layout-columns', { class: 'icon me-1' }) }}
+                                Split View
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="row row-cards folio-viewer-grid" id="folio-viewer-grid" data-viewer-mode="side-by-side">
                 <div class="col-lg-8" id="doc-main-col">
                     {% if videoPages|length > 0 %}
                         <div id="doc-viewer" class="card mb-3">
@@ -556,7 +598,7 @@
 
                 <div class="col-lg-4" id="doc-side-col">
                     {% if (hasOcr or hasLayout or hasHtr) and not isSingleImage %}
-                        <div class="card mb-3">
+                        <div class="card mb-3" id="doc-ocr-card">
                             <div class="card-header d-flex align-items-center gap-2">
                                 <h2 class="card-title mb-0">Extracted text</h2>
                                 {# Badge: Handwriting (htr_annotate) > Layout (Mistral blocks) > OCR (flat). JS keeps it per-page. #}
@@ -747,8 +789,14 @@
                             if (img.naturalWidth && img.naturalHeight > img.naturalWidth * 1.15) {
                                 var main = document.getElementById('doc-main-col');
                                 var side = document.getElementById('doc-side-col');
-                                if (main) { main.classList.replace('col-lg-8', 'col-lg-6'); }
-                                if (side) { side.classList.replace('col-lg-4', 'col-lg-6'); }
+                                if (main) {
+                                    main.dataset.folioSplitClass = 'col-lg-6';
+                                    main.classList.replace('col-lg-8', 'col-lg-6');
+                                }
+                                if (side) {
+                                    side.dataset.folioSplitClass = 'col-lg-6';
+                                    side.classList.replace('col-lg-4', 'col-lg-6');
+                                }
                             }
                         };
                         img.src = probe;
@@ -827,6 +875,81 @@
                     });
                 }
 
+                function setColumnClass(element, columnClass) {
+                    if (!element || !columnClass) {
+                        return;
+                    }
+
+                    ['col-lg-4', 'col-lg-6', 'col-lg-8', 'col-lg-12'].forEach((className) => {
+                        element.classList.remove(className);
+                    });
+
+                    element.classList.add(columnClass);
+                }
+
+                function resizeFolioViewer() {
+                    const viewerEl = document.querySelector(
+                        '[data-controller="survos--iiif-bundle--iiif-viewer"]'
+                    );
+
+                    if (viewerEl && viewerEl.viewer && typeof viewerEl.viewer.forceRedraw === 'function') {
+                        viewerEl.viewer.forceRedraw();
+                    }
+
+                    window.dispatchEvent(new Event('resize'));
+                }
+
+                function applyFolioViewerMode(mode) {
+                    const grid = document.getElementById('folio-viewer-grid');
+                    const main = document.getElementById('doc-main-col');
+                    const side = document.getElementById('doc-side-col');
+                    const textCard = document.getElementById('doc-ocr-card');
+
+                    if (!grid || !main || !side || !textCard) {
+                        return;
+                    }
+
+                    const normalizedMode = ['osd', 'side-by-side', 'text'].includes(mode) ? mode : 'side-by-side';
+                    const splitMainClass = main.dataset.folioSplitClass || 'col-lg-8';
+                    const splitSideClass = side.dataset.folioSplitClass || 'col-lg-4';
+
+                    grid.dataset.viewerMode = normalizedMode;
+
+                    main.classList.remove('d-none');
+                    side.classList.remove('d-none');
+
+                    if (normalizedMode === 'osd') {
+                        setColumnClass(main, 'col-lg-12');
+                        side.classList.add('d-none');
+                    } else if (normalizedMode === 'text') {
+                        main.classList.add('d-none');
+                        setColumnClass(side, 'col-lg-12');
+                    } else {
+                        setColumnClass(main, splitMainClass);
+                        setColumnClass(side, splitSideClass);
+                    }
+
+                    document.querySelectorAll('.js-folio-view-mode').forEach((input) => {
+                        input.checked = input.value === normalizedMode;
+                    });
+
+                    setTimeout(resizeFolioViewer, 80);
+                }
+
+                function initFolioViewerModeControl() {
+                    const controls = document.querySelectorAll('.js-folio-view-mode');
+
+                    if (!controls.length) {
+                        return;
+                    }
+
+                    controls.forEach((control) => {
+                        control.onchange = () => applyFolioViewerMode(control.value);
+                    });
+
+                    applyFolioViewerMode('side-by-side');
+                }
+
                 function initFolioDetailViewerControls() {
                     const viewerEl = document.querySelector(
                         '[data-controller="survos--iiif-bundle--iiif-viewer"]'
@@ -894,6 +1017,8 @@
                     updateFolioPageNavButtons(e.detail.index, e.detail.total);
                 });
 
+                document.addEventListener('turbo:load', initFolioViewerModeControl);
+                document.addEventListener('DOMContentLoaded', initFolioViewerModeControl);
                 document.addEventListener('turbo:load', initFolioDetailViewerControls);
                 document.addEventListener('DOMContentLoaded', initFolioDetailViewerControls);
             </script>
@@ -997,6 +1122,55 @@
                     border: none;
                     box-shadow: none;
                     backdrop-filter: none;
+                }
+
+                .folio-viewer-toolbar-card .card-header {
+                    min-height: 4rem;
+                }
+
+                .folio-view-mode-control {
+                    display: flex;
+                    gap: 0.25rem;
+                    padding: .25rem;
+                    border: 1px solid rgba(120, 100, 70, .14);
+                    border-radius: .75rem;
+                    background: rgba(255, 255, 255, .78);
+                    box-shadow: 0 .5rem 1.5rem rgba(33, 37, 41, .045);
+                }
+
+                .folio-view-mode-control .btn {
+                    border: 0;
+                    border-radius: .55rem !important;
+                    color: #4b5563;
+                    font-weight: 600;
+                    box-shadow: none !important;
+                }
+
+                .folio-view-mode-control .btn-check:checked + .btn {
+                    color: #5b21b6;
+                    background: rgba(124, 58, 237, .10);
+                    box-shadow: inset 0 0 0 1px rgba(124, 58, 237, .24) !important;
+                }
+
+                .folio-viewer-grid[data-viewer-mode="osd"] #doc-viewer,
+                .folio-viewer-grid[data-viewer-mode="text"] #doc-ocr-card {
+                    min-height: 680px;
+                }
+
+                .folio-viewer-grid[data-viewer-mode="text"] #doc-ocr-text {
+                    max-height: 70vh !important;
+                }
+
+                @media (max-width: 767.98px) {
+                    .folio-view-mode-control {
+                        width: 100%;
+                        overflow-x: auto;
+                    }
+
+                    .folio-view-mode-control .btn {
+                        flex: 1 0 auto;
+                        white-space: nowrap;
+                    }
                 }
 
                 .page-header {
