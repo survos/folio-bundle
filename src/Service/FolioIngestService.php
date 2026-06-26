@@ -42,7 +42,7 @@ final class FolioIngestService
      */
     private const ITEM_COLUMNS = ['id', 'core_id', 'local_id', 'label', 'dto_type', 'dto_data', 'extras', 'raw'];
     private const LINK_COLUMNS = ['id', 'link_type_id', 'left_core', 'left_id', 'right_core', 'right_id', 'extras'];
-    private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'type', 'url', 'media_id', 'text', 'dense_summary', 'ledger', 'layout', 'width', 'height'];
+    private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'type', 'url', 'media_id', 'text', 'htr', 'dense_summary', 'ledger', 'layout', 'width', 'height'];
     private const CLAIM_COLUMNS = ['id', 'item_id', 'predicate', 'value', 'source', 'confidence', 'agent', 'claimed_at', 'meta'];
 
     public function __construct(
@@ -274,6 +274,7 @@ final class FolioIngestService
                 $url,
                 is_scalar($data['mediaId'] ?? null) ? (string) $data['mediaId'] : null,
                 is_scalar($data['text'] ?? null) ? (string) $data['text'] : null,
+                is_scalar($data['htr'] ?? null) ? (string) $data['htr'] : null,
                 is_scalar($data['denseSummary'] ?? null) ? (string) $data['denseSummary'] : null,
                 $this->encodeJson(is_array($data['ledger'] ?? null) ? $data['ledger'] : null),
                 $this->encodeJson(is_array($data['layout'] ?? null) ? $data['layout'] : null),
@@ -384,7 +385,8 @@ final class FolioIngestService
         }
 
         // Single-valued page claims → page column. These OVERRIDE any source value (prefer-AI).
-        $columnFor = ['ai:ocrText' => 'text', 'ai:denseSummary' => 'dense_summary'];
+        // ai:htrText is the handwriting-annotated transcription (htr_annotate) — the viewer prefers it.
+        $columnFor = ['ai:ocrText' => 'text', 'ai:htrText' => 'htr', 'ai:denseSummary' => 'dense_summary'];
 
         // ai:layoutBlock is emitted as ONE CLAIM PER BLOCK, so we accumulate every block for a
         // media id and write the whole array to page.layout once — the viewer renders it as the

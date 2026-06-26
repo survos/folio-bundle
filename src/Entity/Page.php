@@ -77,6 +77,11 @@ class Page
     #[Field(searchable: true)]
     public ?string $text = null;
 
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    #[ApiProperty('Handwriting-annotated OCR (htr_annotate): pre-printed form text bare, handwritten entries wrapped <hw>…</hw>, uncertain reads flagged <?> — the viewer renders handwriting in italics')]
+    #[Groups(['page:read'])]
+    public ?string $htr = null;
+
     #[ORM\Column(name: 'dense_summary', type: Types::TEXT, nullable: true)]
     #[ApiProperty('Information-dense ≤350-char summary the chatbot/search reads (folded from AI)')]
     #[Groups(['page:read'])]

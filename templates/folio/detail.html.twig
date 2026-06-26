@@ -66,6 +66,10 @@
        pretty, layout-aware version; otherwise it falls back to the flat OCR text (pageTexts). #}
     {% set pageLayouts = pages|map(p => p.layout|default(null)) %}
     {% set hasLayout = pages|filter(p => p.layout is not empty)|length > 0 %}
+    {# Handwriting-annotated transcription (htr_annotate): <hw> wraps handwritten entries on a printed
+       form. Preferred over layout/text when present — the viewer renders handwriting in italics. #}
+    {% set pageHtr = pages|map(p => p.htr|default(null)) %}
+    {% set hasHtr = pages|filter(p => p.htr is not empty)|length > 0 %}
     {% set pageAskUrls = [] %}
     {% for page in pages %}
         {% set pageAskUrls = pageAskUrls|merge([path('survos_folio_page_chat', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: page.seq})]) %}
@@ -293,28 +297,67 @@
                     {% if pdfUrl or pages|length > 0 %}
                         <script>
                             (function () {
-                                var texts = null, layouts = null;
+                                var texts = null, layouts = null, htrs = null;
                                 function dataArr(attr) {
                                     var el = document.getElementById('doc-ocr-text');
                                     try { return el ? JSON.parse(el.dataset[attr] || '[]') : []; } catch (err) { return []; }
                                 }
                                 function pageTexts() { if (texts === null) texts = dataArr('pageTexts'); return texts; }
                                 function pageLayouts() { if (layouts === null) layouts = dataArr('pageLayouts'); return layouts; }
+                                function pageHtr() { if (htrs === null) htrs = dataArr('pageHtr'); return htrs; }
                                 function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
                                 // Mistral block type → bootstrap styling, so the layout reads like a document, not a dump.
                                 var BLOCK_CLASS = { headline: 'fw-bold fs-5 mb-2', subheadline: 'fw-semibold mb-2', caption: 'fst-italic text-muted small mb-2', byline: 'fst-italic small text-muted mb-2', column: 'mb-2', paragraph: 'mb-2', other: 'mb-2' };
+                                // Minimal inline markdown: **bold** / *italic* over already-escaped text.
+                                function inlineMd(s) {
+                                    return esc(s)
+                                        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                                        .replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>');
+                                }
+                                function isTableRow(t) { return /^\s*\|.*\|\s*$/.test(t) && (t.match(/\|/g) || []).length >= 2; }
+                                function isSepRow(t) { return isTableRow(t) && /^[\s|:-]+$/.test(t) && t.indexOf('-') !== -1; }
+                                function rowCells(t) { return t.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); }); }
+                                // "markdown+": render block types as a document, and fold runs of markdown
+                                // table rows (Mistral emits register/grid data as one |a|b| row per block) into
+                                // a real HTML table instead of pipe-soup.
                                 function renderLayout(blocks) {
-                                    return blocks.map(function (b) {
+                                    var out = [], tbl = null;
+                                    function flush() {
+                                        if (tbl && tbl.length) {
+                                            out.push('<table class="table table-sm table-bordered align-middle mb-3" style="width:auto; font-size:0.8rem;"><tbody>'
+                                                + tbl.map(function (r) { return '<tr>' + r.map(function (c) { return '<td class="px-2 py-1 text-nowrap">' + inlineMd(c) + '</td>'; }).join('') + '</tr>'; }).join('')
+                                                + '</tbody></table>');
+                                        }
+                                        tbl = null;
+                                    }
+                                    blocks.forEach(function (b) {
                                         var t = (b && b.text || '').trim();
-                                        if (!t || b.type === 'image' || b.type === 'advertisement') return '';
-                                        return '<div class="ocr-block ' + (BLOCK_CLASS[b.type] || 'mb-2') + '" data-block-type="' + esc(b.type || '') + '" style="white-space: pre-wrap;">' + esc(t) + '</div>';
-                                    }).join('');
+                                        if (!t || b.type === 'image' || b.type === 'advertisement') return;
+                                        if (isTableRow(t)) { if (!isSepRow(t)) { (tbl || (tbl = [])).push(rowCells(t)); } return; }
+                                        flush();
+                                        var hm = t.match(/^(#{1,6})\s+([\s\S]*)$/);
+                                        if (hm) { out.push('<div class="fw-bold fs-5 mb-2">' + inlineMd(hm[2].trim()) + '</div>'); return; }
+                                        out.push('<div class="ocr-block ' + (BLOCK_CLASS[b.type] || 'mb-2') + '" data-block-type="' + esc(b.type || '') + '" style="white-space: pre-wrap;">' + inlineMd(t) + '</div>');
+                                    });
+                                    flush();
+                                    return out.join('');
+                                }
+                                // htr_annotate: <hw>handwritten</hw> on a printed form. Render handwriting in
+                                // italics, flag uncertain reads (<?>), preserve line structure.
+                                function renderHtr(s) {
+                                    return esc(s)
+                                        .replace(/&lt;hw&gt;([\s\S]*?)&lt;\/hw&gt;/g, '<em class="hw-fill" style="color:#1d4ed8;">$1</em>')
+                                        .replace(/&lt;\?&gt;/g, '<sup class="text-danger" title="uncertain reading">?</sup>')
+                                        .replace(/\n/g, '<br>');
                                 }
                                 function renderPage(i, total) {
                                     var ocrEl = document.getElementById('doc-ocr-text');
                                     if (!ocrEl) return;
-                                    var layout = pageLayouts()[i], badge = document.getElementById('doc-ocr-badge');
-                                    if (layout && layout.length) {
+                                    var htr = pageHtr()[i], layout = pageLayouts()[i], badge = document.getElementById('doc-ocr-badge');
+                                    if (htr && htr.trim()) {
+                                        ocrEl.innerHTML = '<div style="line-height:1.7;">' + renderHtr(htr) + '</div>';
+                                        if (badge) { badge.textContent = 'Handwriting'; badge.className = 'badge bg-green-lt'; }
+                                    } else if (layout && layout.length) {
                                         ocrEl.innerHTML = renderLayout(layout) || '<span class="text-muted">(no text on this page)</span>';
                                         if (badge) { badge.textContent = 'Layout'; badge.className = 'badge bg-purple-lt'; }
                                     } else {
@@ -326,7 +369,7 @@
                                 }
                                 // Render page 1 once the panel exists (this script runs before it in the DOM).
                                 document.addEventListener('DOMContentLoaded', function () {
-                                    renderPage(0, Math.max(pageTexts().length, pageLayouts().length));
+                                    renderPage(0, Math.max(pageTexts().length, pageLayouts().length, pageHtr().length));
                                 });
                                 document.addEventListener('iiif-viewer:page', function (e) {
                                     var i = e.detail.index, total = e.detail.total;
@@ -512,12 +555,12 @@
                 </div>
 
                 <div class="col-lg-4" id="doc-side-col">
-                    {% if (hasOcr or hasLayout) and not isSingleImage %}
+                    {% if (hasOcr or hasLayout or hasHtr) and not isSingleImage %}
                         <div class="card mb-3">
                             <div class="card-header d-flex align-items-center gap-2">
                                 <h2 class="card-title mb-0">Extracted text</h2>
-                                {# Badge flips to "Layout" when this page has Mistral's structured layout. #}
-                                <span id="doc-ocr-badge" class="badge {{ hasLayout ? 'bg-purple-lt' : 'bg-blue-lt' }}">{{ hasLayout ? 'Layout' : 'OCR' }}</span>
+                                {# Badge: Handwriting (htr_annotate) > Layout (Mistral blocks) > OCR (flat). JS keeps it per-page. #}
+                                <span id="doc-ocr-badge" class="badge {{ hasHtr ? 'bg-green-lt' : (hasLayout ? 'bg-purple-lt' : 'bg-blue-lt') }}">{{ hasHtr ? 'Handwriting' : (hasLayout ? 'Layout' : 'OCR') }}</span>
                                 <span class="ms-auto d-inline-flex align-items-center gap-1">
                                     {% if pages|length > 1 %}
                                         <button type="button"
@@ -547,6 +590,7 @@
                                 <div id="doc-ocr-text"
                                      data-page-texts="{{ pageTexts|json_encode|e('html_attr') }}"
                                      data-page-layouts="{{ pageLayouts|json_encode|e('html_attr') }}"
+                                     data-page-htr="{{ pageHtr|json_encode|e('html_attr') }}"
                                      style="white-space: pre-wrap; word-break: break-word; max-height: 600px; overflow-y: auto; font-size: 0.875rem; line-height: 1.45;">{{ pageTexts|first|trim ?: '(no extracted text for this page)' }}</div>
                             </div>
                         </div>
