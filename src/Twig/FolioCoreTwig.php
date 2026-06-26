@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Twig;
 
+use League\CommonMark\CommonMarkConverter;
 use Survos\DataContracts\Vocabulary\Core;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Twig\Attribute\AsTwigFilter;
 use Twig\Attribute\AsTwigFunction;
 
 /**
@@ -28,6 +30,8 @@ final class FolioCoreTwig
         Core::EVENT        => 'tabler:calendar-event',
     ];
 
+    private ?CommonMarkConverter $converter = null;
+
     public function __construct(
         private readonly ?UrlGeneratorInterface $urlGenerator = null,
         /** Host-app route that lists/searches datasets (e.g. zm's `app_search`); null disables provider links. */
@@ -35,6 +39,36 @@ final class FolioCoreTwig
         /** Query param the search route reads to pre-select a provider/aggregator facet. */
         private readonly string $searchProviderParam = 'dataset_aggregator',
     ) {}
+
+    /**
+     * Render markdown → HTML — for AI prose (observation, summaries) that uses paragraph breaks and
+     * occasional emphasis. Tolerates legacy double-JSON-encoded claim values: ai:observationProse is
+     * stored raw in folio extras as "..\n.." (wrapping quotes + literal backslash-n, not real
+     * newlines), so decode that first or markdown would just print the literal \n. is_safe html —
+     * CommonMark escapes the source content itself.
+     */
+    #[AsTwigFilter('markdown', isSafe: ['html'])]
+    public function markdown(?string $text): string
+    {
+        if ($text === null || trim($text) === '') {
+            return '';
+        }
+
+        $trimmed = trim($text);
+        if (\strlen($trimmed) >= 2 && $trimmed[0] === '"' && str_ends_with($trimmed, '"')) {
+            $decoded = json_decode($trimmed);
+            if (\is_string($decoded)) {
+                $text = $decoded;
+            }
+        } elseif (str_contains($text, '\\n')) {
+            // Unquoted but escaped (defensive): turn literal \r\n / \n / \t into real whitespace.
+            $text = str_replace(['\\r\\n', '\\n', '\\t'], ["\n", "\n", "\t"], $text);
+        }
+
+        $this->converter ??= new CommonMarkConverter();
+
+        return (string) $this->converter->convert($text);
+    }
 
     #[AsTwigFunction('core_icon')]
     public function coreIcon(string $coreCode): string
