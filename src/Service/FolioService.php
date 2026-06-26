@@ -161,8 +161,24 @@ final class FolioService
     public function context(string $folioCode, bool $ensureSchema = false): FolioContext
     {
         $em = $this->switch($folioCode);
-        if ($ensureSchema) {
+
+        // Self-healing schema: update() is a cheap PRAGMA-version check that no-ops when the folio
+        // already matches the deployed entity schema, and ALTERs in new columns when it's stale — so
+        // a folio migrates itself on first open after a schema change, no folio:migrate --all needed.
+        // ($ensureSchema is kept for explicit callers; update() runs either way now.) A failure means
+        // the change can't be applied incrementally (e.g. a dropped/retyped column) → re-import.
+        try {
             $this->schemaManager->update($em);
+        } catch (\Throwable $e) {
+            $this->logger?->error('Folio schema auto-migrate failed — re-import required', [
+                'folio' => $folioCode,
+                'error' => $e->getMessage(),
+            ]);
+            throw new \RuntimeException(sprintf(
+                'Folio "%s" schema is out of date and could not be migrated in place (re-import required): %s',
+                $folioCode,
+                $e->getMessage(),
+            ), 0, $e);
         }
 
         if ($em->find(Folio::class, $folioCode) === null) {
