@@ -46,7 +46,7 @@
 {% set pageCount = attribute(row.dtoData, 'pageCount')|default(null) %}
 {% set tombstoneYear = attribute(row.dtoData, 'year')|default(tombstoneDate) %}
 {% set tombstoneDenseSummary = attribute(row.dtoData, 'denseSummary')|default(attribute(row.extras, 'ai:denseSummary')|default(null)) %}
-{% set observationProse = attribute(row.dtoData, 'ai:observationProse')|default(attribute(row.extras, 'ai:observationProse')|default(null)) %}
+{% set observationProse = attribute(row.dtoData, 'observationProse')|default(attribute(row.dtoData, 'ai:observationProse')|default(attribute(row.extras, 'ai:observationProse')|default(null))) %}
 
 {% block body_class %}folio-layout folio-object-page{% endblock %}
 
