@@ -783,6 +783,12 @@ final class FolioIngestService
         foreach (['class', 'content_type', 'contentType', 'dto_type', 'dtoType', 'dtoClass'] as $internal) {
             unset($extras[$internal]);
         }
+        // Relation cores (Survos\DataContracts\Vocabulary\Core: obj/pla/per/org/coll/series/event) are
+        // projected from claims/termsets onto the row and consumed by the link/termset builder — they're
+        // handled relations, not noise, so keep them out of extras.
+        foreach (['obj', 'pla', 'per', 'org', 'coll', 'series', 'event'] as $relationCore) {
+            unset($extras[$relationCore]);
+        }
 
         return [$dtoData, $extras];
     }

@@ -681,6 +681,7 @@ final class FolioController extends AbstractController
         $claims = $this->rowClaims($ctx->em->getConnection(), $row->id);
         $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
         $terms = $this->rowTerms($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
+        $adjacent = $this->adjacentRows($ctx->em->getConnection(), $core->id, $localId);
 
         // Fields shown elsewhere (as Terms, or as relation links) are excluded from the DTO Data
         // table on the left — same single-source bindings, so the table never repeats them.
@@ -711,6 +712,7 @@ final class FolioController extends AbstractController
             'terms' => $terms,
             'termFields' => $termFields,
             'extras' => $extras,
+            'adjacent' => $adjacent,
         ]);
     }
 
@@ -989,6 +991,37 @@ final class FolioController extends AbstractController
             'SELECT predicate, value, source, confidence, agent, claimed_at FROM claim WHERE item_id = ? ORDER BY source, predicate',
             [$itemId],
         )->fetchAllAssociative();
+    }
+
+    /**
+     * Previous/next document within the same core, in build (rowid) order — keyset navigation done
+     * with SQLite LAG/LEAD so both neighbours come back in a single pass (no offset, no loading the
+     * list). v1 uses intrinsic order; a later version can honour the active search/filter context.
+     *
+     * @return array{prev: ?array{localId: string, dtoType: string}, next: ?array{localId: string, dtoType: string}}
+     */
+    private function adjacentRows(Connection $conn, string $coreId, string $localId): array
+    {
+        $row = $conn->fetchAssociative(
+            'SELECT prev_id, prev_type, next_id, next_type FROM (
+                SELECT local_id,
+                       LAG(local_id)  OVER (ORDER BY rowid) AS prev_id,
+                       LAG(dto_type)  OVER (ORDER BY rowid) AS prev_type,
+                       LEAD(local_id) OVER (ORDER BY rowid) AS next_id,
+                       LEAD(dto_type) OVER (ORDER BY rowid) AS next_type
+                FROM item WHERE core_id = :core
+            ) WHERE local_id = :current',
+            ['core' => $coreId, 'current' => $localId],
+        ) ?: [];
+
+        $mk = static fn (?string $id, ?string $type): ?array => null === $id || '' === $id
+            ? null
+            : ['localId' => $id, 'dtoType' => $type ?: 'row'];
+
+        return [
+            'prev' => $mk($row['prev_id'] ?? null, $row['prev_type'] ?? null),
+            'next' => $mk($row['next_id'] ?? null, $row['next_type'] ?? null),
+        ];
     }
 
     private function tableExists(Connection $conn, string $table): bool

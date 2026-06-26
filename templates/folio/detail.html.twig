@@ -111,6 +111,21 @@
                             {% endif %}
                         </nav>
 
+                        {# Prev/next document within this core (build order) — keyset nav (LAG/LEAD). #}
+                        {% set adjacent = adjacent|default(null) %}
+                        {% if adjacent and (adjacent.prev or adjacent.next) %}
+                            <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Document navigation">
+                                <a class="btn btn-outline-secondary {{ adjacent.prev ? '' : 'disabled' }}" rel="prev"
+                                   {% if adjacent.prev %}href="{{ path('survos_folio_row_show', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: adjacent.prev.dtoType, localId: adjacent.prev.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+                                    {{ ux_icon('tabler:chevron-left', { class: 'icon' }) }} Prev
+                                </a>
+                                <a class="btn btn-outline-secondary {{ adjacent.next ? '' : 'disabled' }}" rel="next"
+                                   {% if adjacent.next %}href="{{ path('survos_folio_row_show', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: adjacent.next.dtoType, localId: adjacent.next.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+                                    Next {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
+                                </a>
+                            </div>
+                        {% endif %}
+
                         <h1 class="folio-detail-title mb-3">{{ tombstoneTitle }}</h1>
 
                         <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
@@ -387,6 +402,9 @@
                                 // htr_annotate: <hw>handwritten</hw> on a printed form. Render handwriting in
                                 // italics, flag uncertain reads (<?>), preserve line structure.
                                 function renderHtr(s) {
+                                    // Some htr claims arrive JSON-encoded (a quoted string with \n, \/, \uXXXX);
+                                    // decode so <hw> tags and line breaks are real before we mark up.
+                                    if (s && s.charAt(0) === '"') { try { s = JSON.parse(s); } catch (e) {} }
                                     return esc(s)
                                         .replace(/&lt;hw&gt;([\s\S]*?)&lt;\/hw&gt;/g, '<em class="hw-fill" style="color:#1d4ed8;">$1</em>')
                                         .replace(/&lt;\?&gt;/g, '<sup class="text-danger" title="uncertain reading">?</sup>')
