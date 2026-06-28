@@ -679,6 +679,7 @@ final class FolioController extends AbstractController
         $columns = $schemaTable ? $this->schemaColumns($ctx->em->getConnection(), (string) $schemaTable['id']) : ($dtoClass ? $this->dtoColumns($dtoClass) : []);
         $pageTableExists = $this->tableExists($ctx->em->getConnection(), 'page');
         $claims = $this->rowClaims($ctx->em->getConnection(), $row->id);
+        $aiTaskRuns = $this->aiTaskRuns($claims);
         $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
         $terms = $this->rowTerms($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
         $adjacent = $this->adjacentRows($ctx->em->getConnection(), $core->id, $localId);
@@ -708,6 +709,7 @@ final class FolioController extends AbstractController
             'schemaTable' => $schemaTable,
             'pageTableExists' => $pageTableExists,
             'claims' => $claims,
+            'aiTaskRuns' => $aiTaskRuns,
             'links' => $links,
             'terms' => $terms,
             'termFields' => $termFields,
@@ -988,9 +990,30 @@ final class FolioController extends AbstractController
         }
 
         return $conn->executeQuery(
-            'SELECT predicate, value, source, confidence, agent, claimed_at FROM claim WHERE item_id = ? ORDER BY source, predicate',
+            'SELECT predicate, value, source, confidence, agent, claimed_at, run_id FROM claim WHERE item_id = ? ORDER BY source, predicate',
             [$itemId],
         )->fetchAllAssociative();
+    }
+
+    /**
+     * @param list<array<string,mixed>> $claims
+     * @return array<string,string> task/source key => ClaimRun id
+     */
+    private function aiTaskRuns(array $claims): array
+    {
+        $runs = [];
+        foreach ($claims as $claim) {
+            $source = $claim['source'] ?? null;
+            $runId = $claim['run_id'] ?? null;
+            if (!is_string($source) || $source === '' || !is_string($runId) || $runId === '') {
+                continue;
+            }
+
+            $task = str_starts_with($source, 'ai:') ? substr($source, 3) : $source;
+            $runs[$task] ??= $runId;
+        }
+
+        return $runs;
     }
 
     /**
@@ -1032,7 +1055,6 @@ final class FolioController extends AbstractController
             return false;
         }
     }
-
 
     /**
      * @param array<int,array<string,mixed>> $stats

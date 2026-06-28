@@ -92,10 +92,13 @@ final class FolioSchemaManager
                     continue;
                 }
                 try {
+                    $columnOptions = $column->toArray();
+                    unset($columnOptions['comment']);
+
                     $conn->executeStatement(sprintf(
                         'ALTER TABLE %s ADD COLUMN %s',
                         $quotedTable,
-                        $platform->getColumnDeclarationSQL($column->getQuotedName($platform), $column->toArray()),
+                        $platform->getColumnDeclarationSQL($column->getQuotedName($platform), $columnOptions),
                     ));
                 } catch (\Throwable $e) {
                     // Tolerate a concurrent open that already added it (auto-migrate on open can race).

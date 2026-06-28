@@ -72,6 +72,7 @@
     <div id="ux-search-results-top" style="scroll-margin-top: 1rem;"></div>
 
     <div id="ux-search-wrapper">
+        {% do app.request.attributes.set('ux_search_placeholder', 'Search ID, title, description, summary, OCR text') %}
         <twig:Mezcalito:UxSearch:Layout
             name="folio_row"
             :options="hitOptions"

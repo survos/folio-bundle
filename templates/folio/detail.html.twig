@@ -531,9 +531,22 @@
                                                     <div class="d-md-none mb-1">
                                                         <span class="font-monospace text-muted small">{{ field }}</span>
                                                     </div>
-                                                    <div class="text-break">
-                                                        {{ folio_row.render_value(value) }}
-                                                    </div>
+                                                    {% if field == 'aiTasks' and value is iterable %}
+                                                        <div class="d-flex flex-wrap gap-1">
+                                                            {% for task in value %}
+                                                                {% set runId = aiTaskRuns[task] ?? null %}
+                                                                {% if runId %}
+                                                                    <a class="badge text-bg-primary text-decoration-none" href="/api/claim-runs/{{ runId }}" title="Open AI task run details">{{ task }}</a>
+                                                                {% else %}
+                                                                    <span class="badge text-bg-light border">{{ task }}</span>
+                                                                {% endif %}
+                                                            {% endfor %}
+                                                        </div>
+                                                    {% else %}
+                                                        <div class="text-break">
+                                                            {{ folio_row.render_value(value) }}
+                                                        </div>
+                                                    {% endif %}
                                                 </td>
                                             </tr>
                                         {% endif %}
@@ -542,7 +555,22 @@
                                             {% if field not in termFields and field not in imageFields and field not in promotedFields %}
                                                 <tr>
                                                     <th class="w-25 font-monospace text-muted">{{ field }}</th>
-                                                    <td>{{ folio_row.render_value(value) }}</td>
+                                                    <td>
+                                                        {% if field == 'aiTasks' and value is iterable %}
+                                                            <div class="d-flex flex-wrap gap-1">
+                                                                {% for task in value %}
+                                                                    {% set runId = aiTaskRuns[task] ?? null %}
+                                                                    {% if runId %}
+                                                                        <a class="badge text-bg-primary text-decoration-none" href="/api/claim-runs/{{ runId }}" title="Open AI task run details">{{ task }}</a>
+                                                                    {% else %}
+                                                                        <span class="badge text-bg-light border">{{ task }}</span>
+                                                                    {% endif %}
+                                                                {% endfor %}
+                                                            </div>
+                                                        {% else %}
+                                                            {{ folio_row.render_value(value) }}
+                                                        {% endif %}
+                                                    </td>
                                                 </tr>
                                             {% endif %}
                                         {% else %}

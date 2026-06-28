@@ -8,6 +8,29 @@ use Survos\DataContracts\Vocabulary\ItemField;
 
 final class FolioFtsIndexer
 {
+    private const DEFAULT_SEARCHABLE_PROPERTIES = [
+        ItemField::ID,
+        'label',
+        ItemField::TITLE,
+        ItemField::DESCRIPTION,
+        ItemField::PHYSICAL_DESCRIPTION,
+        ItemField::CONTEXT_DESCRIPTION,
+        ItemField::NOTES,
+        ItemField::KEYWORDS,
+        ItemField::SUBJECTS,
+        ItemField::SUBJECTS_GEOGRAPHIC,
+        ItemField::CREATOR,
+        ItemField::SEARCH_SUMMARY,
+        ItemField::DENSE_SUMMARY,
+        ItemField::CAPTION,
+        'denseSummary',
+        'caption',
+        'ocrText',
+        'text',
+        'transcription',
+        'htrText',
+    ];
+
     /**
      * @return array{rows:int, bytes:int}
      */
@@ -357,7 +380,9 @@ final class FolioFtsIndexer
                 $properties[$name] = true;
             }
         }
-        $properties[ItemField::SEARCH_SUMMARY] = true;
+        foreach (self::DEFAULT_SEARCHABLE_PROPERTIES as $name) {
+            $properties[$name] = true;
+        }
 
         return $properties;
     }

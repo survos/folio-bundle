@@ -169,6 +169,16 @@ final class FolioBuildCommand implements SignalableCommandInterface
                 continue;
             }
 
+            // --force: delete the working .folio and the .gz archive first, so a schema/sync mismatch
+            // between them can't abort the rebuild ("out of sync — needs rebuild"). Clean slate first.
+            if ($force) {
+                foreach ([$workingPath, $archivePath] as $stalePath) {
+                    if (is_file($stalePath)) {
+                        unlink($stalePath);
+                    }
+                }
+            }
+
             // Step 1: rows-only ingest — no FTS/index event, so the archive snapshot is clean.
             // Pass $io so the service renders a progress bar seeded from sidecar row counts.
             $result = $this->ingest->ingestDataset($info, $coreFilter, $idField, $labelField, $batch, dispatchFinished: false, io: $io);

@@ -43,7 +43,7 @@ final class FolioIngestService
     private const ITEM_COLUMNS = ['id', 'core_id', 'local_id', 'label', 'dto_type', 'dto_data', 'extras', 'raw'];
     private const LINK_COLUMNS = ['id', 'link_type_id', 'left_core', 'left_id', 'right_core', 'right_id', 'extras'];
     private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'type', 'url', 'media_id', 'text', 'htr', 'dense_summary', 'ledger', 'layout', 'width', 'height'];
-    private const CLAIM_COLUMNS = ['id', 'item_id', 'predicate', 'value', 'source', 'confidence', 'agent', 'claimed_at', 'meta'];
+    private const CLAIM_COLUMNS = ['id', 'item_id', 'predicate', 'value', 'source', 'confidence', 'agent', 'claimed_at', 'meta', 'run_id'];
 
     public function __construct(
         private readonly FolioService $folios,
@@ -351,6 +351,7 @@ final class FolioIngestService
                 null,
                 is_string($data['createdAt'] ?? null) ? $data['createdAt'] : null,
                 $basis !== null ? $this->encodeJson(['basis' => $basis]) : null,
+                is_string($data['runId'] ?? null) ? $data['runId'] : null,
             ]);
 
             if (++$count % $batch === 0) {

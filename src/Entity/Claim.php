@@ -42,6 +42,9 @@ class Claim
     #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Extra provenance metadata'])]
     public ?array $meta = null;
 
+    #[ORM\Column(length: 26, nullable: true, options: ['comment' => 'ClaimRun ULID for audit detail'])]
+    public ?string $runId = null;
+
     public function __construct(Row $item, string $predicate, string $source)
     {
         $this->item = $item;

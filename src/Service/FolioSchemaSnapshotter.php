@@ -10,6 +10,28 @@ use Survos\FieldBundle\Attribute\Field;
 
 final readonly class FolioSchemaSnapshotter
 {
+    private const DEFAULT_SEARCHABLE_PROPERTIES = [
+        ItemField::ID,
+        'label',
+        ItemField::TITLE,
+        ItemField::DESCRIPTION,
+        ItemField::PHYSICAL_DESCRIPTION,
+        ItemField::CONTEXT_DESCRIPTION,
+        ItemField::NOTES,
+        ItemField::KEYWORDS,
+        ItemField::SUBJECTS,
+        ItemField::SUBJECTS_GEOGRAPHIC,
+        ItemField::CREATOR,
+        ItemField::SEARCH_SUMMARY,
+        ItemField::DENSE_SUMMARY,
+        ItemField::CAPTION,
+        'denseSummary',
+        'caption',
+        'ocrText',
+        'text',
+        'transcription',
+        'htrText',
+    ];
     public function __construct(
         private FolioDtoTypeResolver $dtoTypeResolver,
     ) {
@@ -80,7 +102,7 @@ final readonly class FolioSchemaSnapshotter
                         $tableId,
                         $name,
                         $position++,
-                        (bool) ($property['searchable'] ?? in_array($name, ['id', 'label', 'title', 'description', 'summary', ItemField::SEARCH_SUMMARY], true)),
+                        (bool) ($property['searchable'] ?? in_array($name, self::DEFAULT_SEARCHABLE_PROPERTIES, true)),
                         (bool) ($property['filterable'] ?? false),
                         (bool) ($property['facet'] ?? false),
                         (bool) ($property['sortable'] ?? false),
