@@ -196,6 +196,7 @@ final class FolioIngestService
         $pageResult = $this->ingestPages($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
         $claimResult = $this->ingestClaims($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
         $this->ingestPageClaims($ctx->em, $dataset->datasetKey);
+        $this->ingestClaimRuns($ctx->em, $dataset->datasetKey);
 
         $this->finishIngestProgress($io);
 
@@ -393,6 +394,59 @@ final class FolioIngestService
         }
 
         return is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_UNICODE);
+    }
+
+    /**
+     * Ingest the dataset's claim_run records (the vault claim-runs.jsonl that `claims:fetch` writes)
+     * into a folio `claim_run` table, so the "results of a task" view (linked by run id from each
+     * claim's run_id) renders the prompt/model/tokens/response offline — no live claims DB at view
+     * time. Table is created inline (same pattern as the FTS tables); a missing runs file is a no-op.
+     */
+    private function ingestClaimRuns(EntityManagerInterface $em, string $datasetKey): void
+    {
+        $conn = $em->getConnection();
+        $conn->executeStatement(
+            'CREATE TABLE IF NOT EXISTS claim_run (
+                id TEXT PRIMARY KEY, scope TEXT, subject_type TEXT, subject_id TEXT, source TEXT,
+                model TEXT, prompt TEXT, response TEXT, input_tokens INTEGER, output_tokens INTEGER,
+                image_tokens INTEGER, duration_ms INTEGER, claim_count INTEGER, created_at TEXT
+            )'
+        );
+
+        $runsFile = $this->dataPaths->claimsFile($datasetKey, 'claim-runs.jsonl');
+        if (!is_file($runsFile)) {
+            return;
+        }
+
+        $runs = new FolioBulkInserter($conn, 'claim_run', [
+            'id', 'scope', 'subject_type', 'subject_id', 'source', 'model', 'prompt', 'response',
+            'input_tokens', 'output_tokens', 'image_tokens', 'duration_ms', 'claim_count', 'created_at',
+        ]);
+        foreach (JsonlReader::open($runsFile) as $r) {
+            $id = (string) ($r['id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            $response = $r['response'] ?? null;
+            // Order must match the column list above.
+            $runs->add([
+                $id,
+                is_scalar($r['scope'] ?? null) ? (string) $r['scope'] : null,
+                is_scalar($r['subjectType'] ?? null) ? (string) $r['subjectType'] : null,
+                is_scalar($r['subjectId'] ?? null) ? (string) $r['subjectId'] : null,
+                is_scalar($r['source'] ?? null) ? (string) $r['source'] : null,
+                is_scalar($r['model'] ?? null) ? (string) $r['model'] : null,
+                is_scalar($r['prompt'] ?? null) ? (string) $r['prompt'] : null,
+                $response === null ? null : (is_scalar($response) ? (string) $response : json_encode($response, JSON_UNESCAPED_UNICODE)),
+                is_numeric($r['inputTokens'] ?? null) ? (int) $r['inputTokens'] : null,
+                is_numeric($r['outputTokens'] ?? null) ? (int) $r['outputTokens'] : null,
+                is_numeric($r['imageTokens'] ?? null) ? (int) $r['imageTokens'] : null,
+                is_numeric($r['durationMs'] ?? null) ? (int) $r['durationMs'] : null,
+                is_numeric($r['claimCount'] ?? null) ? (int) $r['claimCount'] : null,
+                is_string($r['createdAt'] ?? null) ? $r['createdAt'] : null,
+            ]);
+        }
+        $runs->flush();
     }
 
     /**

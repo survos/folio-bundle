@@ -88,7 +88,7 @@ final class FolioSchemaManager
             // Target columns come from the metadata only — no DB introspection.
             $targetTable = $schemaTool->getSchemaFromMetadata([$meta])->getTable($table);
             foreach ($targetTable->getColumns() as $column) {
-                if (in_array($column->getName(), $existing, true)) {
+                if (in_array($column->getObjectName()->toString(), $existing, true)) {
                     continue;
                 }
                 try {
@@ -98,7 +98,7 @@ final class FolioSchemaManager
                     $conn->executeStatement(sprintf(
                         'ALTER TABLE %s ADD COLUMN %s',
                         $quotedTable,
-                        $platform->getColumnDeclarationSQL($column->getQuotedName($platform), $columnOptions),
+                        $platform->getColumnDeclarationSQL($column->getObjectName()->toSQL($platform), $columnOptions),
                     ));
                 } catch (\Throwable $e) {
                     // Tolerate a concurrent open that already added it (auto-migrate on open can race).

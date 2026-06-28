@@ -1,0 +1,53 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+
+{% block title %}AI task run · {{ run.source }} · {{ folioCode }}{% endblock %}
+
+{% block body %}
+<div class="container-fluid py-3">
+    <h1 class="h4 mb-3">
+        AI task run
+        <span class="badge text-bg-primary">{{ run.source }}</span>
+        {% if run.model %}<span class="badge text-bg-secondary">{{ run.model }}</span>{% endif %}
+    </h1>
+
+    <table class="table table-sm w-auto mb-4">
+        <tr><th class="text-muted">run id</th><td class="font-monospace">{{ run.id }}</td></tr>
+        <tr><th class="text-muted">subject</th><td class="font-monospace">{{ run.subject_type }} · {{ run.subject_id }}</td></tr>
+        <tr><th class="text-muted">tokens</th><td>in {{ run.input_tokens ?? '–' }} · out {{ run.output_tokens ?? '–' }}{% if run.image_tokens %} · image {{ run.image_tokens }}{% endif %}</td></tr>
+        <tr><th class="text-muted">duration</th><td>{{ run.duration_ms ? run.duration_ms ~ ' ms' : '–' }}</td></tr>
+        <tr><th class="text-muted">claims</th><td>{{ run.claim_count ?? claims|length }}</td></tr>
+        <tr><th class="text-muted">created</th><td>{{ run.created_at }}</td></tr>
+    </table>
+
+    {% if run.prompt %}
+        <details class="mb-3">
+            <summary class="fw-bold">Prompt</summary>
+            <pre class="bg-light border rounded p-2 small text-break" style="white-space: pre-wrap;">{{ run.prompt }}</pre>
+        </details>
+    {% endif %}
+
+    {% if run.response %}
+        <details class="mb-3">
+            <summary class="fw-bold">Response</summary>
+            <pre class="bg-light border rounded p-2 small text-break" style="white-space: pre-wrap;">{{ run.response }}</pre>
+        </details>
+    {% endif %}
+
+    <h2 class="h6">Claims produced ({{ claims|length }})</h2>
+    <table class="table table-sm">
+        <thead><tr><th>predicate</th><th>value</th><th>source</th><th>conf</th></tr></thead>
+        <tbody>
+        {% for c in claims %}
+            <tr>
+                <td class="font-monospace">{{ c.predicate }}</td>
+                <td class="text-break">{{ c.value }}</td>
+                <td>{{ c.source }}</td>
+                <td>{{ c.confidence is not null ? (c.confidence * 100)|round ~ '%' : '' }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4" class="text-muted">No claims found for this run in the folio.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

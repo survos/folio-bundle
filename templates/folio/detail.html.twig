@@ -536,7 +536,7 @@
                                                             {% for task in value %}
                                                                 {% set runId = aiTaskRuns[task] ?? null %}
                                                                 {% if runId %}
-                                                                    <a class="badge text-bg-primary text-decoration-none" href="/api/claim-runs/{{ runId }}" title="Open AI task run details">{{ task }}</a>
+                                                                    <a class="badge text-bg-primary text-decoration-none" href="{{ path('survos_folio_run', {provider: provider, dataset: dataset, runId: runId}) }}" title="Open AI task run details">{{ task }}</a>
                                                                 {% else %}
                                                                     <span class="badge text-bg-light border">{{ task }}</span>
                                                                 {% endif %}
@@ -561,7 +561,7 @@
                                                                 {% for task in value %}
                                                                     {% set runId = aiTaskRuns[task] ?? null %}
                                                                     {% if runId %}
-                                                                        <a class="badge text-bg-primary text-decoration-none" href="/api/claim-runs/{{ runId }}" title="Open AI task run details">{{ task }}</a>
+                                                                        <a class="badge text-bg-primary text-decoration-none" href="{{ path('survos_folio_run', {provider: provider, dataset: dataset, runId: runId}) }}" title="Open AI task run details">{{ task }}</a>
                                                                     {% else %}
                                                                         <span class="badge text-bg-light border">{{ task }}</span>
                                                                     {% endif %}

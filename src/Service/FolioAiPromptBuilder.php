@@ -32,12 +32,9 @@ final class FolioAiPromptBuilder
                     ['role' => 'user', 'content' => $this->userContent($row, $dtoData, $extras, $task, $imageUrl, $imageDetail)],
                 ],
             ],
-            'metadata' => [
-                'source' => $source,
-                'task' => $task,
-                'dtoType' => $row['dto_type'] ?? null,
-                'localId' => $row['local_id'] ?? null,
-            ],
+            // NOTE: no top-level `metadata` — OpenAI's /v1/chat/completions batch lines accept only
+            // custom_id/method/url/body and reject unknown params. Result→row mapping is by
+            // custom_id (= row id, carries the localId); FolioAiClaimImporter reads custom_id.
         ];
     }
 

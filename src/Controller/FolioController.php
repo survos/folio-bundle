@@ -226,6 +226,40 @@ final class FolioController extends AbstractController
     }
 
 
+    /**
+     * "Results of an AI task" — the claim_run (prompt/model/tokens/response) plus the claims it
+     * produced, served from the folio's local `claim_run` table (ingested from the shared store by
+     * claims:fetch → folio build). Linked from each claim's runId on the detail page.
+     */
+    #[Route('/{provider}/{dataset}/run/{runId}', name: 'survos_folio_run', options: ['expose' => true])]
+    public function run(string $provider, string $dataset, string $runId): Response
+    {
+        $folioCode = "$provider/$dataset";
+        $conn = $this->folios->context($folioCode)->em->getConnection();
+
+        try {
+            $run = $conn->fetchAssociative('SELECT * FROM claim_run WHERE id = :id', ['id' => $runId]);
+        } catch (\Throwable) {
+            $run = false; // no claim_run table in this folio (rebuild after claims:fetch to populate)
+        }
+        if (!$run) {
+            throw $this->createNotFoundException(sprintf('No claim run %s in %s', $runId, $folioCode));
+        }
+
+        $claims = $conn->fetchAllAssociative(
+            'SELECT predicate, value, source, confidence, item_id FROM claim WHERE run_id = :id ORDER BY predicate',
+            ['id' => $runId],
+        );
+
+        return $this->render('@SurvosFolioBundle/folio/run.html.twig', [
+            'provider' => $provider,
+            'dataset' => $dataset,
+            'folioCode' => $folioCode,
+            'run' => $run,
+            'claims' => $claims,
+        ]);
+    }
+
     #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/chat', name: 'survos_folio_item_chat', options: ['expose' => true])]
     public function itemChat(Request $request, string $provider, string $dataset, string $coreCode, string $dtoType, string $localId): Response
     {
