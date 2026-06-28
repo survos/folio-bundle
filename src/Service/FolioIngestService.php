@@ -323,12 +323,21 @@ final class FolioIngestService
         foreach ($conn->fetchAllKeyValue('SELECT local_id, id FROM item') as $localId => $itemId) {
             $byLocalId[(string) $localId] = (string) $itemId;
         }
+        // Image AI claims (observe/analyze via mediary) are keyed by the universal image id
+        // (xxh3 of the image url = the asset id), NOT the row's localId. Map asset id → item id
+        // through the page's media_id (which is that same asset id) so those claims fold in too.
+        /** @var array<string,string> assetId => item id */
+        $byAssetId = [];
+        foreach ($conn->fetchAllKeyValue('SELECT media_id, row_id FROM page WHERE media_id IS NOT NULL') as $mediaId => $rowId) {
+            $byAssetId[(string) $mediaId] = (string) $rowId;
+        }
 
         $claims = new FolioBulkInserter($conn, 'claim', self::CLAIM_COLUMNS);
         $count = 0;
         foreach (JsonlReader::open($claimsFile) as $data) {
             $predicate = is_scalar($data['predicate'] ?? null) ? (string) $data['predicate'] : '';
-            $itemId = $byLocalId[(string) ($data['subjectId'] ?? '')] ?? null;
+            $subjectId = (string) ($data['subjectId'] ?? '');
+            $itemId = $byLocalId[$subjectId] ?? $byAssetId[$subjectId] ?? null;
             if ($itemId === null || $predicate === '') {
                 continue;
             }
