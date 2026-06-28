@@ -289,6 +289,17 @@ final class FolioIngestService
         }
         $pages->flush();
 
+        // Override the DTO's pageCount floor with the precise page/image count for multi-page items
+        // (PDFs, multi-image objects). The WHERE guard skips single-page items whose floor already
+        // matches, so fortepan-style 1-page datasets do zero rewrites.
+        if ($count > 0) {
+            $conn->executeStatement(
+                "UPDATE item SET dto_data = json_set(dto_data, '$.pageCount', pc.cnt) "
+                . 'FROM (SELECT row_id, COUNT(*) AS cnt FROM page GROUP BY row_id) pc '
+                . "WHERE item.id = pc.row_id AND pc.cnt <> COALESCE(json_extract(dto_data, '$.pageCount'), 0)"
+            );
+        }
+
         return ['count' => $count, 'skipped' => $skipped + $pages->skipped()];
     }
 
@@ -347,6 +358,19 @@ final class FolioIngestService
             }
         }
         $claims->flush();
+
+        // Roll the distinct AI task sources up onto each item as a multi-value facet (aiTasks), so you
+        // can filter "which AI ran per item" — observe vs observe+analyze, etc. The 'ai:' prefix is
+        // stripped and merged (mediary writes 'observe', dataset:ai writes 'ai:observe'); human/import
+        // claims are excluded. Only items that actually have AI claims are touched.
+        $conn->executeStatement(
+            "UPDATE item SET dto_data = json_set(dto_data, '$.aiTasks', "
+            . '(SELECT json_group_array(s) FROM '
+            . "(SELECT DISTINCT REPLACE(source, 'ai:', '') AS s FROM claim "
+            . "WHERE claim.item_id = item.id AND claim.source NOT IN ('human','import','source','provider','manual')))) "
+            . "WHERE EXISTS (SELECT 1 FROM claim "
+            . "WHERE claim.item_id = item.id AND claim.source NOT IN ('human','import','source','provider','manual'))"
+        );
 
         return ['count' => $count];
     }

@@ -8,6 +8,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DatasetBundle\Service\DataPaths;
 use Survos\JsonlBundle\Sqlite\SidecarDb;
+use Symfony\Component\DependencyInjection\Attribute\Target;
 
 final class FolioRegistry
 {
@@ -18,6 +19,7 @@ final class FolioRegistry
         // Optional: the bundle auto-wires the dataset registry EM only when dataset-bundle is
         // loaded (ignoreOnInvalid reference). It's null in a bare app that just pulls + displays
         // folios — only datasets() needs it; every other method works off a DatasetInfo + DataPaths.
+        #[Target('doctrine.orm.dataset_entity_manager')]
         private readonly ?EntityManagerInterface $datasetEntityManager = null,
     ) {}
 

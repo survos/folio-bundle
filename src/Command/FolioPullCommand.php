@@ -30,6 +30,7 @@ final class FolioPullCommand
         private readonly ?FilesystemOperator $archiveStorage = null,
         private readonly ?HttpClientInterface $http = null,
         private readonly ?ChunkDownloader $downloader = null,
+        #[Target('doctrine.orm.dataset_entity_manager')]
         private readonly ?EntityManagerInterface $datasetEntityManager = null,
         private readonly ?FolioSummaryService $summaryService = null,
         // survos_folio.folio_server — the live folio site; the default API source for pulls.

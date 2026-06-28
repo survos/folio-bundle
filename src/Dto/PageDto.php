@@ -36,6 +36,15 @@ final readonly class PageDto
         public ?array $layout = null,
         public ?int $width = null,
         public ?int $height = null,
+        /**
+         * Exif-like objective facts known from the catalog (date, city, country, …) — the "known"
+         * half of observation (what's objectively true), distinct from the "seen" pixels. Always
+         * passed when known, for any provider. For scanned negatives these OVERRIDE the misleading
+         * file EXIF (which reflects digitization, not capture).
+         *
+         * @var array<string,mixed>|null
+         */
+        public ?array $known = null,
     ) {
     }
 }
