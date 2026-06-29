@@ -27,7 +27,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * target the right page of a multi-page doc, include the row's existing metadata, and update the
  * right entity.
  */
-#[Route('/folio')]
+#[Route('')]
 final class FolioAiController extends AbstractController
 {
     public function __construct(

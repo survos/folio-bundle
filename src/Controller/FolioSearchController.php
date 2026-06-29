@@ -17,9 +17,9 @@ final class FolioSearchController extends AbstractController
     {
     }
 
-    #[Route('/folio/{provider}/{dataset}/search/{coreCode}/{dtoType}', name: 'survos_folio_core_type_search', priority: 40)]
-    #[Route('/folio/{provider}/{dataset}/search/{coreCode}', name: 'survos_folio_core_search', priority: 30)]
-    #[Route('/folio/{provider}/{dataset}/search', name: 'survos_folio_search', priority: 20)]
+    #[Route('/{provider}/{dataset}/search/{coreCode}/{dtoType}', name: 'survos_folio_core_type_search', priority: 40)]
+    #[Route('/{provider}/{dataset}/search/{coreCode}', name: 'survos_folio_core_search', priority: 30)]
+    #[Route('/{provider}/{dataset}/search', name: 'survos_folio_search', priority: 20)]
     public function __invoke(string $provider, string $dataset, ?string $coreCode = null, ?string $dtoType = null): Response
     {
         $folioCode = "$provider/$dataset";

@@ -21,7 +21,7 @@ use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Twig\Environment;
 
-#[Route('/folio')]
+#[Route('')]
 #[FolioContext]
 final class FolioController extends AbstractController
 {

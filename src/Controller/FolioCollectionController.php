@@ -10,7 +10,6 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
-#[Route('/folios')]
 final class FolioCollectionController extends AbstractController
 {
     #[Route('', name: 'survos_folio_collection')]

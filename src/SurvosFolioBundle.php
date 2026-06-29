@@ -31,7 +31,7 @@ final class SurvosFolioBundle extends AbstractBundle
     public function configure(DefinitionConfigurator $definition): void
     {
         $children = $definition->rootNode()->children();
-        $this->addRouteOptions($children, '');
+        $this->addRouteOptions($children, '/folio');
         $children
             ->booleanNode('admin_navbar_menu')->defaultTrue()
                 ->info('Set false to disable this bundle\'s admin navbar menu entries.')
