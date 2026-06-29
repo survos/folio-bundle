@@ -197,6 +197,7 @@ final class FolioIngestService
         $claimResult = $this->ingestClaims($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
         $this->ingestPageClaims($ctx->em, $dataset->datasetKey);
         $this->ingestClaimRuns($ctx->em, $dataset->datasetKey);
+        $this->promoteAiTitle($ctx->em);
 
         $this->finishIngestProgress($io);
 
@@ -447,6 +448,31 @@ final class FolioIngestService
             ]);
         }
         $runs->flush();
+    }
+
+    /**
+     * Promote an AI-derived title onto items whose source gave no title (label == local_id). Prefers
+     * dcterms:title (e.g. image_enrich) over ai:caption (the analyze pass) — the same "ai:caption
+     * seeds the title when the source has none" rule BaseItemDto applies. ingestClaims already
+     * bridged asset-keyed claims → item, so this is a single SQL pass.
+     */
+    private function promoteAiTitle(EntityManagerInterface $em): void
+    {
+        $em->getConnection()->executeStatement(<<<'SQL'
+            UPDATE item SET label = (
+                SELECT c.value FROM claim c
+                WHERE c.item_id = item.id AND c.predicate IN ('dcterms:title', 'ai:caption')
+                  AND c.value IS NOT NULL AND c.value != ''
+                ORDER BY CASE c.predicate WHEN 'dcterms:title' THEN 0 ELSE 1 END
+                LIMIT 1
+            )
+            WHERE (item.label IS NULL OR item.label = item.local_id)
+              AND EXISTS (
+                SELECT 1 FROM claim c
+                WHERE c.item_id = item.id AND c.predicate IN ('dcterms:title', 'ai:caption')
+                  AND c.value IS NOT NULL AND c.value != ''
+              )
+            SQL);
     }
 
     /**
