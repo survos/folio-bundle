@@ -15,18 +15,26 @@ use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository
 use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
+use Survos\Kit\AbstractUxBundle;
+use Survos\Kit\SurvosKitBundle;
 use Survos\Kit\Traits\HasConfigurableRoutes;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\{ContainerBuilder,ContainerInterface,Reference};
 use Symfony\Component\DependencyInjection\Kernel\RequiredBundle;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
-use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 
+#[RequiredBundle(SurvosKitBundle::class)]
 #[RequiredBundle(SurvosIiifBundle::class, ignoreOnInvalid: true)]
 #[RequiredBundle(SurvosImgproxyBundle::class, ignoreOnInvalid: true)]
-final class SurvosFolioBundle extends AbstractBundle
+// Symfony\Component\HttpKernel\Bundle\Bundle <-- Flex auto-registration marker (see Survos\Kit\AbstractSurvosBundle)
+final class SurvosFolioBundle extends AbstractUxBundle
 {
     use HasConfigurableRoutes;
+
+    protected function twigNamespace(): ?string
+    {
+        return 'SurvosFolioBundle';
+    }
 
     public function configure(DefinitionConfigurator $definition): void
     {
@@ -58,11 +66,13 @@ final class SurvosFolioBundle extends AbstractBundle
 
     public function build(ContainerBuilder $container): void
     {
+        parent::build($container);
         $this->addRouteLoaderCompilerPass($container);
     }
 
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
+        parent::loadExtension($config, $container, $builder);
         $this->captureRouteConfig($config);
         $builder->setParameter('survos_folio.folio_server', $config['folio_server']);
         $services = $container->services();
@@ -142,12 +152,11 @@ final class SurvosFolioBundle extends AbstractBundle
 
     public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
     {
+        parent::prependExtension($container, $builder);
+
         $entityDir = dirname(__DIR__) . '/src/Entity';
         if ($builder->hasExtension('api_platform')) {
             $builder->prependExtensionConfig('api_platform', ['mapping' => ['paths' => [$entityDir]]]);
-        }
-        if ($builder->hasExtension('twig')) {
-            $builder->prependExtensionConfig('twig', ['paths' => [dirname(__DIR__) . '/templates' => 'SurvosFolioBundle']]);
         }
     }
 

@@ -1,0 +1,12 @@
+{
+    "controllers": {
+        "@survos/folio-bundle": {
+            "slideshow": {
+                "enabled": true,
+                "fetch": "lazy",
+                "autoimport": []
+            }
+        }
+    },
+    "entrypoints": []
+}

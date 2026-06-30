@@ -1,0 +1,104 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+
+{% set parts = ctx.folioCode|split('/') %}
+{% set provider = parts[0] %}
+{% set dataset = parts[1] %}
+{% set controllerName = 'survos--folio-bundle--slideshow' %}
+
+{% block body_class %}folio-layout{% endblock %}
+
+{% block page_pretitle %}Folio Slideshow{% endblock %}
+
+{% block page_title %}
+    {{ core.label ?: core.code }}{% if dtoType %} / {{ dtoType }}{% endif %}
+{% endblock %}
+
+{% block page_subtitle %}
+    <span class="font-monospace">{{ ctx.folioCode }}</span>
+    <span class="mx-1 text-muted">&middot;</span>
+    {{ slides|length|number_format }} slide{{ slides|length == 1 ? '' : 's' }}
+{% endblock %}
+
+{% block title %}Slideshow · {{ ctx.folioCode }} · {{ core.code }}{% endblock %}
+
+{% block body %}
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <a class="btn btn-outline-secondary" href="{{ path('survos_folio_show', {provider: provider, dataset: dataset}) }}">
+            {% guard function ux_icon %}{{ ux_icon('tabler:layout-dashboard', {class: 'icon me-1'}) }}{% endguard %}
+            Overview
+        </a>
+        <a class="btn btn-outline-secondary" href="{{ path('survos_folio_core', {provider: provider, dataset: dataset, coreCode: core.code}) }}">
+            {% guard function ux_icon %}{{ ux_icon('tabler:list', {class: 'icon me-1'}) }}{% endguard %}
+            Core list
+        </a>
+    </div>
+
+    {% if slides is empty %}
+        <div class="alert alert-info">No slideshow images found for this filter.</div>
+    {% else %}
+        <div
+            class="folio-slideshow"
+            {{ stimulus_controller(controllerName, {slides: slides}) }}
+        >
+            <div class="row g-3 align-items-stretch">
+                <div class="col-lg-8">
+                    <div class="card h-100 bg-dark text-white overflow-hidden">
+                        <div class="ratio ratio-4x3">
+                            <img
+                                class="w-100 h-100"
+                                style="object-fit: contain; background: #111;"
+                                alt=""
+                                {{ stimulus_target(controllerName, 'image') }}
+                            >
+                        </div>
+                        <div class="card-footer bg-dark border-secondary d-flex justify-content-between align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-light" {{ stimulus_action(controllerName, 'previous') }}>
+                                {% guard function ux_icon %}{{ ux_icon('tabler:chevron-left', {class: 'icon me-1'}) }}{% endguard %}
+                                Previous
+                            </button>
+                            <span class="badge text-bg-light" {{ stimulus_target(controllerName, 'index') }}></span>
+                            <button type="button" class="btn btn-outline-light" {{ stimulus_action(controllerName, 'next') }}>
+                                Next
+                                {% guard function ux_icon %}{{ ux_icon('tabler:chevron-right', {class: 'icon ms-1'}) }}{% endguard %}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-start gap-2">
+                            <div class="min-w-0">
+                                <h2 class="card-title mb-1 text-truncate" {{ stimulus_target(controllerName, 'title') }}></h2>
+                                <div class="text-muted small text-break" {{ stimulus_target(controllerName, 'subtitle') }}></div>
+                            </div>
+                            <a class="btn btn-sm btn-primary" href="#" {{ stimulus_target(controllerName, 'detail') }}>
+                                Open
+                            </a>
+                        </div>
+                        <div class="card-body overflow-auto" style="max-height: 70vh;">
+                            <p class="text-muted" {{ stimulus_target(controllerName, 'summary') }}></p>
+                            <dl class="mb-0" {{ stimulus_target(controllerName, 'meta') }}></dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                {% for slide in slides|slice(0, 120) %}
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        data-slide-index="{{ loop.index0 }}"
+                        {{ stimulus_action(controllerName, 'jump') }}
+                    >
+                        {{ loop.index }}
+                    </button>
+                {% endfor %}
+                {% if slides|length > 120 %}
+                    <span class="text-muted small align-self-center">Showing first 120 slide shortcuts.</span>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+{% endblock %}

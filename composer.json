@@ -43,5 +43,6 @@
     "survos/tabler-bundle": "^2.5",
     "survos/imgproxy-bundle": "^2.5",
     "survos/iiif-bundle": "^2.5"
-  }
+  },
+  "keywords": ["symfony-ux", "ux"]
 }

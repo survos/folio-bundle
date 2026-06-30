@@ -1,0 +1,18 @@
+{
+  "name": "@survos/folio-bundle",
+  "description": "Folio browsing Stimulus controllers.",
+  "keywords": [
+    "symfony-ux",
+    "ux"
+  ],
+  "symfony": {
+    "controllers": {
+      "slideshow": {
+        "main": "controllers/slideshow_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
+      }
+    }
+  }
+}

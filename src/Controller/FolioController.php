@@ -6,7 +6,7 @@ namespace Survos\FolioBundle\Controller;
 
 use Doctrine\DBAL\Connection;
 use Survos\FolioBundle\Attribute\FolioContext;
-use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Row,Term,TermSet};
+use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Page,Row,Term,TermSet};
 use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService};
 use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
@@ -94,6 +94,86 @@ final class FolioController extends AbstractController
         );
 
         return $response;
+    }
+
+
+    #[Route('/{provider}/{dataset}/slideshow/{coreCode}/{dtoType}', name: 'survos_folio_slideshow_dto', options: ['expose' => true])]
+    #[Route('/{provider}/{dataset}/slideshow/{coreCode}', name: 'survos_folio_slideshow', options: ['expose' => true])]
+    public function slideshow(string $provider, string $dataset, string $coreCode, ?string $dtoType = null): Response
+    {
+        $folioCode = "$provider/$dataset";
+        $ctx = $this->folios->context($folioCode);
+        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+            ?? throw $this->createNotFoundException($coreCode);
+
+        $where = ['core_id = :core'];
+        $params = ['core' => $core->id];
+        if ($dtoType !== null && $dtoType !== '') {
+            $where[] = 'dto_type = :dtoType';
+            $params['dtoType'] = $dtoType;
+        }
+
+        $rows = $ctx->em->getConnection()->executeQuery(
+            sprintf(
+                'SELECT local_id, dto_type FROM item WHERE %s ORDER BY rowid',
+                implode(' AND ', $where),
+            ),
+            $params,
+        )->fetchAllAssociative();
+
+        $slides = [];
+        foreach ($rows as $index => $rowData) {
+            $localId = (string) $rowData['local_id'];
+            $row = $ctx->em->find(Row::class, Row::id($core->id, $localId));
+            if (!$row instanceof Row) {
+                continue;
+            }
+
+            $pages = array_values($row->pages->toArray());
+            $firstPage = $pages[0] ?? null;
+            \assert($firstPage === null || $firstPage instanceof Page);
+            $imageUrl = $firstPage?->url ?? $row->getThumbnailUrl();
+            if ($imageUrl === null || $imageUrl === '') {
+                continue;
+            }
+
+            $slides[] = [
+                'id' => $row->localId,
+                'title' => $row->label ?: $row->localId,
+                'url' => $imageUrl,
+                'detailUrl' => $this->generateUrl('survos_folio_row_show', [
+                    'provider' => $provider,
+                    'dataset' => $dataset,
+                    'coreCode' => $core->code,
+                    'dtoType' => $row->dtoType ?: 'row',
+                    'localId' => $row->localId,
+                ]),
+                'orderIdx' => $index + 1,
+                'coreCode' => $core->code,
+                'dtoType' => $row->dtoType,
+                'summary' => $row->dtoData['denseSummary']
+                    ?? $row->dtoData['description']
+                    ?? $row->extras['ai:denseSummary']
+                    ?? null,
+                'pageCount' => count($pages) ?: ($row->dtoData['pageCount'] ?? null),
+                'metadata' => [
+                    'localId' => $row->localId,
+                    'label' => $row->label,
+                    'dtoType' => $row->dtoType,
+                    'coreCode' => $core->code,
+                    'date' => $row->dtoData['date'] ?? $row->dtoData['year'] ?? null,
+                    'creator' => $row->dtoData['creator'] ?? null,
+                    'citationUrl' => $row->getCitationUrl(),
+                ],
+            ];
+        }
+
+        return $this->render('@SurvosFolioBundle/folio/slideshow.html.twig', [
+            'ctx' => $ctx,
+            'core' => $core,
+            'dtoType' => $dtoType,
+            'slides' => $slides,
+        ]);
     }
 
     #[Route('/{provider}/{dataset}/schema', name: 'survos_folio_schema')]
