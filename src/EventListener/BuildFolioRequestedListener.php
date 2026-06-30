@@ -41,6 +41,6 @@ final class BuildFolioRequestedListener
         // no console (dispatched outside a command).
         $io = $event->io ?? new SymfonyStyle(new ArrayInput([]), new NullOutput());
 
-        ($this->folioBuild)($io, dataset: $event->datasetKey, core: $event->core, gz: $this->buildArchive);
+        ($this->folioBuild)($io, dataset: $event->datasetKey, core: $event->core, gz: $this->buildArchive, force: $event->force);
     }
 }
