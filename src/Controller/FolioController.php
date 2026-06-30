@@ -99,74 +99,42 @@ final class FolioController extends AbstractController
 
     #[Route('/{provider}/{dataset}/slideshow/{coreCode}/{dtoType}', name: 'survos_folio_slideshow_dto', options: ['expose' => true])]
     #[Route('/{provider}/{dataset}/slideshow/{coreCode}', name: 'survos_folio_slideshow', options: ['expose' => true])]
-    public function slideshow(string $provider, string $dataset, string $coreCode, ?string $dtoType = null): Response
+    public function slideshow(string $provider, string $dataset, string $coreCode, Request $request, ?string $dtoType = null): Response
     {
         $folioCode = "$provider/$dataset";
         $ctx = $this->folios->context($folioCode);
         $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
 
-        $where = ['core_id = :core'];
+        $conn = $ctx->em->getConnection();
+        $where = ['d.core_id = :core'];
         $params = ['core' => $core->id];
         if ($dtoType !== null && $dtoType !== '') {
-            $where[] = 'dto_type = :dtoType';
+            $where[] = 'd.dto_type = :dtoType';
             $params['dtoType'] = $dtoType;
         }
 
-        $rows = $ctx->em->getConnection()->executeQuery(
+        // Continue straight from the user's refined grid: honour the same sort + facet filters the
+        // ux-search component produces (sortBy=<prop>:<dir>, <facet>=v1~~v2, <facet>Min/<facet>Max).
+        // The Slideshow button packs that whole query string into a single url-safe base64 `f` token
+        // (lossless — no per-param re-encoding), which we decode back into a param map here. Full-text
+        // (`query`) is ignored. Column/table rules mirror the SqliteFts5 adapter + App\Search\FolioRowSearch.
+        $orderBy = $this->slideshowSortAndFilters($this->slideshowFilterParams($request), $conn, $where, $params);
+
+        // A slideshow over a 60k-row core must not hydrate 60k Row entities (that OOMs). Materialise
+        // only the lightweight {id, thumb} list the viewer needs; per-row detail is deferred (the viewer
+        // shows a @todo placeholder for now — a fetch-on-navigate endpoint or a dedicated gallery JS tool
+        // can fill it in later).
+        $slides = $conn->executeQuery(
             sprintf(
-                'SELECT local_id, dto_type FROM item WHERE %s ORDER BY rowid',
+                "SELECT d.local_id AS id,
+                        coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl')) AS thumb
+                 FROM item d WHERE %s %s",
                 implode(' AND ', $where),
+                $orderBy,
             ),
             $params,
         )->fetchAllAssociative();
-
-        $slides = [];
-        foreach ($rows as $index => $rowData) {
-            $localId = (string) $rowData['local_id'];
-            $row = $ctx->em->find(Row::class, Row::id($core->id, $localId));
-            if (!$row instanceof Row) {
-                continue;
-            }
-
-            $pages = array_values($row->pages->toArray());
-            $firstPage = $pages[0] ?? null;
-            \assert($firstPage === null || $firstPage instanceof Page);
-            $imageUrl = $firstPage?->url ?? $row->getThumbnailUrl();
-            if ($imageUrl === null || $imageUrl === '') {
-                continue;
-            }
-
-            $slides[] = [
-                'id' => $row->localId,
-                'title' => $row->label ?: $row->localId,
-                'url' => $imageUrl,
-                'detailUrl' => $this->generateUrl('survos_folio_row_show', [
-                    'provider' => $provider,
-                    'dataset' => $dataset,
-                    'coreCode' => $core->code,
-                    'dtoType' => $row->dtoType ?: 'row',
-                    'localId' => $row->localId,
-                ]),
-                'orderIdx' => $index + 1,
-                'coreCode' => $core->code,
-                'dtoType' => $row->dtoType,
-                'summary' => $row->dtoData['denseSummary']
-                    ?? $row->dtoData['description']
-                    ?? $row->extras['ai:denseSummary']
-                    ?? null,
-                'pageCount' => count($pages) ?: ($row->dtoData['pageCount'] ?? null),
-                'metadata' => [
-                    'localId' => $row->localId,
-                    'label' => $row->label,
-                    'dtoType' => $row->dtoType,
-                    'coreCode' => $core->code,
-                    'date' => $row->dtoData['date'] ?? $row->dtoData['year'] ?? null,
-                    'creator' => $row->dtoData['creator'] ?? null,
-                    'citationUrl' => $row->getCitationUrl(),
-                ],
-            ];
-        }
 
         return $this->render('@SurvosFolioBundle/folio/slideshow.html.twig', [
             'ctx' => $ctx,
@@ -174,6 +142,126 @@ final class FolioController extends AbstractController
             'dtoType' => $dtoType,
             'slides' => $slides,
         ]);
+    }
+
+    /**
+     * The grid state the slideshow filters by, as a param map. The Slideshow button packs the grid's
+     * query string into a url-safe base64 `f` token (lossless); decode it back to a map. Falls back to
+     * the raw query params so hand-written / legacy `?sortBy=…&cul=…` links keep working.
+     *
+     * @return array<string, mixed>
+     */
+    private function slideshowFilterParams(Request $request): array
+    {
+        $f = $request->query->getString('f');
+        if ($f !== '') {
+            $decoded = base64_decode(strtr($f, '-_', '+/'), true);
+            if ($decoded !== false && $decoded !== '') {
+                parse_str($decoded, $parsed);
+
+                return $parsed;
+            }
+        }
+
+        return $request->query->all();
+    }
+
+    /**
+     * Translate the grid's param map into SQL against the folio `item d` table, mutating $where/$params
+     * and returning the ORDER BY clause. Term facets use the denormalised item_facet table (matching the
+     * SqliteFts5 adapter, so multi-valued facets behave identically); ranges and sorts read
+     * json_extract(d.dto_data, …). `core` is pinned by the route path and full-text is ignored.
+     * Property→column rules mirror App\Search\FolioRowSearch.
+     *
+     * @param array<string, mixed> $source
+     * @param list<string>         $where
+     * @param array<string, mixed> $params
+     */
+    private function slideshowSortAndFilters(array $source, Connection $conn, array &$where, array &$params): string
+    {
+        $hasFacetTable = (bool) $conn->executeQuery(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'item_facet'",
+        )->fetchOne();
+
+        // `core` is always pinned by the slideshow route path, so drop it; `dtoType` is NOT always in
+        // the path (the grid exposes it as a facet on core-only pages), so let it flow through as a
+        // normal item_facet filter. query/page/full-text/placeholder are not slideshow concerns.
+        $reserved = ['query', 'page', 'sortBy', 'core', 'ux_search_placeholder', 'hitsPerPage'];
+        $i = 0;
+        foreach ($source as $key => $value) {
+            if (!is_string($value) || $value === '' || in_array($key, $reserved, true)) {
+                continue;
+            }
+
+            $isRange = str_ends_with($key, 'Min') || str_ends_with($key, 'Max');
+            $property = $isRange ? substr($key, 0, -3) : $key;
+            // `core` is pinned by the path; reject anything that isn't a plain property name.
+            if ($property === 'core' || !preg_match('/^[A-Za-z0-9_:]+$/', $property)) {
+                continue;
+            }
+            $column = sprintf("json_extract(d.dto_data, '$.%s')", $property);
+
+            if ($isRange) {
+                if (!is_numeric($value)) {
+                    continue;
+                }
+                // CAST both sides to REAL: json_extract values store as int/real while URL bounds are
+                // strings, and SQLite orders int < text across storage classes (mirrors the adapter).
+                $name = 'r' . $i++;
+                $where[] = sprintf('CAST(%s AS REAL) %s CAST(:%s AS REAL)', $column, str_ends_with($key, 'Min') ? '>=' : '<=', $name);
+                $params[$name] = $value;
+                continue;
+            }
+
+            $values = array_values(array_filter(
+                explode('~~', $value),
+                static fn (string $v): bool => trim($v) !== '',
+            ));
+            if ($values === []) {
+                continue;
+            }
+
+            $names = [];
+            foreach (array_slice($values, 0, 100) as $v) {
+                $name = 't' . $i++;
+                $names[] = ':' . $name;
+                $params[$name] = $v;
+            }
+
+            if ($hasFacetTable) {
+                $field = 'field' . $i++;
+                $params[$field] = $property;
+                $where[] = sprintf(
+                    'EXISTS (SELECT 1 FROM item_facet fv WHERE fv.item_rowid = d.rowid AND fv.field = :%s AND fv.value IN (%s))',
+                    $field,
+                    implode(', ', $names),
+                );
+            } else {
+                $where[] = sprintf('%s IN (%s)', $column, implode(', ', $names));
+            }
+        }
+
+        $sortBy = $source['sortBy'] ?? '';
+
+        return $this->slideshowOrderBy(is_string($sortBy) ? $sortBy : '');
+    }
+
+    private function slideshowOrderBy(string $sortBy): string
+    {
+        // Mirror App\Search\FolioRowSearch sort columns; default to insertion order.
+        $columns = [
+            'label' => 'd.label',
+            'year' => "json_extract(d.dto_data, '$.year')",
+        ];
+
+        if ($sortBy !== '' && str_contains($sortBy, ':')) {
+            [$property, $direction] = explode(':', $sortBy, 2);
+            if (isset($columns[$property])) {
+                return sprintf('ORDER BY %s %s', $columns[$property], strtoupper($direction) === 'DESC' ? 'DESC' : 'ASC');
+            }
+        }
+
+        return 'ORDER BY d.rowid';
     }
 
     #[Route('/{provider}/{dataset}/schema', name: 'survos_folio_schema')]

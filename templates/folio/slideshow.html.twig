@@ -36,16 +36,13 @@
     {% if slides is empty %}
         <div class="alert alert-info">No slideshow images found for this filter.</div>
     {% else %}
-        <div
-            class="folio-slideshow"
-            {{ stimulus_controller(controllerName, {slides: slides}) }}
-        >
+        <div class="folio-slideshow" {{ stimulus_controller(controllerName, {slides: slides}) }}>
             <div class="row g-3 align-items-stretch">
                 <div class="col-lg-8">
-                    <div class="card h-100 bg-dark text-white overflow-hidden">
+                    <div class="card h-100 text-white overflow-hidden" style="background: #111;">
                         <div class="ratio ratio-4x3">
                             <img
-                                class="w-100 h-100"
+                                class="w-100 h-100 folio-slideshow-image"
                                 style="object-fit: contain; background: #111;"
                                 alt=""
                                 {{ stimulus_target(controllerName, 'image') }}
@@ -67,38 +64,94 @@
 
                 <div class="col-lg-4">
                     <div class="card h-100">
-                        <div class="card-header d-flex justify-content-between align-items-start gap-2">
-                            <div class="min-w-0">
-                                <h2 class="card-title mb-1 text-truncate" {{ stimulus_target(controllerName, 'title') }}></h2>
-                                <div class="text-muted small text-break" {{ stimulus_target(controllerName, 'subtitle') }}></div>
-                            </div>
-                            <a class="btn btn-sm btn-primary" href="#" {{ stimulus_target(controllerName, 'detail') }}>
-                                Open
-                            </a>
-                        </div>
-                        <div class="card-body overflow-auto" style="max-height: 70vh;">
-                            <p class="text-muted" {{ stimulus_target(controllerName, 'summary') }}></p>
-                            <dl class="mb-0" {{ stimulus_target(controllerName, 'meta') }}></dl>
+                        <div class="card-body">
+                            {# Detail is deferred — the viewer just notes which row is selected. #}
+                            <div class="text-muted" {{ stimulus_target(controllerName, 'detail') }}></div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="d-flex flex-wrap gap-2 mt-3">
+            <div class="folio-thumbnail-strip mt-3">
                 {% for slide in slides|slice(0, 120) %}
                     <button
                         type="button"
-                        class="btn btn-sm btn-outline-secondary"
+                        class="folio-thumbnail"
+                        title="#{{ slide.id }}"
                         data-slide-index="{{ loop.index0 }}"
+                        {{ stimulus_target(controllerName, 'thumbnail') }}
                         {{ stimulus_action(controllerName, 'jump') }}
                     >
-                        {{ loop.index }}
+                        {% if slide.thumb %}
+                            <img
+                                src="{{ slide.thumb }}"
+                                alt=""
+                                loading="lazy"
+                                decoding="async"
+                            >
+                        {% else %}
+                            <span class="small text-muted">{{ loop.index }}</span>
+                        {% endif %}
                     </button>
                 {% endfor %}
+
                 {% if slides|length > 120 %}
-                    <span class="text-muted small align-self-center">Showing first 120 slide shortcuts.</span>
+                    <span class="text-muted small align-self-center px-2">
+                        Showing first 120 of {{ slides|length|number_format }}.
+                    </span>
                 {% endif %}
             </div>
+
+            <collection-slider
+                min="1"
+                max="{{ slides|length }}"
+                value="1"
+                step="1"
+                tick-count="10"
+                {{ stimulus_target(controllerName, 'slider') }}
+            ></collection-slider>
         </div>
     {% endif %}
+
+    <style>
+        .folio-thumbnail-strip {
+            display: flex;
+            gap: 0.5rem;
+            overflow-x: auto;
+            padding: 0.5rem 0;
+            scrollbar-width: thin;
+        }
+
+        .folio-thumbnail {
+            flex: 0 0 auto;
+            width: 72px;
+            height: 56px;
+            padding: 2px;
+            border: 2px solid transparent;
+            border-radius: 0.5rem;
+            background: #fff;
+            cursor: pointer;
+        }
+
+        .folio-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 0.35rem;
+            display: block;
+        }
+
+        .folio-thumbnail.is-active {
+            border-color: #066fd1;
+        }
+
+        .folio-slideshow-image {
+            opacity: 1;
+            transition: opacity 140ms ease;
+        }
+
+        .folio-slideshow-image.is-changing {
+            opacity: 0;
+        }
+    </style>
 {% endblock %}

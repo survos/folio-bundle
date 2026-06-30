@@ -1,7 +1,12 @@
 import { Controller } from '@hotwired/stimulus';
 
+/*
+ * Lightweight thumbnail slideshow. To stay memory-safe over very large result sets,
+ * the server passes only the ordered {id, thumb} list — NOT hydrated row data.
+ * The main image shows the thumbnail; per-row detail is deferred for later.
+ */
 export default class extends Controller {
-    static targets = ['image', 'title', 'subtitle', 'index', 'summary', 'meta', 'detail'];
+    static targets = ['image', 'index', 'detail', 'slider', 'thumbnail'];
 
     static values = {
         slides: { type: Array, default: [] },
@@ -14,35 +19,57 @@ export default class extends Controller {
                 event.preventDefault();
                 this.previous();
             }
+
             if (event.key === 'ArrowRight') {
                 event.preventDefault();
                 this.next();
             }
         };
+
+        this._onSliderChange = (event) => {
+            this.show(Number(event.detail.value) - 1);
+        };
+
         window.addEventListener('keydown', this._onKeydown);
+
+        if (this.hasSliderTarget) {
+            this.sliderTarget.addEventListener('collection-slider-change', this._onSliderChange);
+        }
+
         this.show(this.currentValue);
     }
 
     disconnect() {
         window.removeEventListener('keydown', this._onKeydown);
+
+        if (this.hasSliderTarget) {
+            this.sliderTarget.removeEventListener('collection-slider-change', this._onSliderChange);
+        }
     }
 
     previous() {
-        if (this.slidesValue.length === 0) {
+        const count = this.slidesValue.length;
+
+        if (count === 0) {
             return;
         }
-        this.show((this.currentValue - 1 + this.slidesValue.length) % this.slidesValue.length);
+
+        this.show((this.currentValue - 1 + count) % count);
     }
 
     next() {
-        if (this.slidesValue.length === 0) {
+        const count = this.slidesValue.length;
+
+        if (count === 0) {
             return;
         }
-        this.show((this.currentValue + 1) % this.slidesValue.length);
+
+        this.show((this.currentValue + 1) % count);
     }
 
     jump(event) {
         const index = Number(event.currentTarget.dataset.slideIndex);
+
         if (Number.isInteger(index)) {
             this.show(index);
         }
@@ -50,71 +77,62 @@ export default class extends Controller {
 
     show(index) {
         const slides = this.slidesValue;
+
         if (slides.length === 0) {
             return;
         }
 
         const boundedIndex = Math.max(0, Math.min(index, slides.length - 1));
         const slide = slides[boundedIndex];
+
         this.currentValue = boundedIndex;
 
-        if (this.hasImageTarget) {
-            this.imageTarget.src = slide.url || '';
-            this.imageTarget.alt = slide.title || slide.id || `Slide ${boundedIndex + 1}`;
+        if (this.hasSliderTarget) {
+            this.sliderTarget.setAttribute('value', String(boundedIndex + 1));
         }
-        if (this.hasTitleTarget) {
-            this.titleTarget.textContent = slide.title || slide.id || 'Untitled';
-        }
-        if (this.hasSubtitleTarget) {
-            const parts = [slide.coreCode, slide.dtoType, slide.id].filter(Boolean);
-            this.subtitleTarget.textContent = parts.join(' / ');
-        }
+
+        this.setImage(slide, boundedIndex);
+
         if (this.hasIndexTarget) {
             this.indexTarget.textContent = `${boundedIndex + 1} / ${slides.length}`;
         }
-        if (this.hasSummaryTarget) {
-            this.summaryTarget.textContent = slide.summary || '';
-            this.summaryTarget.hidden = !slide.summary;
-        }
+
         if (this.hasDetailTarget) {
-            this.detailTarget.href = slide.detailUrl || '#';
-            this.detailTarget.hidden = !slide.detailUrl;
-        }
-        if (this.hasMetaTarget) {
-            this.metaTarget.innerHTML = this.metadataHtml(slide.metadata || {});
+            this.detailTarget.textContent = slide.id
+                ? `@todo: details for row #${slide.id}`
+                : `@todo: details for slide ${boundedIndex + 1}`;
         }
 
-        this.element.querySelectorAll('[data-slide-index]').forEach((button) => {
-            button.classList.toggle('active', Number(button.dataset.slideIndex) === boundedIndex);
+        this.thumbnailTargets.forEach((thumbnail) => {
+            thumbnail.classList.toggle(
+                'is-active',
+                Number(thumbnail.dataset.slideIndex) === boundedIndex
+            );
+        });
+
+        const activeThumbnail = this.thumbnailTargets[boundedIndex];
+
+        activeThumbnail?.scrollIntoView({
+            behavior: 'smooth',
+            inline: 'center',
+            block: 'nearest',
         });
     }
 
-    metadataHtml(metadata) {
-        const rows = Object.entries(metadata).filter(([, value]) => value !== null && value !== undefined && value !== '');
-        if (rows.length === 0) {
-            return '<div class="text-muted small">No metadata available.</div>';
+    setImage(slide, index) {
+        if (!this.hasImageTarget) {
+            return;
         }
 
-        return rows.map(([key, value]) => {
-            const label = this.escape(this.label(key));
-            const rendered = key === 'citationUrl'
-                ? `<a href="${this.escape(String(value))}" target="_blank" rel="noopener">${this.escape(String(value))}</a>`
-                : this.escape(String(value));
+        this.imageTarget.classList.add('is-changing');
 
-            return `<div class="d-flex gap-3 border-bottom py-2">
-                <dt class="text-muted small flex-shrink-0" style="width: 7rem;">${label}</dt>
-                <dd class="mb-0 small text-break">${rendered}</dd>
-            </div>`;
-        }).join('');
-    }
+        window.setTimeout(() => {
+            this.imageTarget.src = slide.thumb || '';
+            this.imageTarget.alt = slide.id ? `#${slide.id}` : `Slide ${index + 1}`;
 
-    label(key) {
-        return key.replace(/([A-Z])/g, ' $1').replace(/^./, (char) => char.toUpperCase());
-    }
-
-    escape(value) {
-        const span = document.createElement('span');
-        span.textContent = value;
-        return span.innerHTML;
+            this.imageTarget.onload = () => {
+                this.imageTarget.classList.remove('is-changing');
+            };
+        }, 140);
     }
 }

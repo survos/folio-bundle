@@ -60,6 +60,22 @@
                                 {% endif %}
                             </a>
                         {% endfor %}
+
+                        {% if selectedCore|default(null) %}
+                            {# Slideshow of the current result set. The link starts at the unfiltered
+                               slideshow; the slideshow-link controller keeps its target in sync with the
+                               grid's sort + facet state (sortBy / <facet>=v1~~v2 / <facet>Min/Max). #}
+                            {% set slideshowUrl = selectedDtoType|default(null)
+                                ? path('survos_folio_slideshow_dto', {provider: provider, dataset: dataset, coreCode: selectedCore, dtoType: selectedDtoType})
+                                : path('survos_folio_slideshow', {provider: provider, dataset: dataset, coreCode: selectedCore}) %}
+                            <a class="btn btn-sm btn-outline-primary ms-auto"
+                               href="{{ slideshowUrl }}"
+                               data-controller="slideshow-link"
+                               data-slideshow-link-base-value="{{ slideshowUrl }}">
+                                {{ ux_icon('tabler:slideshow', { class: 'icon me-1' }) }}
+                                Slideshow
+                            </a>
+                        {% endif %}
                     </div>
                 </div>
             </div>
