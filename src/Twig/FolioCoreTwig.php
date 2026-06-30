@@ -32,6 +32,23 @@ final class FolioCoreTwig
 
     private ?CommonMarkConverter $converter = null;
 
+    /**
+     * Encode a folio-search param map (sortBy, facet values, a pinned dtoType, …) into the url-safe
+     * base64 token the slideshow `{filter}` route segment accepts — the server-side mirror of the
+     * slideshow-link Stimulus controller. Empty map → '' (use the unfiltered slideshow route instead).
+     *
+     * @param array<string, scalar|array<scalar>> $params
+     */
+    #[AsTwigFunction('slideshow_filter')]
+    public function slideshowFilter(array $params): string
+    {
+        if ($params === []) {
+            return '';
+        }
+
+        return rtrim(strtr(base64_encode(http_build_query($params)), '+/', '-_'), '=');
+    }
+
     public function __construct(
         private readonly ?UrlGeneratorInterface $urlGenerator = null,
         /** Host-app route that lists/searches datasets (e.g. zm's `app_search`); null disables provider links. */

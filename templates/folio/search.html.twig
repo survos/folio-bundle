@@ -170,13 +170,18 @@
 #}
 {% block folio_search_slideshow_button %}
     {% if selectedCore|default(null) %}
-        {% set slideshowUrl = selectedDtoType|default(null)
-            ? path('survos_folio_slideshow_dto', {provider: provider, dataset: dataset, coreCode: selectedCore, dtoType: selectedDtoType})
-            : path('survos_folio_slideshow', {provider: provider, dataset: dataset, coreCode: selectedCore}) %}
+        {# base = the unfiltered slideshow for this core; the controller appends a /{token} path segment.
+           A pinned dtoType isn't a grid query param, so seed the initial href with it and hand it to the
+           controller as a fixed filter to fold into every token it builds. #}
+        {% set slideshowBase = path('survos_folio_slideshow', {provider: provider, dataset: dataset, coreCode: selectedCore}) %}
+        {% set initialUrl = selectedDtoType|default(null)
+            ? path('survos_folio_slideshow_filtered', {provider: provider, dataset: dataset, coreCode: selectedCore, filter: slideshow_filter({dtoType: selectedDtoType})})
+            : slideshowBase %}
         <a class="btn btn-sm btn-outline-primary ms-auto"
-           href="{{ slideshowUrl }}"
+           href="{{ initialUrl }}"
            data-controller="slideshow-link"
-           data-slideshow-link-base-value="{{ slideshowUrl }}">
+           data-slideshow-link-base-value="{{ slideshowBase }}"
+           data-slideshow-link-fixed-value="{{ selectedDtoType|default(null) ? 'dtoType=' ~ selectedDtoType : '' }}">
             {{ ux_icon('tabler:slideshow', { class: 'icon me-1' }) }}
             Slideshow
         </a>

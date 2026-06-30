@@ -14,6 +14,10 @@ export default class extends Controller {
     };
 
     connect() {
+        // Value mode (numeric sort, e.g. Year): the slider runs over the real value range, so its value
+        // is the year and we map it to the nearest slide. Index mode: the value is just the 1…N position.
+        this._numeric = this.hasSliderTarget && this.sliderTarget.dataset.slideshowNumeric === '1';
+
         this._onKeydown = (event) => {
             if (event.key === 'ArrowLeft') {
                 event.preventDefault();
@@ -27,7 +31,8 @@ export default class extends Controller {
         };
 
         this._onSliderChange = (event) => {
-            this.show(Number(event.detail.value) - 1);
+            const value = Number(event.detail.value);
+            this.show(this._numeric ? this.indexForValue(value) : value - 1);
         };
 
         window.addEventListener('keydown', this._onKeydown);
@@ -88,7 +93,7 @@ export default class extends Controller {
         this.currentValue = boundedIndex;
 
         if (this.hasSliderTarget) {
-            this.sliderTarget.setAttribute('value', String(boundedIndex + 1));
+            this.sliderTarget.setAttribute('value', String(this._numeric ? slide.v : boundedIndex + 1));
         }
 
         this.setImage(slide, boundedIndex);
@@ -117,6 +122,25 @@ export default class extends Controller {
             inline: 'center',
             block: 'nearest',
         });
+    }
+
+    // Nearest slide to a slider value (e.g. a year). Slides are ordered by the sort value, so a linear
+    // scan for the smallest distance handles both ASC and DESC and ties to the first match.
+    indexForValue(value) {
+        const slides = this.slidesValue;
+        let best = 0;
+        let bestDiff = Infinity;
+
+        for (let i = 0; i < slides.length; i++) {
+            const diff = Math.abs(Number(slides[i].v) - value);
+
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                best = i;
+            }
+        }
+
+        return best;
     }
 
     setImage(slide, index) {

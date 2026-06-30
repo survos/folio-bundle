@@ -98,9 +98,9 @@ final class FolioController extends AbstractController
     }
 
 
-    #[Route('/{provider}/{dataset}/slideshow/{coreCode}/{dtoType}', name: 'survos_folio_slideshow_dto', options: ['expose' => true])]
+    #[Route('/{provider}/{dataset}/slideshow/{coreCode}/{filter}', name: 'survos_folio_slideshow_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
     #[Route('/{provider}/{dataset}/slideshow/{coreCode}', name: 'survos_folio_slideshow', options: ['expose' => true])]
-    public function slideshow(string $provider, string $dataset, string $coreCode, Request $request, ?string $dtoType = null): Response
+    public function slideshow(string $provider, string $dataset, string $coreCode, Request $request, ?string $filter = null): Response
     {
         $folioCode = "$provider/$dataset";
         $ctx = $this->folios->context($folioCode);
@@ -110,53 +110,78 @@ final class FolioController extends AbstractController
         $conn = $ctx->em->getConnection();
         $where = ['d.core_id = :core'];
         $params = ['core' => $core->id];
-        if ($dtoType !== null && $dtoType !== '') {
-            $where[] = 'd.dto_type = :dtoType';
-            $params['dtoType'] = $dtoType;
-        }
 
         // Continue straight from the user's refined grid: honour the same sort + facet filters the
-        // ux-search component produces (sortBy=<prop>:<dir>, <facet>=v1~~v2, <facet>Min/<facet>Max).
-        // The Slideshow button packs that whole query string into a single url-safe base64 `f` token
-        // (lossless — no per-param re-encoding), which we decode back into a param map here. Full-text
-        // (`query`) is ignored. Column/table rules mirror the SqliteFts5 adapter + App\Search\FolioRowSearch.
-        $orderBy = $this->slideshowSortAndFilters($this->slideshowFilterParams($request), $conn, $where, $params);
+        // ux-search component produces (sortBy=<prop>:<dir>, <facet>=v1~~v2, <facet>Min/<facet>Max, and
+        // a pinned dtoType). The Slideshow button packs that whole query string into a single url-safe
+        // base64 token carried as the {filter} path segment, which we decode back into a param map here.
+        // Column/table rules mirror the SqliteFts5 adapter + App\Search\FolioRowSearch.
+        $filterParams = $this->slideshowFilterParams($request, $filter);
+        // A pinned dtoType now travels inside the token (applied as a facet); pull it out for display.
+        $dtoType = isset($filterParams['dtoType']) && is_string($filterParams['dtoType']) && $filterParams['dtoType'] !== ''
+            ? $filterParams['dtoType'] : null;
+        $orderBy = $this->slideshowSortAndFilters($filterParams, $conn, $where, $params);
+        $sortBy = is_string($filterParams['sortBy'] ?? null) ? $filterParams['sortBy'] : '';
+        $sort = $this->slideshowSortColumn($sortBy);
 
-        // A slideshow over a 60k-row core must not hydrate 60k Row entities (that OOMs). Materialise
-        // only the lightweight {id, thumb} list the viewer needs; per-row detail is deferred (the viewer
-        // shows a @todo placeholder for now — a fetch-on-navigate endpoint or a dedicated gallery JS tool
-        // can fill it in later).
+        // A slideshow over a 60k-row core must not hydrate 60k Row entities (that OOMs). Materialise only
+        // the lightweight {id, thumb} list the viewer needs (per-row detail is deferred). For a numeric
+        // sort we also carry each slide's sort value `v`, so the slider can run over the real value range
+        // (its position IS the year) instead of a 1…N index.
+        $valueSelect = ($sort !== null && $sort['numeric']) ? sprintf(', %s AS v', $sort['expr']) : '';
         $slides = $conn->executeQuery(
             sprintf(
                 "SELECT d.local_id AS id,
-                        coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl')) AS thumb
+                        coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl')) AS thumb%s
                  FROM item d WHERE %s %s",
+                $valueSelect,
                 implode(' AND ', $where),
                 $orderBy,
             ),
             $params,
         )->fetchAllAssociative();
 
+        // The slider model. Default: navigate by slide index (1…N). For a numeric sort with a real
+        // spread, switch to value mode: min/max are the field's actual min/max over the same filtered
+        // set, so the slider reads e.g. 1908 … 2020 and its handle tracks the year.
+        $slider = ['numeric' => false, 'min' => 1, 'max' => count($slides), 'value' => 1];
+        if ($sort !== null && $sort['numeric'] && $slides !== []) {
+            $ends = $conn->executeQuery(
+                sprintf('SELECT MIN(%1$s) AS lo, MAX(%1$s) AS hi FROM item d WHERE %2$s', $sort['expr'], implode(' AND ', $where)),
+                $params,
+            )->fetchAssociative();
+            if ($ends !== false && $ends['lo'] !== null && $ends['hi'] !== null && $ends['lo'] != $ends['hi']) {
+                $slider = [
+                    'numeric' => true,
+                    'min' => (int) $ends['lo'],
+                    'max' => (int) $ends['hi'],
+                    'value' => (int) $slides[0]['v'],
+                ];
+            }
+        }
+
         return $this->render('@SurvosFolioBundle/folio/slideshow.html.twig', [
             'ctx' => $ctx,
             'core' => $core,
             'dtoType' => $dtoType,
             'slides' => $slides,
+            'slider' => $slider,
         ]);
     }
 
     /**
      * The grid state the slideshow filters by, as a param map. The Slideshow button packs the grid's
-     * query string into a url-safe base64 `f` token (lossless); decode it back to a map. Falls back to
-     * the raw query params so hand-written / legacy `?sortBy=…&cul=…` links keep working.
+     * query string into a url-safe base64 token (lossless), carried as the {filter} path segment (or the
+     * legacy `?f=` query param); decode it back to a map. Falls back to the raw query params so
+     * hand-written `?sortBy=…&cul=…` links keep working.
      *
      * @return array<string, mixed>
      */
-    private function slideshowFilterParams(Request $request): array
+    private function slideshowFilterParams(Request $request, ?string $filter = null): array
     {
-        $f = $request->query->getString('f');
-        if ($f !== '') {
-            $decoded = base64_decode(strtr($f, '-_', '+/'), true);
+        $token = ($filter !== null && $filter !== '') ? $filter : $request->query->getString('f');
+        if ($token !== '') {
+            $decoded = base64_decode(strtr($token, '-_', '+/'), true);
             if ($decoded !== false && $decoded !== '') {
                 parse_str($decoded, $parsed);
 
@@ -260,20 +285,39 @@ final class FolioController extends AbstractController
 
     private function slideshowOrderBy(string $sortBy): string
     {
-        // Mirror App\Search\FolioRowSearch sort columns; default to insertion order.
+        $sort = $this->slideshowSortColumn($sortBy);
+
+        return $sort !== null ? sprintf('ORDER BY %s %s', $sort['expr'], $sort['dir']) : 'ORDER BY d.rowid';
+    }
+
+    /**
+     * The active sort as a column expression + direction (+ whether it's numeric), or null for the
+     * default insertion order. Mirrors App\Search\FolioRowSearch sort columns. The `numeric` flag drives
+     * the value-based slider: a numeric sort (Year) makes the slider run over the real value range so its
+     * position IS the year, not a 1…N index.
+     *
+     * @return array{expr: string, dir: 'ASC'|'DESC', numeric: bool}|null
+     */
+    private function slideshowSortColumn(string $sortBy): ?array
+    {
         $columns = [
-            'label' => 'd.label',
-            'year' => "json_extract(d.dto_data, '$.year')",
+            'label' => ['expr' => 'd.label', 'numeric' => false],
+            'year' => ['expr' => "json_extract(d.dto_data, '$.year')", 'numeric' => true],
         ];
 
-        if ($sortBy !== '' && str_contains($sortBy, ':')) {
-            [$property, $direction] = explode(':', $sortBy, 2);
-            if (isset($columns[$property])) {
-                return sprintf('ORDER BY %s %s', $columns[$property], strtoupper($direction) === 'DESC' ? 'DESC' : 'ASC');
-            }
+        if ($sortBy === '' || !str_contains($sortBy, ':')) {
+            return null;
+        }
+        [$property, $direction] = explode(':', $sortBy, 2);
+        if (!isset($columns[$property])) {
+            return null;
         }
 
-        return 'ORDER BY d.rowid';
+        return [
+            'expr' => $columns[$property]['expr'],
+            'dir' => strtoupper($direction) === 'DESC' ? 'DESC' : 'ASC',
+            'numeric' => $columns[$property]['numeric'],
+        ];
     }
 
     #[Route('/{provider}/{dataset}/schema', name: 'survos_folio_schema')]

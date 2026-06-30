@@ -102,12 +102,16 @@
                 {% endif %}
             </div>
 
+            {# Index mode: slider runs 1…N. Value mode (numeric sort, e.g. Year): slider runs over the
+               field's real min..max so its handle IS the year. slideshow_controller maps between the
+               slider value and the slide. #}
             <collection-slider
-                min="1"
-                max="{{ slides|length }}"
-                value="1"
+                min="{{ slider.min }}"
+                max="{{ slider.max }}"
+                value="{{ slider.value }}"
                 step="1"
                 tick-count="10"
+                data-slideshow-numeric="{{ slider.numeric ? '1' : '0' }}"
                 {{ stimulus_target(controllerName, 'slider') }}
             ></collection-slider>
         </div>

@@ -117,11 +117,11 @@
                                             {{ dto.label }} · {{ dto.count|number_format }}
                                         </a>
                                         <a class="text-decoration-none text-reset ms-1"
-                                           href="{{ path('survos_folio_slideshow_dto', {
+                                           href="{{ path('survos_folio_slideshow_filtered', {
                                                provider: provider,
                                                dataset: dataset,
                                                coreCode: core.code,
-                                               dtoType: dto.type
+                                               filter: slideshow_filter({dtoType: dto.type})
                                            }) }}"
                                            title="Slideshow">
                                             {% guard function ux_icon %}{{ ux_icon('tabler:slideshow', {class: 'icon icon-sm'}) }}{% else %}Slides{% endguard %}
