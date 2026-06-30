@@ -120,10 +120,13 @@ final class FolioRegistry
     public function cores(DatasetInfo $dataset, ?string $core = null): array
     {
         if ($core !== null && $core !== '') {
-            return [$core];
+            return in_array($core, self::NON_ROW_JSONL, true) ? [] : [$core];
         }
 
-        $cores = $dataset->cores !== [] ? $dataset->cores : ['obj'];
+        $cores = $dataset->cores !== [] ? array_values(array_filter(
+            $dataset->cores,
+            static fn (string $name): bool => !in_array($name, self::NON_ROW_JSONL, true),
+        )) : ['obj'];
 
         $normalizeDir = $this->dataPaths->stageDir($dataset->datasetKey, 'normalized');
         if (is_dir($normalizeDir)) {
