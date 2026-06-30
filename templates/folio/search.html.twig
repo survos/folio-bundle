@@ -20,148 +20,165 @@
 {% endif %}
 
 {#
-{% block page_pretitle %}Folio Search{% endblock %}
-{% block page_title %}{{ folioLabel }}{% endblock %}
+   ── Re-skinning this page (header / branding / theme) ───────────────────────────────
+   An app overrides ONLY the chrome — never the search — by creating:
 
-{% block page_subtitle %}
-    <span class="font-monospace">{{ ctx.folioCode }}</span>
-    {% if folio and folio.rowCount %}
-        <span class="mx-1 text-muted">&middot;</span>{{ folio.rowCount|number_format }} records
-    {% endif %}
-{% endblock %}
-#}
+       templates/bundles/SurvosFolioBundle/folio/search.html.twig
+
+   with just:
+
+       {% extends '@!SurvosFolioBundle/folio/search.html.twig' %}
+       {% block folio_search_header %} …your header / hero… {% endblock %}
+       {% block folio_search_styles %} <style>…your theme…</style> {% endblock %}
+
+   The `@!` keeps inheriting THIS template, so `folio_search_core` (the actual ux-search
+   call) stays shared and can never drift between apps. Available in the header block:
+   provider, dataset (slug), folio (entity), folioLabel, cores, selectedCore,
+   selectedDtoType, ctx — plus {{ block('folio_search_slideshow_button') }}, a ready-wired
+   button you can drop into your own layout.
+   ──────────────────────────────────────────────────────────────────────────────────── #}
 
 {% block title %}{{ folioLabel }} Search{% endblock %}
 
-{% block page_content_before %}
-    {{ parent() }}
+{% block body_class %}folio-layout{% endblock %}
 
-    {% if cores|length > 0 %}
-        <div class="container-xl mt-3">
-            <div class="card">
-                <div class="card-body py-2">
-                    <div class="d-flex flex-wrap align-items-center gap-2">
-                        <span class="text-secondary small">Cores</span>
+{% block body %}
+    {% block folio_search_header %}
+        {% if cores|length > 0 %}
+            <div class="container-xl mt-3">
+                <div class="card">
+                    <div class="card-body py-2">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="text-secondary small">Cores</span>
 
-                        {% for core in cores %}
-                            {# Always translate (system domain, built by `trans:system`); fall back to the
-                               bare code, never core.label — it's populated with the code and shadows the translation. #}
-                            {% set coreKey = 'core.' ~ core.code %}
-                            {% set coreLabel = coreKey|trans({}, 'system') %}
-                            <a class="btn btn-sm {{ selectedCore|default(null) == core.code ? 'btn-primary' : 'btn-outline-secondary' }}"
-                            href="{{ path('survos_folio_core_search', {
-                                provider: provider,
-                                dataset: dataset,
-                                coreCode: core.code
-                            }) }}">
-                                {{ coreLabel == coreKey ? core.code : coreLabel }}
-                                {% if core.rowCount %}
-                                    &middot; {{ core.rowCount|number_format }}
-                                {% endif %}
-                            </a>
-                        {% endfor %}
+                            {% for core in cores %}
+                                {# Always translate (system domain, built by `trans:system`); fall back to the
+                                   bare code, never core.label — it's populated with the code and shadows the translation. #}
+                                {% set coreKey = 'core.' ~ core.code %}
+                                {% set coreLabel = coreKey|trans({}, 'system') %}
+                                <a class="btn btn-sm {{ selectedCore|default(null) == core.code ? 'btn-primary' : 'btn-outline-secondary' }}"
+                                href="{{ path('survos_folio_core_search', {
+                                    provider: provider,
+                                    dataset: dataset,
+                                    coreCode: core.code
+                                }) }}">
+                                    {{ coreLabel == coreKey ? core.code : coreLabel }}
+                                    {% if core.rowCount %}
+                                        &middot; {{ core.rowCount|number_format }}
+                                    {% endif %}
+                                </a>
+                            {% endfor %}
 
-                        {% if selectedCore|default(null) %}
-                            {# Slideshow of the current result set. The link starts at the unfiltered
-                               slideshow; the slideshow-link controller keeps its target in sync with the
-                               grid's sort + facet state (sortBy / <facet>=v1~~v2 / <facet>Min/Max). #}
-                            {% set slideshowUrl = selectedDtoType|default(null)
-                                ? path('survos_folio_slideshow_dto', {provider: provider, dataset: dataset, coreCode: selectedCore, dtoType: selectedDtoType})
-                                : path('survos_folio_slideshow', {provider: provider, dataset: dataset, coreCode: selectedCore}) %}
-                            <a class="btn btn-sm btn-outline-primary ms-auto"
-                               href="{{ slideshowUrl }}"
-                               data-controller="slideshow-link"
-                               data-slideshow-link-base-value="{{ slideshowUrl }}">
-                                {{ ux_icon('tabler:slideshow', { class: 'icon me-1' }) }}
-                                Slideshow
-                            </a>
-                        {% endif %}
+                            {{ block('folio_search_slideshow_button') }}
+                        </div>
                     </div>
                 </div>
             </div>
+        {% endif %}
+    {% endblock %}
+
+    {% block folio_search_core %}
+        {# The shared search — do NOT override this in an app skin, keep it identical everywhere. #}
+        <div id="ux-search-results-top" style="scroll-margin-top: 1rem;"></div>
+
+        <div id="ux-search-wrapper" class="container-xl">
+            {% do app.request.attributes.set('ux_search_placeholder', 'Search ID, title, description, summary, OCR text') %}
+            <twig:Mezcalito:UxSearch:Layout
+                name="folio_row"
+                :options="hitOptions"
+                :fixedFilters="fixedFilters"
+            />
         </div>
-    {% endif %}
-{% endblock %}
 
-{% block body_class %}folio-layout{% endblock %}
-{% block body %}
-    <div id="ux-search-results-top" style="scroll-margin-top: 1rem;"></div>
+        <script>
+            (() => {
+                const initUxSearchScroll = () => {
+                    const top = document.getElementById('ux-search-results-top');
+                    const wrapper = document.getElementById('ux-search-wrapper');
 
-    <div id="ux-search-wrapper">
-        {% do app.request.attributes.set('ux_search_placeholder', 'Search ID, title, description, summary, OCR text') %}
-        <twig:Mezcalito:UxSearch:Layout
-            name="folio_row"
-            :options="hitOptions"
-            :fixedFilters="fixedFilters"
-        />
-    </div>
-
-    <script>
-        (() => {
-            const initUxSearchScroll = () => {
-                const top = document.getElementById('ux-search-results-top');
-                const wrapper = document.getElementById('ux-search-wrapper');
-
-                if (!top || !wrapper || wrapper.dataset.scrollHandlerAttached) {
-                    return;
-                }
-
-                wrapper.dataset.scrollHandlerAttached = '1';
-
-                let shouldScroll = false;
-
-                wrapper.addEventListener('click', (event) => {
-                    const trigger = event.target.closest(
-                        'a, button, [data-action*="live#action"]'
-                    );
-
-                    if (trigger) {
-                        shouldScroll = true;
-                    }
-                });
-
-                wrapper.addEventListener('change', (event) => {
-                    if (event.target.matches('input, select, textarea')) {
-                        shouldScroll = true;
-                    }
-                });
-
-                wrapper.addEventListener('input', (event) => {
-                    if (event.target.matches('input[type="search"], input[type="text"]')) {
-                        shouldScroll = true;
-                    }
-                });
-
-                const observer = new MutationObserver(() => {
-                    if (!shouldScroll) {
+                    if (!top || !wrapper || wrapper.dataset.scrollHandlerAttached) {
                         return;
                     }
 
-                    shouldScroll = false;
+                    wrapper.dataset.scrollHandlerAttached = '1';
 
-                    setTimeout(() => {
-                        top.scrollIntoView({
-                            behavior: 'instant',
-                            block: 'start'
-                        });
-                    }, 100);
-                });
+                    let shouldScroll = false;
 
-                observer.observe(wrapper, {
-                    childList: true,
-                    subtree: true
-                });
-            };
+                    wrapper.addEventListener('click', (event) => {
+                        const trigger = event.target.closest(
+                            'a, button, [data-action*="live#action"]'
+                        );
 
-            document.addEventListener('DOMContentLoaded', initUxSearchScroll);
-            document.addEventListener('turbo:load', initUxSearchScroll);
-            initUxSearchScroll();
-        })();
-    </script>
+                        if (trigger) {
+                            shouldScroll = true;
+                        }
+                    });
 
-    <style>
-        .page-header {
-            display: none !important;
-        }
-    </style>
+                    wrapper.addEventListener('change', (event) => {
+                        if (event.target.matches('input, select, textarea')) {
+                            shouldScroll = true;
+                        }
+                    });
+
+                    wrapper.addEventListener('input', (event) => {
+                        if (event.target.matches('input[type="search"], input[type="text"]')) {
+                            shouldScroll = true;
+                        }
+                    });
+
+                    const observer = new MutationObserver(() => {
+                        if (!shouldScroll) {
+                            return;
+                        }
+
+                        shouldScroll = false;
+
+                        setTimeout(() => {
+                            top.scrollIntoView({
+                                behavior: 'instant',
+                                block: 'start'
+                            });
+                        }, 100);
+                    });
+
+                    observer.observe(wrapper, {
+                        childList: true,
+                        subtree: true
+                    });
+                };
+
+                document.addEventListener('DOMContentLoaded', initUxSearchScroll);
+                document.addEventListener('turbo:load', initUxSearchScroll);
+                initUxSearchScroll();
+            })();
+        </script>
+    {% endblock %}
+
+    {% block folio_search_styles %}
+        <style>
+            .page-header {
+                display: none !important;
+            }
+        </style>
+    {% endblock %}
+{% endblock %}
+
+{#
+   A ready-wired "Slideshow" button: links to the current core's slideshow and, via the
+   slideshow-link controller, keeps its target in sync with the grid's sort + facet state.
+   Reusable from any header override with {{ block('folio_search_slideshow_button') }}.
+#}
+{% block folio_search_slideshow_button %}
+    {% if selectedCore|default(null) %}
+        {% set slideshowUrl = selectedDtoType|default(null)
+            ? path('survos_folio_slideshow_dto', {provider: provider, dataset: dataset, coreCode: selectedCore, dtoType: selectedDtoType})
+            : path('survos_folio_slideshow', {provider: provider, dataset: dataset, coreCode: selectedCore}) %}
+        <a class="btn btn-sm btn-outline-primary ms-auto"
+           href="{{ slideshowUrl }}"
+           data-controller="slideshow-link"
+           data-slideshow-link-base-value="{{ slideshowUrl }}">
+            {{ ux_icon('tabler:slideshow', { class: 'icon me-1' }) }}
+            Slideshow
+        </a>
+    {% endif %}
 {% endblock %}

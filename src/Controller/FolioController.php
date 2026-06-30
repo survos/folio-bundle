@@ -11,6 +11,7 @@ use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioD
 use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
+use Survos\SearchBundle\Adapter\SqliteFts5\Fts5MatchQuery;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -168,9 +169,9 @@ final class FolioController extends AbstractController
 
     /**
      * Translate the grid's param map into SQL against the folio `item d` table, mutating $where/$params
-     * and returning the ORDER BY clause. Term facets use the denormalised item_facet table (matching the
-     * SqliteFts5 adapter, so multi-valued facets behave identically); ranges and sorts read
-     * json_extract(d.dto_data, …). `core` is pinned by the route path and full-text is ignored.
+     * and returning the ORDER BY clause. Full-text (`query`) becomes an item_fts MATCH; term facets use
+     * the denormalised item_facet table (matching the SqliteFts5 adapter, so multi-valued facets behave
+     * identically); ranges and sorts read json_extract(d.dto_data, …). `core` is pinned by the route path.
      * Property→column rules mirror App\Search\FolioRowSearch.
      *
      * @param array<string, mixed> $source
@@ -183,9 +184,20 @@ final class FolioController extends AbstractController
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'item_facet'",
         )->fetchOne();
 
+        // Full-text: replay the grid's `query` as an FTS MATCH so the slideshow plays the same
+        // text-filtered set. Build the match with the very same helper the SqliteFts5 search adapter
+        // uses, so operators/phrases/grouping behave identically to the grid.
+        $query = $source['query'] ?? '';
+        if (is_string($query) && ($match = Fts5MatchQuery::build($query)) !== ''
+            && $conn->executeQuery("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'item_fts'")->fetchOne()
+        ) {
+            $where[] = 'd.rowid IN (SELECT rowid FROM item_fts WHERE item_fts MATCH :ftsQuery)';
+            $params['ftsQuery'] = $match;
+        }
+
         // `core` is always pinned by the slideshow route path, so drop it; `dtoType` is NOT always in
         // the path (the grid exposes it as a facet on core-only pages), so let it flow through as a
-        // normal item_facet filter. query/page/full-text/placeholder are not slideshow concerns.
+        // normal item_facet filter. query/page/sortBy/placeholder are handled out of band, not as facets.
         $reserved = ['query', 'page', 'sortBy', 'core', 'ux_search_placeholder', 'hitsPerPage'];
         $i = 0;
         foreach ($source as $key => $value) {
