@@ -14,6 +14,7 @@ class FolioMenu extends AbstractAdminMenuSubscriber
 {
     public function __construct(
         private readonly FolioService $folioService,
+        private readonly string $routePrefix,
         private readonly ?string $folioServer = null,
         ?RouterInterface $router = null,
     ) {
@@ -34,7 +35,7 @@ class FolioMenu extends AbstractAdminMenuSubscriber
         if ($this->folioServer !== null && $this->folioServer !== '') {
             $base = rtrim($this->folioServer, '/');
             $this->add($submenu, label: 'Folios', uri: $base . '/folios', icon: 'mdi:database-search');
-            $this->add($submenu, label: 'Bootstrap Schema', uri: $base . '/folio/_bootstrap/_bootstrap/schema', icon: 'mdi:table-cog');
+            $this->add($submenu, label: 'Bootstrap Schema', uri: $base . $this->routePrefix . '/_bootstrap/_bootstrap/schema', icon: 'mdi:table-cog');
 
             return;
         }

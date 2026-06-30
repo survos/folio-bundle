@@ -23,6 +23,11 @@ use Zenstruck\Bytes;
 final class FolioPullCommand
 {
     public function __construct(
+        // The served route prefix (zm: "/f"); builds list.json + download URLs so the client matches
+        // the server instead of hardcoding "/folio". Required + wired from %survos_folio.route_prefix%
+        // (config always sets it) — no silent default to mask a misconfiguration.
+        #[Autowire('%survos_folio.route_prefix%')]
+        private readonly string $routePrefix,
         private readonly FolioService $folios,
         private readonly FolioArchiveService $archiveService,
         // Optional: apps without a `folio_archive.storage` flysystem storage (e.g. HF-only) inject null.
@@ -253,7 +258,7 @@ final class FolioPullCommand
             throw new \InvalidArgumentException(sprintf('Invalid folio code "%s". Expected provider/dataset.', $code));
         }
 
-        return sprintf('%s/folio/%s/%s/download', $baseUrl, rawurlencode($provider), rawurlencode($dataset));
+        return sprintf('%s%s/%s/%s/download', $baseUrl, $this->routePrefix, rawurlencode($provider), rawurlencode($dataset));
     }
 
     /**
@@ -270,7 +275,7 @@ final class FolioPullCommand
         if ($provider !== null && $provider !== '') {
             $query['provider'] = $provider;
         }
-        $url = $baseUrl . '/folio/list.json' . ($query !== [] ? '?' . http_build_query($query) : '');
+        $url = $baseUrl . $this->routePrefix . '/list.json' . ($query !== [] ? '?' . http_build_query($query) : '');
 
         $this->logger?->info('folio:pull fetching registry', ['url' => $url]);
         $data = $this->http->request('GET', $url)->toArray(false);
@@ -297,8 +302,8 @@ final class FolioPullCommand
             return Command::FAILURE;
         }
 
-        $this->logger?->info('folio:pull fetching registry', ['url' => $baseUrl . '/folio/list.json']);
-        $data = $this->http->request('GET', $baseUrl . '/folio/list.json')->toArray(false);
+        $this->logger?->info('folio:pull fetching registry', ['url' => $baseUrl . $this->routePrefix . '/list.json']);
+        $data = $this->http->request('GET', $baseUrl . $this->routePrefix . '/list.json')->toArray(false);
         $folios = is_array($data['folios'] ?? null) ? $data['folios'] : [];
         if ($folios === []) {
             $io->warning(sprintf('No folios available at %s', $baseUrl));

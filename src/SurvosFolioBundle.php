@@ -75,6 +75,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
         parent::loadExtension($config, $container, $builder);
         $this->captureRouteConfig($config);
         $builder->setParameter('survos_folio.folio_server', $config['folio_server']);
+        // Expose the route prefix so client URL-builders (folio:pull download/list.json URLs,
+        // folio:build browse/search links) match the SERVED routes instead of hardcoding "/folio".
+        // zm configures this to "/f"; a mismatch 404s folio:pull.
+        $builder->setParameter('survos_folio.route_prefix', $config['route_prefix']);
         $services = $container->services();
         foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');
@@ -116,6 +120,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         ]);
         $services->set(FolioBuildCommand::class)->autowire()->autoconfigure()->public()->args([
             '$folioServer' => $config['folio_server'],
+            '$routePrefix' => $config['route_prefix'],
             '$kernelDebug' => '%kernel.debug%',
         ]);
         foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
@@ -140,6 +145,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         if ($config['admin_navbar_menu'] && class_exists(\Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber::class)) {
             $services->set(FolioMenu::class)->autowire()->autoconfigure()->public()->args([
                 '$folioServer' => $config['folio_server'],
+                '$routePrefix' => $config['route_prefix'],
             ]);
         }
         $this->registerRouteLoader($builder);

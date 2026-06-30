@@ -51,6 +51,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
         private readonly FolioArchivePreparer $preparer,
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly JsonlStateService $jsonlState,
+        private readonly string $routePrefix,
         private readonly ?EventDispatcherInterface $dispatcher = null,
         private readonly bool $kernelDebug = false,
         private readonly ?string $folioServer = null,
@@ -436,7 +437,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
             // UX not installed here (registry-only app) and no folio_server configured.
             $base = $this->folioServer !== null && $this->folioServer !== '' ? rtrim($this->folioServer, '/') : '';
 
-            return $base . '/folio/' . $provider . '/' . $dataset;
+            return $base . $this->routePrefix . '/' . $provider . '/' . $dataset;
         }
     }
 
