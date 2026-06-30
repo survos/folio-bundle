@@ -84,7 +84,7 @@
                     >
                         {% if slide.thumb %}
                             <img
-                                src="{{ slide.thumb }}"
+                                src="{{ slide.thumb|imgproxy('thumb') }}"
                                 alt=""
                                 loading="lazy"
                                 decoding="async"
