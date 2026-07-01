@@ -21,7 +21,6 @@ use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 #[AsCommand(
     name: 'folio:build',
     description: 'Build a working folio from normalized JSONL (and, with --gz, a compressed index-free archive for upload).',
-    aliases: ['dataset:folio'],
     help: <<<'END'
         Producer: builds folio artifacts from normalized JSONL.
 
