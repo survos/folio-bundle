@@ -84,11 +84,18 @@ export default class extends Controller {
                     ${item.label ?? ''}${item.year ? ` (${item.year})` : ''} &middot; ${index + 1}/${items.length}
                 </div>
             `;
-            container.querySelector('.folio-map-cluster-prev')?.addEventListener('click', () => {
+            // Leaflet's Popup stops click propagation on its own container so map clicks (which close
+            // popups by default) don't fire from clicks inside -- but that guard is installed once, on
+            // the ORIGINAL container, and doesn't cover new markup swapped in via innerHTML on later
+            // renders. Stop propagation explicitly on every render so prev/next never bubble up to the
+            // map's closePopupOnClick handler (or the marker's own click-to-toggle listener).
+            container.querySelector('.folio-map-cluster-prev')?.addEventListener('click', (event) => {
+                L.DomEvent.stopPropagation(event);
                 index = (index - 1 + items.length) % items.length;
                 render();
             });
-            container.querySelector('.folio-map-cluster-next')?.addEventListener('click', () => {
+            container.querySelector('.folio-map-cluster-next')?.addEventListener('click', (event) => {
+                L.DomEvent.stopPropagation(event);
                 index = (index + 1) % items.length;
                 render();
             });
