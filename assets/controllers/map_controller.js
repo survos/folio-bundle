@@ -52,5 +52,15 @@ export default class extends Controller {
 
         this.layer.clearLayers();
         this.layer.addData(geojson);
+
+        // First load only: the initial center/zoom is an arbitrary placeholder (we don't know the
+        // dataset's extent until the data arrives), so fit the view to what actually came back.
+        if (!this._hasFitBounds) {
+            this._hasFitBounds = true;
+            const bounds = this.layer.getBounds();
+            if (bounds.isValid()) {
+                this.map.fitBounds(bounds, { padding: [20, 20] });
+            }
+        }
     }
 }

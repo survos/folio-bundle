@@ -29,14 +29,17 @@
             Run <code>composer require symfony/ux-map symfony/ux-leaflet-map</code> to enable it.
         </div>
     {% else %}
-        <div
-            class="folio-map-wrapper"
-            {{ stimulus_controller(controllerName, {
-                geojsonUrl: path('survos_folio_map_geojson', {provider: provider, dataset: dataset}),
-            }) }}
-        >
-            {{ ux_map(center: [20, 0], zoom: 2, attributes: {style: 'height: 70vh; width: 100%; border-radius: 0.5rem;'}) }}
-        </div>
+        {# The custom controller must be attached to the SAME element ux_map() renders, not a wrapper
+           around it -- ux_map()'s `attributes['data-controller']` is exactly the hook for that (see
+           Symfony\UX\Map\Renderer\AbstractRenderer::renderMap(), which merges it alongside the
+           renderer's own controller onto one <div>). It only carries the controller *name* through
+           though, not Stimulus values, so the geojsonUrl value is passed as a raw pre-built
+           data-attribute instead. #}
+        {{ ux_map(center: [20, 0], zoom: 2, attributes: {
+            'data-controller': controllerName,
+            ('data-' ~ controllerName ~ '-geojson-url-value'): path('survos_folio_map_geojson', {provider: provider, dataset: dataset}),
+            style: 'height: 70vh; width: 100%; border-radius: 0.5rem;',
+        }) }}
 
         <style>
             .folio-map-marker-cluster {

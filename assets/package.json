@@ -18,6 +18,12 @@
         "enabled": true,
         "fetch": "lazy",
         "autoimport": []
+      },
+      "map": {
+        "main": "controllers/map_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
       }
     }
   }
