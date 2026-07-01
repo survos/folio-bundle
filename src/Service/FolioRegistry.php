@@ -68,15 +68,23 @@ final class FolioRegistry
 
     public function sourceFile(DatasetInfo $dataset, string $core = 'obj'): ?string
     {
-        // Prefer the enriched (_folio) stage, but only when it actually has rows. A 0-byte enriched
-        // file from a failed/interrupted `dataset:enrich` must never shadow a populated normalized
-        // source — otherwise folio:build ingests 0 rows while pages still load (every page orphaned).
+        $normalized = $this->dataPaths->stageDir($dataset->datasetKey, 'normalized') . '/' . $core . '.jsonl';
+
+        // Prefer the enriched (_folio) stage, but only when it actually has rows AND is at least as
+        // recent as the normalized source. A 0-byte enriched file from a failed/interrupted
+        // `dataset:enrich` must never shadow a populated normalized source — otherwise folio:build
+        // ingests 0 rows while pages still load (every page orphaned). Likewise a re-normalize (e.g.
+        // a listener fix) must not be shadowed by an enriched artifact built from the old normalized
+        // data — otherwise the fix is invisible to folio:build until someone remembers to delete or
+        // rebuild `_folio/<core>.jsonl` by hand.
         $enriched = $this->dataPaths->enrichFile($dataset->datasetKey, $core);
-        if (is_file($enriched) && filesize($enriched) > 0) {
+        if (
+            is_file($enriched) && filesize($enriched) > 0
+            && (!is_file($normalized) || filemtime($enriched) >= filemtime($normalized))
+        ) {
             return $enriched;
         }
 
-        $normalized = $this->dataPaths->stageDir($dataset->datasetKey, 'normalized') . '/' . $core . '.jsonl';
         if (is_file($normalized)) {
             return $normalized;
         }

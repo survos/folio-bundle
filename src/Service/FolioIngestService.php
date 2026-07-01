@@ -194,18 +194,25 @@ final class FolioIngestService
             $coreResults[$core] = ['count' => $count, 'file' => $file];
         }
 
-        $termCount = $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $batch, $io);
-        $linkResult = $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $sinceCommit, $io);
-        $pageResult = $this->ingestPages($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
-        $claimResult = $this->ingestClaims($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io);
-        $this->ingestPageClaims($ctx->em, $dataset->datasetKey);
-        $this->ingestClaimRuns($ctx->em, $dataset->datasetKey);
-        $this->promoteAiTitle($ctx->em);
+        $termCount = $this->timedPhase($io, 'terms', fn () => $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $batch, $io));
+        $linkResult = $this->timedPhase($io, 'links', fn () => $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $sinceCommit, $io));
+        $pageResult = $this->timedPhase($io, 'pages', fn () => $this->ingestPages($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io));
+        $claimResult = $this->timedPhase($io, 'claims', fn () => $this->ingestClaims($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io));
+        $this->timedPhase($io, 'page claims', fn () => $this->ingestPageClaims($ctx->em, $dataset->datasetKey));
+        $this->timedPhase($io, 'claim runs', fn () => $this->ingestClaimRuns($ctx->em, $dataset->datasetKey));
 
         $this->finishIngestProgress($io);
 
-        // #2: rebuild the deferred indexes now that every row is loaded (one bulk pass each).
-        $this->rebuildIndexes($conn, $deferredIndexes, $io);
+        // #2: rebuild the deferred indexes now that every row is loaded (one bulk pass each). This
+        // MUST run before promoteAiTitle(): that UPDATE correlates item <-> claim via claim.item_id
+        // and filters on claim.predicate, both of which are non-unique secondary indexes dropped by
+        // deferSecondaryIndexes() above. Running it before the rebuild silently turns two indexed
+        // lookups per item into two full `claim`-table scans per item — invisible in the log (no
+        // timing, no progress) and, on a real claims table, the dominant cost of the whole ingest
+        // (observed: 2m19s of "frozen" progress bar on a 26k-item / 19k-claim dataset, all in this
+        // one statement, before this fix).
+        $this->timedPhase($io, 'rebuild indexes', fn () => $this->rebuildIndexes($conn, $deferredIndexes, $io));
+        $this->timedPhase($io, 'promote AI title', fn () => $this->promoteAiTitle($ctx->em));
 
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
         $folio->rowCount = $totalCount;
@@ -614,6 +621,26 @@ final class FolioIngestService
         foreach ($ddl as $sql) {
             $conn->executeStatement($sql);
         }
+    }
+
+    /**
+     * Run one ingest phase with a start line + elapsed time, so a slow/stuck phase (e.g. an
+     * unindexed correlated UPDATE over a large `claim` table) is visible in the log instead of
+     * looking like the whole build hung — the row-progress bar only covers the item/term/link
+     * bulk-insert loop above; everything after it was previously silent.
+     *
+     * @template T
+     * @param callable(): T $fn
+     * @return T
+     */
+    private function timedPhase(?SymfonyStyle $io, string $label, callable $fn): mixed
+    {
+        $io?->writeln(sprintf('  %s…', $label));
+        $t = microtime(true);
+        $result = $fn();
+        $io?->writeln(sprintf('    %s done in %ss', $label, number_format(microtime(true) - $t, 2)));
+
+        return $result;
     }
 
     /**
