@@ -328,7 +328,11 @@ final class FolioController extends AbstractController
         // `core` is always pinned by the slideshow route path, so drop it; `dtoType` is NOT always in
         // the path (the grid exposes it as a facet on core-only pages), so let it flow through as a
         // normal item_facet filter. query/page/sortBy/placeholder are handled out of band, not as facets.
-        $reserved = ['query', 'page', 'sortBy', 'core', 'ux_search_placeholder', 'hitsPerPage'];
+        // zoom/bbox are the map view's own state (see mapGeoJson()), reserved here too since this method
+        // is shared -- without them a plain `?zoom=2` (no filter token present) falls through
+        // slideshowFilterParams()'s raw-query-params fallback and gets read as a facet filter on a
+        // nonexistent `zoom` property, filtering out every row.
+        $reserved = ['query', 'page', 'sortBy', 'core', 'ux_search_placeholder', 'hitsPerPage', 'zoom', 'bbox'];
         $i = 0;
         foreach ($source as $key => $value) {
             if (!is_string($value) || $value === '' || in_array($key, $reserved, true)) {
