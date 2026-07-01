@@ -10,6 +10,11 @@
                 "enabled": true,
                 "fetch": "lazy",
                 "autoimport": []
+            },
+            "map": {
+                "enabled": true,
+                "fetch": "lazy",
+                "autoimport": []
             }
         }
     },

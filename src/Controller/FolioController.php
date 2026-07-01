@@ -14,6 +14,7 @@ use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\SearchBundle\Adapter\SqliteFts5\Fts5MatchQuery;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\ResponseHeaderBag;
@@ -26,6 +27,17 @@ use Twig\Environment;
 #[FolioContext]
 final class FolioController extends AbstractController
 {
+    private const MAX_MAP_FEATURES = 2000;
+
+    /** Zoom (Leaflet-style, 0-19) -> decimal places to round lat/lng to before grouping. Coarser at low zoom. */
+    private const ZOOM_PRECISION = [
+        0 => 0, 1 => 0, 2 => 0, 3 => 0,
+        4 => 1, 5 => 1, 6 => 1,
+        7 => 2, 8 => 2, 9 => 2,
+        10 => 3, 11 => 3, 12 => 3,
+    ];
+    private const MAX_MAP_PRECISION = 4;
+
     public function __construct(
         private readonly FolioService $folios,
         private readonly FolioDtoTypeResolver $dtoTypeResolver,
@@ -167,6 +179,99 @@ final class FolioController extends AbstractController
             'slides' => $slides,
             'slider' => $slider,
         ]);
+    }
+
+    #[Route('/{provider}/{dataset}/map', name: 'survos_folio_map', options: ['expose' => true])]
+    public function map(string $provider, string $dataset): Response
+    {
+        return $this->render('@SurvosFolioBundle/folio/map.html.twig', [
+            'provider' => $provider,
+            'dataset' => $dataset,
+            'hasUxMap' => class_exists(\Symfony\UX\Map\Map::class),
+        ]);
+    }
+
+    /**
+     * GeoJSON marker/cluster feed backing the map view. SQLite has no spatial extension here (no
+     * mod_spatialite, no R-Tree), and doesn't need one: a bounding box is a plain BETWEEN, and
+     * "cluster nearby points" only needs a coarse grid, not real GIS. We round lat/lng to `precision`
+     * decimal places (derived from the map's zoom level, coarser at low zoom) and GROUP BY the
+     * rounded pair — the same idea as Mapbox/Supercluster's cluster/point_count convention or
+     * Elasticsearch's geotile_grid, just done with SQL rounding instead of a spatial index. A bucket
+     * with exactly one item is returned as a real point (with its own properties), not a size-1
+     * cluster. Honours the same filter-token mechanism as the Slideshow link (see
+     * slideshowFilterParams()/slideshowSortAndFilters()), so the map can open pre-filtered to a
+     * search's result set.
+     */
+    #[Route('/{provider}/{dataset}/map.geojson/{filter}', name: 'survos_folio_map_geojson_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
+    #[Route('/{provider}/{dataset}/map.geojson', name: 'survos_folio_map_geojson', options: ['expose' => true])]
+    public function mapGeoJson(string $provider, string $dataset, Request $request, ?string $filter = null): JsonResponse
+    {
+        $conn = $this->folios->context("$provider/$dataset")->em->getConnection();
+
+        $where = [
+            "json_extract(d.dto_data, '$.latitude') IS NOT NULL",
+            "json_extract(d.dto_data, '$.longitude') IS NOT NULL",
+        ];
+        $params = [];
+        $orderBy = $this->slideshowSortAndFilters($this->slideshowFilterParams($request, $filter), $conn, $where, $params);
+        unset($orderBy); // map plots the whole filtered set unordered; only the WHERE clause matters here
+
+        $bbox = $this->parseBbox($request->query->getString('bbox', ''));
+        if ($bbox !== null) {
+            $where[] = "CAST(json_extract(d.dto_data, '$.latitude') AS REAL) BETWEEN :bboxS AND :bboxN";
+            $where[] = "CAST(json_extract(d.dto_data, '$.longitude') AS REAL) BETWEEN :bboxW AND :bboxE";
+            $params += ['bboxW' => $bbox[0], 'bboxS' => $bbox[1], 'bboxE' => $bbox[2], 'bboxN' => $bbox[3]];
+        }
+
+        $precision = self::ZOOM_PRECISION[$request->query->getInt('zoom', 10)] ?? self::MAX_MAP_PRECISION;
+
+        $rows = $conn->executeQuery(
+            sprintf(
+                "SELECT
+                    ROUND(CAST(json_extract(d.dto_data, '\$.latitude') AS REAL), :precision) AS bucketLat,
+                    ROUND(CAST(json_extract(d.dto_data, '\$.longitude') AS REAL), :precision) AS bucketLng,
+                    COUNT(*) AS n,
+                    AVG(CAST(json_extract(d.dto_data, '\$.latitude') AS REAL)) AS lat,
+                    AVG(CAST(json_extract(d.dto_data, '\$.longitude') AS REAL)) AS lng,
+                    MIN(d.local_id) AS id,
+                    MIN(d.label) AS label,
+                    MIN(coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl'))) AS thumbnailUrl,
+                    MIN(json_extract(d.dto_data, '\$.year')) AS year
+                 FROM item d WHERE %s
+                 GROUP BY bucketLat, bucketLng
+                 LIMIT :limit",
+                implode(' AND ', $where),
+            ),
+            $params + ['precision' => $precision, 'limit' => self::MAX_MAP_FEATURES],
+        )->fetchAllAssociative();
+
+        return new JsonResponse([
+            'type' => 'FeatureCollection',
+            'features' => array_map(static fn (array $row): array => [
+                'type' => 'Feature',
+                'geometry' => ['type' => 'Point', 'coordinates' => [(float) $row['lng'], (float) $row['lat']]],
+                'properties' => (int) $row['n'] > 1
+                    ? ['cluster' => true, 'point_count' => (int) $row['n']]
+                    : ['cluster' => false, 'id' => $row['id'], 'label' => $row['label'], 'thumbnailUrl' => $row['thumbnailUrl'], 'year' => $row['year']],
+            ], $rows),
+        ]);
+    }
+
+    /**
+     * @return array{0: float, 1: float, 2: float, 3: float}|null west,south,east,north
+     */
+    private function parseBbox(string $bbox): ?array
+    {
+        if ($bbox === '') {
+            return null;
+        }
+        $parts = array_map('trim', explode(',', $bbox));
+        if (count($parts) !== 4 || !array_reduce($parts, static fn (bool $ok, string $p): bool => $ok && is_numeric($p), true)) {
+            return null;
+        }
+
+        return array_map('floatval', $parts);
     }
 
     /**

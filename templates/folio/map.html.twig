@@ -1,0 +1,64 @@
+{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+
+{% set controllerName = 'survos--folio-bundle--map' %}
+
+{% block body_class %}folio-layout{% endblock %}
+
+{% block page_pretitle %}Folio Map{% endblock %}
+
+{% block page_title %}{{ dataset }}{% endblock %}
+
+{% block page_subtitle %}
+    <span class="font-monospace">{{ provider }}/{{ dataset }}</span>
+{% endblock %}
+
+{% block title %}Map · {{ provider }}/{{ dataset }}{% endblock %}
+
+{% block body %}
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <a class="btn btn-outline-secondary" href="{{ path('survos_folio_show', {provider: provider, dataset: dataset}) }}">
+            {% guard function ux_icon %}{{ ux_icon('tabler:layout-dashboard', {class: 'icon me-1'}) }}{% endguard %}
+            Overview
+        </a>
+    </div>
+
+    {% if not hasUxMap %}
+        <div class="alert alert-warning">
+            The Map view needs <code>symfony/ux-map</code> (with a renderer, e.g.
+            <code>symfony/ux-leaflet-map</code>) installed in this application.
+            Run <code>composer require symfony/ux-map symfony/ux-leaflet-map</code> to enable it.
+        </div>
+    {% else %}
+        <div
+            class="folio-map-wrapper"
+            {{ stimulus_controller(controllerName, {
+                geojsonUrl: path('survos_folio_map_geojson', {provider: provider, dataset: dataset}),
+            }) }}
+        >
+            {{ ux_map(center: [20, 0], zoom: 2, attributes: {style: 'height: 70vh; width: 100%; border-radius: 0.5rem;'}) }}
+        </div>
+
+        <style>
+            .folio-map-marker-cluster {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 2.5rem;
+                height: 2.5rem;
+                border-radius: 50%;
+                background: #066fd1;
+                color: #fff;
+                font-weight: 600;
+                box-shadow: 0 0 0 3px rgba(6, 111, 209, 0.3);
+            }
+
+            .folio-map-popup img {
+                display: block;
+                width: 100%;
+                max-width: 200px;
+                border-radius: 0.35rem;
+                margin-bottom: 0.35rem;
+            }
+        </style>
+    {% endif %}
+{% endblock %}
