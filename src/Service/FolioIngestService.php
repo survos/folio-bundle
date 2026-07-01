@@ -145,6 +145,9 @@ final class FolioIngestService
                     ? (string) $data[$labelField]
                     : (isset($data['title']) ? (string) $data['title'] : $localId);
                 $dtoType = $this->dtoTypeResolver->typeFromPayload($data);
+                // Backfill contentType from the resolved type so the stored field + facet are never empty
+                // when the row only carried a dtoClass (e.g. a Fortepan photograph).
+                $data['contentType'] ??= $dtoType;
                 try {
                     [$dtoData, $extras] = $this->splitDtoData($dtoType, $data);
                 } catch (\TypeError) {

@@ -47,6 +47,8 @@
 {% set tombstoneYear = attribute(row.dtoData, 'year')|default(tombstoneDate) %}
 {% set tombstoneDenseSummary = attribute(row.dtoData, 'denseSummary')|default(attribute(row.extras, 'ai:denseSummary')|default(null)) %}
 {% set observationProse = attribute(row.dtoData, 'observationProse')|default(attribute(row.dtoData, 'ai:observationProse')|default(attribute(row.extras, 'ai:observationProse')|default(null))) %}
+{# The source's own caption ONLY — never the AI-filled description/denseSummary, which is shown as the summary above. #}
+{% set sourceCaption = attribute(row.dtoData, 'sourceCaption')|default(attribute(row.extras, 'sourceCaption')|default(null)) %}
 
 {% block body_class %}folio-layout folio-object-page{% endblock %}
 
@@ -690,21 +692,27 @@
                                 <h2 class="card-title mb-0">What's in the picture</h2>
                                 <span class="badge bg-purple-lt">AI observation</span>
                             </div>
-                            <div class="card-body">
-                                <div class="folio-ai-prose" style="word-break: break-word;">{{ observationProse|markdown }}</div>
+                            <div class="card-body"
+                                 data-controller="read-more"
+                                 data-read-more-more-text-value="Read more"
+                                 data-read-more-less-text-value="Read less">
+                                {# Long visual observation — clamp to a few lines and let read-more expand it. #}
+                                <div class="folio-ai-prose folio-readmore" style="word-break: break-word;" data-read-more-target="content">{{ observationProse|markdown }}</div>
+                                <button type="button" class="btn btn-link btn-sm p-0 mt-1" data-action="read-more#toggle">Read more</button>
                             </div>
                         </div>
                     {% endif %}
 
-                    {% if tombstoneDescription %}
+                    {% if sourceCaption %}
                         <div class="card mb-3">
                             <div class="card-header">
                                 <h2 class="card-title mb-0">Source caption</h2>
                             </div>
 
                             <div class="card-body">
-                                {# flush + trim: with pre-wrap, template indentation would otherwise render as literal whitespace #}
-                                <div style="max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">{{ tombstoneDescription|trim }}</div>
+                                {# Verbatim source caption only. flush + trim: with pre-wrap, template indentation
+                                   would otherwise render as literal whitespace. #}
+                                <div style="max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">{{ sourceCaption|trim }}</div>
                             </div>
                         </div>
                     {% endif %}
@@ -1070,6 +1078,15 @@
             </script>
 
             <style>
+                /* read-more (@stimulus-components/read-more): clamp to a few lines until expanded. The
+                   controller flips --read-more-line-clamp to remove the clamp on toggle. */
+                .folio-readmore {
+                    display: -webkit-box;
+                    -webkit-box-orient: vertical;
+                    -webkit-line-clamp: var(--read-more-line-clamp, 6);
+                    overflow: hidden;
+                }
+
                 .page {
                     background:
                         radial-gradient(circle at top left, rgba(255, 238, 198, .9), transparent 34%),
