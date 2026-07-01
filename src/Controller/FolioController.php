@@ -268,6 +268,11 @@ final class FolioController extends AbstractController
     /**
      * Same imgproxy 'thumb' preset the search grid uses (folio_row.html.twig's `|imgproxy('thumb')`),
      * applied server-side since map popups are built in JS from this JSON, not rendered in Twig.
+     *
+     * @todo this precomputes every row's thumb server-side; @tacman1123/twig-browser (already a
+     *       dependency of meili-bundle/js-twig-bundle/api-grid-bundle) can run the real `imgproxy`
+     *       Twig filter client-side, which would let map_controller.js call the SAME filter used
+     *       everywhere else instead of duplicating the transform here.
      */
     private function mapThumbnailUrl(?string $url): ?string
     {
