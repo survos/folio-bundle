@@ -47,7 +47,7 @@ export default class extends Controller {
 
     async load() {
         const zoom = Math.round(this.map.getZoom());
-        const response = await fetch(`${this.geojsonUrlValue}?zoom=${zoom}`);
+        const response = await fetch(`${this.geojsonUrlValue}/${zoom}`);
         const geojson = await response.json();
 
         this.layer.clearLayers();

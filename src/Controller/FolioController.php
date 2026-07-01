@@ -181,12 +181,14 @@ final class FolioController extends AbstractController
         ]);
     }
 
+    #[Route('/{provider}/{dataset}/map/{filter}', name: 'survos_folio_map_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
     #[Route('/{provider}/{dataset}/map', name: 'survos_folio_map', options: ['expose' => true])]
-    public function map(string $provider, string $dataset): Response
+    public function map(string $provider, string $dataset, ?string $filter = null): Response
     {
         return $this->render('@SurvosFolioBundle/folio/map.html.twig', [
             'provider' => $provider,
             'dataset' => $dataset,
+            'filter' => $filter,
             'hasUxMap' => class_exists(\Symfony\UX\Map\Map::class),
         ]);
     }
@@ -202,10 +204,15 @@ final class FolioController extends AbstractController
      * cluster. Honours the same filter-token mechanism as the Slideshow link (see
      * slideshowFilterParams()/slideshowSortAndFilters()), so the map can open pre-filtered to a
      * search's result set.
+     *
+     * zoom is a required, always-LAST path segment (never a query param) so it can't collide with the
+     * filter-token's own reserved-params handling, and so the JS side can build a fetch URL by simply
+     * appending `/{zoom}` to a server-computed base (see map_controller.js) rather than juggling query
+     * strings alongside a base64 path segment.
      */
-    #[Route('/{provider}/{dataset}/map.geojson/{filter}', name: 'survos_folio_map_geojson_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
-    #[Route('/{provider}/{dataset}/map.geojson', name: 'survos_folio_map_geojson', options: ['expose' => true])]
-    public function mapGeoJson(string $provider, string $dataset, Request $request, ?string $filter = null): JsonResponse
+    #[Route('/{provider}/{dataset}/map.geojson/{filter}/{zoom}', name: 'survos_folio_map_geojson_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+', 'zoom' => '\d+'], options: ['expose' => true])]
+    #[Route('/{provider}/{dataset}/map.geojson/{zoom}', name: 'survos_folio_map_geojson', requirements: ['zoom' => '\d+'], options: ['expose' => true])]
+    public function mapGeoJson(string $provider, string $dataset, int $zoom, Request $request, ?string $filter = null): JsonResponse
     {
         $conn = $this->folios->context("$provider/$dataset")->em->getConnection();
 
@@ -224,7 +231,7 @@ final class FolioController extends AbstractController
             $params += ['bboxW' => $bbox[0], 'bboxS' => $bbox[1], 'bboxE' => $bbox[2], 'bboxN' => $bbox[3]];
         }
 
-        $precision = self::ZOOM_PRECISION[$request->query->getInt('zoom', 10)] ?? self::MAX_MAP_PRECISION;
+        $precision = self::ZOOM_PRECISION[$zoom] ?? self::MAX_MAP_PRECISION;
 
         $rows = $conn->executeQuery(
             sprintf(
@@ -248,14 +255,27 @@ final class FolioController extends AbstractController
 
         return new JsonResponse([
             'type' => 'FeatureCollection',
-            'features' => array_map(static fn (array $row): array => [
+            'features' => array_map(fn (array $row): array => [
                 'type' => 'Feature',
                 'geometry' => ['type' => 'Point', 'coordinates' => [(float) $row['lng'], (float) $row['lat']]],
                 'properties' => (int) $row['n'] > 1
                     ? ['cluster' => true, 'point_count' => (int) $row['n']]
-                    : ['cluster' => false, 'id' => $row['id'], 'label' => $row['label'], 'thumbnailUrl' => $row['thumbnailUrl'], 'year' => $row['year']],
+                    : ['cluster' => false, 'id' => $row['id'], 'label' => $row['label'], 'thumbnailUrl' => $this->mapThumbnailUrl($row['thumbnailUrl']), 'year' => $row['year']],
             ], $rows),
         ]);
+    }
+
+    /**
+     * Same imgproxy 'thumb' preset the search grid uses (folio_row.html.twig's `|imgproxy('thumb')`),
+     * applied server-side since map popups are built in JS from this JSON, not rendered in Twig.
+     */
+    private function mapThumbnailUrl(?string $url): ?string
+    {
+        if ($url === null || $this->imgproxy === null) {
+            return $url;
+        }
+
+        return $this->imgproxy->resizePreset($url, 'thumb');
     }
 
     /**
@@ -328,11 +348,12 @@ final class FolioController extends AbstractController
         // `core` is always pinned by the slideshow route path, so drop it; `dtoType` is NOT always in
         // the path (the grid exposes it as a facet on core-only pages), so let it flow through as a
         // normal item_facet filter. query/page/sortBy/placeholder are handled out of band, not as facets.
-        // zoom/bbox are the map view's own state (see mapGeoJson()), reserved here too since this method
-        // is shared -- without them a plain `?zoom=2` (no filter token present) falls through
+        // bbox is the map view's own state (see mapGeoJson()), reserved here too since this method is
+        // shared -- without it, a `?bbox=...` request with no filter token present falls through
         // slideshowFilterParams()'s raw-query-params fallback and gets read as a facet filter on a
-        // nonexistent `zoom` property, filtering out every row.
-        $reserved = ['query', 'page', 'sortBy', 'core', 'ux_search_placeholder', 'hitsPerPage', 'zoom', 'bbox'];
+        // nonexistent `bbox` property, filtering out every row. (zoom used to have the same problem;
+        // it's now a required route segment instead of a query param, so it can't collide here at all.)
+        $reserved = ['query', 'page', 'sortBy', 'core', 'ux_search_placeholder', 'hitsPerPage', 'bbox'];
         $i = 0;
         foreach ($source as $key => $value) {
             if (!is_string($value) || $value === '' || in_array($key, $reserved, true)) {

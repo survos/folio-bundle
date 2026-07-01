@@ -32,14 +32,20 @@
         {# The custom controller must be attached to the SAME element ux_map() renders, not a wrapper
            around it -- ux_map()'s `attributes['data-controller']` is exactly the hook for that (see
            Symfony\UX\Map\Renderer\AbstractRenderer::renderMap(), which merges it alongside the
-           renderer's own controller onto one <div>). It only carries the controller *name* through
-           though, not Stimulus values, so the geojsonUrl value is passed as a raw pre-built
-           data-attribute instead. #}
-        {{ ux_map(center: [20, 0], zoom: 2, attributes: {
-            'data-controller': controllerName,
-            ('data-' ~ controllerName ~ '-geojson-url-value'): path('survos_folio_map_geojson', {provider: provider, dataset: dataset}),
+           renderer's own controller onto one <div>). StimulusAttributes|toArray() gives back exactly
+           the {'data-controller': ..., 'data-...-value': ...} shape that `attributes` expects, so
+           stimulus_controller()|merge(...) composes cleanly instead of hand-building attribute names.
+
+           zoom is a required, always-LAST route segment (see mapGeoJson()), so the base URL below is
+           generated with a dummy zoom=0 and then has that trailing "/0" sliced off -- the JS
+           controller just appends "/{zoom}" itself on every fetch, whatever the current zoom is. #}
+        {% set geojsonUrlBase = (filter
+            ? path('survos_folio_map_geojson_filtered', {provider: provider, dataset: dataset, filter: filter, zoom: 0})
+            : path('survos_folio_map_geojson', {provider: provider, dataset: dataset, zoom: 0})
+        )|slice(0, -2) %}
+        {{ ux_map(center: [20, 0], zoom: 2, attributes: stimulus_controller(controllerName, {geojsonUrl: geojsonUrlBase})|merge({
             style: 'height: 70vh; width: 100%; border-radius: 0.5rem;',
-        }) }}
+        })) }}
 
         <style>
             .folio-map-marker-cluster {
