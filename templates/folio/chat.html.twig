@@ -1,6 +1,7 @@
 {% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
 
 {% set folioLabel = app.request.attributes.get('current_folio_title', ctx.folioCode) %}
+{% set chatController = 'survos--folio-bundle--chat' %}
 
 {% block body_class %}folio-layout folio-chat-page{% endblock %}
 {% block title %}Chat: {{ ctx.folioCode }}{% endblock %}
@@ -135,7 +136,7 @@
             {% endif %}
 
             {% if result %}
-                <div class="card mb-3">
+                <div class="card mb-3" data-controller="{{ chatController }}">
                     <div class="card-header">
                         <div>
                             <h2 class="card-title mb-0">
@@ -146,8 +147,24 @@
                     </div>
 
                     <div class="card-body">
-                        <div class="markdown folio-answer fs-5">
-                            {{ result.answer|markdown_to_html }}
+                        <div data-folio-chat-copy-root>
+                            <template data-folio-chat-copy-source data-{{ chatController }}-target="source">{{ result.answer }}</template>
+                            <div class="markdown folio-answer fs-5" data-folio-chat-copy-content data-{{ chatController }}-target="content">
+                                {{ result.answer|markdown_to_html }}
+                            </div>
+                            <div class="mt-2">
+                                <button
+                                    data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Copy Response"
+                                    class="btn btn-action p-1 lh-1"
+                                    type="button"
+                                    aria-label="Copy Response"
+                                    data-folio-chat-copy-button
+                                    data-copied-content="{{ ux_icon('tabler:check', { class: 'icon' })|e('html_attr') }}"
+                                    data-{{ chatController }}-target="button"
+                                >
+                                    {{ ux_icon('tabler:copy', { class: 'icon' }) }}
+                                </button>
+                            </div>
                         </div>
 
                         <div class="d-flex flex-wrap gap-2 mt-4 pt-3 border-top">
@@ -668,6 +685,84 @@
     </style>
 
     <script>
+        function folioChatCopySourceText(source) {
+            if (!source) {
+                return '';
+            }
+
+            if (source instanceof HTMLTemplateElement) {
+                return source.content.textContent || '';
+            }
+
+            return source.textContent || '';
+        }
+
+        function folioChatCopyRenderedText(content) {
+            return (content?.innerText || content?.textContent || '')
+                .replace(/[ \t]+\n/g, '\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+        }
+
+        async function folioChatWriteCopyText(text) {
+            if (navigator.clipboard?.writeText) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return;
+                } catch {
+                    // Fall back when clipboard permissions are denied.
+                }
+            }
+
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            textarea.remove();
+        }
+
+        function folioChatShowCopyFeedback(button) {
+            const original = button.dataset.originalContent || button.innerHTML;
+
+            button.dataset.originalContent = original;
+            button.innerHTML = button.dataset.copiedContent || 'Copied';
+            button.disabled = true;
+
+            window.setTimeout(function () {
+                button.innerHTML = original;
+                button.disabled = false;
+            }, 1200);
+        }
+
+        async function folioChatCopyAnswer(button) {
+            const root = button.closest('[data-folio-chat-copy-root]');
+            const source = root?.querySelector('[data-folio-chat-copy-source]');
+            const content = root?.querySelector('[data-folio-chat-copy-content]');
+            const text = (folioChatCopySourceText(source).trim() || folioChatCopyRenderedText(content)).trim();
+
+            if (!text) {
+                return;
+            }
+
+            await folioChatWriteCopyText(text);
+            folioChatShowCopyFeedback(button);
+        }
+
+        document.addEventListener('click', function (e) {
+            const button = e.target.closest('[data-folio-chat-copy-button]');
+
+            if (!button) {
+                return;
+            }
+
+            e.preventDefault();
+            folioChatCopyAnswer(button);
+        });
+
         function openFolioSourceDetail(row) {
             const idx = row.dataset.folioDetailIdx;
             const offcanvasTarget = row.dataset.folioOffcanvasTarget;

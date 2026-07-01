@@ -7,6 +7,12 @@
   ],
   "symfony": {
     "controllers": {
+      "chat": {
+        "main": "controllers/chat_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
+      },
       "slideshow": {
         "main": "controllers/slideshow_controller.js",
         "enabled": true,

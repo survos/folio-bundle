@@ -1,6 +1,11 @@
 {
     "controllers": {
         "@survos/folio-bundle": {
+            "chat": {
+                "enabled": true,
+                "fetch": "lazy",
+                "autoimport": []
+            },
             "slideshow": {
                 "enabled": true,
                 "fetch": "lazy",

@@ -60,6 +60,7 @@
 {% set featuredFields = ['title', 'description', 'denseSummary', 'date', 'year', 'dimensions', 'dimensionsRaw', 'citation', 'citationUrl', 'url'] %}
 {% set metadataRows = dtoData|filter((value, field) => value is not empty and field not in featuredFields) %}
 {% set extraRows = extras|filter(value => value is not empty) %}
+{% set chatController = 'survos--folio-bundle--chat' %}
 
 {% block title %}Ask the Scholar · {{ title }}{% endblock %}
 
@@ -216,18 +217,34 @@
                                     <div style="white-space: pre-wrap; word-break: break-word;">{{ turn.question }}</div>
                                 </div>
 
-                                <div class="folio-scholar-bubble folio-scholar-bubble-assistant p-3">
-                                    <div class="d-flex gap-2 align-items-center mb-2 text-primary">
-                                        {{ ux_icon('tabler:message-chatbot', {class: 'icon'}) }}
-                                        <strong>Scholar</strong>
-                                    </div>
-                                    <div class="prose">{{ turn.answer|markdown_to_html }}</div>
-                                    {% if app.debug and turn.error|default(null) %}
-                                        <div class="alert alert-warning mt-3 mb-0">
-                                            <div class="fw-semibold mb-1">Scholar diagnostic</div>
-                                            <code class="text-break">{{ turn.error }}</code>
+                                <div data-folio-chat-copy-root data-controller="{{ chatController }}">
+                                    <div class="folio-scholar-bubble folio-scholar-bubble-assistant p-3">
+                                        <div class="d-flex gap-2 align-items-center mb-2 text-primary">
+                                            {{ ux_icon('tabler:message-chatbot', {class: 'icon'}) }}
+                                            <strong>Scholar</strong>
                                         </div>
-                                    {% endif %}
+                                        <template data-folio-chat-copy-source data-{{ chatController }}-target="source">{{ turn.answer }}</template>
+                                        <div class="prose" data-folio-chat-copy-content data-{{ chatController }}-target="content">{{ turn.answer|markdown_to_html }}</div>
+                                        {% if app.debug and turn.error|default(null) %}
+                                            <div class="alert alert-warning mt-3 mb-0">
+                                                <div class="fw-semibold mb-1">Scholar diagnostic</div>
+                                                <code class="text-break">{{ turn.error }}</code>
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="mt-1">
+                                        <button
+                                            data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Copy Response"
+                                            class="btn btn-action p-1 lh-1"
+                                            type="button"
+                                            aria-label="Copy Response"
+                                            data-folio-chat-copy-button
+                                            data-copied-content="{{ ux_icon('tabler:check', {class: 'icon'})|e('html_attr') }}"
+                                            data-{{ chatController }}-target="button"
+                                        >
+                                            {{ ux_icon('tabler:copy', {class: 'icon'}) }}
+                                        </button>
+                                    </div>
                                 </div>
                             {% endfor %}
                         </div>
@@ -466,6 +483,77 @@
                 });
             }
 
+            function chatCopySourceText(source) {
+                if (!source) {
+                    return '';
+                }
+
+                if (source instanceof HTMLTemplateElement) {
+                    return source.content.textContent || '';
+                }
+
+                return source.textContent || '';
+            }
+
+            function chatCopyRenderedText(content) {
+                return (content?.innerText || content?.textContent || '')
+                    .replace(/[ \t]+\n/g, '\n')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .trim();
+            }
+
+            async function writeChatCopyText(text) {
+                if (navigator.clipboard?.writeText) {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        return;
+                    } catch {
+                        // Fall back when clipboard permissions are denied.
+                    }
+                }
+
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                textarea.remove();
+            }
+
+            function showChatCopyFeedback(button) {
+                const original = button.dataset.originalContent || button.innerHTML;
+
+                button.dataset.originalContent = original;
+                button.innerHTML = button.dataset.copiedContent || 'Copied';
+                button.disabled = true;
+
+                window.setTimeout(function () {
+                    button.innerHTML = original;
+                    button.disabled = false;
+                }, 1200);
+            }
+
+            async function copyChatAnswer(button) {
+                const root = button.closest('[data-folio-chat-copy-root]');
+                const source = root?.querySelector('[data-folio-chat-copy-source]');
+                const content = root?.querySelector('[data-folio-chat-copy-content]');
+                const text = (chatCopySourceText(source).trim() || chatCopyRenderedText(content)).trim();
+
+                if (!text) {
+                    return;
+                }
+
+                await writeChatCopyText(text);
+                showChatCopyFeedback(button);
+            }
+
+            function showChatActions(turn) {
+                turn?.querySelector('[data-folio-chat-actions]')?.classList.remove('d-none');
+            }
+
             function renderMarkdown(markdown) {
                 const blocks = escapeHtml(markdown).split(/\n{2,}/).map(function (block) {
                     const trimmed = block.trim();
@@ -528,14 +616,30 @@
                         <div class="small opacity-75 mb-1">You</div>
                         <div style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(question)}</div>
                     </div>
-                    <div class="folio-scholar-bubble folio-scholar-bubble-assistant p-3" data-folio-chat-pending>
-                        <div class="d-flex gap-2 align-items-center mb-2 text-primary">
-                            <strong>Scholar</strong>
+                    <div data-folio-chat-copy-root data-controller="{{ chatController }}" data-folio-chat-pending>
+                        <div class="folio-scholar-bubble folio-scholar-bubble-assistant p-3">
+                            <div class="d-flex gap-2 align-items-center mb-2 text-primary">
+                                <strong>Scholar</strong>
+                            </div>
+                            <template data-folio-chat-copy-source data-{{ chatController }}-target="source"></template>
+                            <div class="folio-scholar-loading text-muted" data-folio-chat-loading>
+                                Thinking<span>.</span><span>.</span><span>.</span>
+                            </div>
+                            <div class="prose" data-folio-chat-copy-content data-folio-chat-pending-answer data-{{ chatController }}-target="content"></div>
                         </div>
-                        <div class="folio-scholar-loading text-muted" data-folio-chat-loading>
-                            Thinking<span>.</span><span>.</span><span>.</span>
+                        <div class="mt-1 d-none" data-folio-chat-actions>
+                            <button
+                                data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="Copy Response"
+                                class="btn btn-action p-1 lh-1"
+                                type="button"
+                                aria-label="Copy Response"
+                                data-folio-chat-copy-button
+                                data-copied-content="{{ ux_icon('tabler:check', {class: 'icon'})|e('html_attr') }}"
+                                data-{{ chatController }}-target="button"
+                            >
+                                {{ ux_icon('tabler:copy', {class: 'icon'}) }}
+                            </button>
                         </div>
-                        <div class="prose" data-folio-chat-pending-answer></div>
                     </div>
                 `);
                 scrollThread(panel);
@@ -633,6 +737,7 @@
                     }
 
                     const pendingAnswer = pending?.querySelector('[data-folio-chat-pending-answer]');
+                    const pendingCopySource = pending?.querySelector('[data-folio-chat-copy-source]');
                     const loading = pending?.querySelector('[data-folio-chat-loading]');
                     let streamedMarkdown = '';
 
@@ -643,6 +748,13 @@
                             }
                             if (pendingAnswer) {
                                 streamedMarkdown += payload.text || '';
+                                if (pendingCopySource) {
+                                    if (pendingCopySource instanceof HTMLTemplateElement) {
+                                        pendingCopySource.content.textContent = streamedMarkdown;
+                                    } else {
+                                        pendingCopySource.textContent = streamedMarkdown;
+                                    }
+                                }
                                 pendingAnswer.innerHTML = renderMarkdown(streamedMarkdown);
                                 scrollThread(panel);
                             }
@@ -664,11 +776,13 @@
                             if (payload.error && pending) {
                                 pending.insertAdjacentHTML('beforeend', '<div class="alert alert-warning mt-3 mb-0"><code class="text-break">' + escapeHtml(payload.error) + '</code></div>');
                             }
+                            showChatActions(pending);
                             pending?.removeAttribute('data-folio-chat-pending');
                         }
                     });
 
                     loading?.remove();
+                    showChatActions(pending);
                     pending?.removeAttribute('data-folio-chat-pending');
 
                     if (submit) {
@@ -702,8 +816,19 @@
                     }
                     input.focus();
                 } finally {
-                    activeStreams.delete(streamController);
+                activeStreams.delete(streamController);
                 }
+            }, { signal: listenerController.signal });
+
+            document.addEventListener('click', function (event) {
+                const button = event.target.closest('[data-folio-chat-copy-button]');
+
+                if (!button) {
+                    return;
+                }
+
+                event.preventDefault();
+                copyChatAnswer(button);
             }, { signal: listenerController.signal });
 
             document.querySelectorAll('[data-folio-chat-panel]').forEach(scrollThread);
