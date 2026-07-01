@@ -19,7 +19,20 @@ export default class extends Controller {
             this.map.on('zoomend', () => this.load());
         };
 
-        this.element.addEventListener('ux:map:connect', this._onConnect);
+        // Both this controller and ux-map's own (symfony--ux-leaflet-map--map, on the SAME element)
+        // are `fetch: "lazy"` -- independently dynamic-imported, with no guaranteed order. ux-map's
+        // controller dispatches 'connect' synchronously as the last step of ITS OWN connect(), with
+        // no buffering for listeners that attach after the fact. If its module resolves and connects
+        // before this controller's lazy import finishes, the event fires into the void and is lost
+        // forever -- this controller's addEventListener below never sees it, so load() never runs and
+        // the map silently never fetches its geojson. Check synchronously for an already-connected
+        // map first; only fall back to listening for the future event if it hasn't connected yet.
+        const uxMap = this.application.getControllerForElementAndIdentifier(this.element, 'symfony--ux-leaflet-map--map');
+        if (uxMap?.map) {
+            this._onConnect({ detail: { map: uxMap.map } });
+        } else {
+            this.element.addEventListener('ux:map:connect', this._onConnect);
+        }
     }
 
     disconnect() {
