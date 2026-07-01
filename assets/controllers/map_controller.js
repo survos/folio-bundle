@@ -28,13 +28,16 @@ export default class extends Controller {
 
     pointToLayer(feature, latlng) {
         if (feature.properties.cluster) {
-            return L.marker(latlng, {
+            const marker = L.marker(latlng, {
                 icon: L.divIcon({
                     html: `<div class="folio-map-marker-cluster">${feature.properties.point_count}</div>`,
                     className: '',
                     iconSize: [40, 40],
                 }),
             });
+            marker.on('click', () => this.openClusterPopup(marker, feature.properties));
+
+            return marker;
         }
 
         const { label, thumbnailUrl, year } = feature.properties;
@@ -43,6 +46,56 @@ export default class extends Controller {
         marker.bindPopup(`<div class="folio-map-popup">${thumb}<strong>${label ?? ''}</strong>${year ? ` (${year})` : ''}</div>`);
 
         return marker;
+    }
+
+    // Fetches the cluster's individual rows once (cached per bucket+zoom) and shows them as an
+    // in-place mini-slideshow in the marker's popup: one thumbnail at a time with prev/next arrows,
+    // like fortepan.us/fortepan.hu's grouped map markers -- but paging is just an array-index change
+    // (all items fetched upfront), no per-click round trip.
+    async openClusterPopup(marker, { bucketLat, bucketLng }) {
+        const zoom = Math.round(this.map.getZoom());
+        const key = `${zoom}:${bucketLat}:${bucketLng}`;
+        this._clusterCache ??= new Map();
+
+        if (!this._clusterCache.has(key)) {
+            const response = await fetch(`${this.geojsonUrlValue}/${zoom}/at/${bucketLat}/${bucketLng}`);
+            this._clusterCache.set(key, await response.json());
+        }
+
+        const items = this._clusterCache.get(key);
+        if (!items.length) {
+            return;
+        }
+
+        let index = 0;
+        const container = document.createElement('div');
+        container.className = 'folio-map-cluster-slideshow';
+
+        const render = () => {
+            const item = items[index];
+            const disabled = items.length <= 1 ? 'disabled' : '';
+            container.innerHTML = `
+                <div class="folio-map-cluster-nav">
+                    <button type="button" class="folio-map-cluster-prev" ${disabled}>&lsaquo;</button>
+                    <img src="${item.thumbnailUrl ?? ''}" alt="">
+                    <button type="button" class="folio-map-cluster-next" ${disabled}>&rsaquo;</button>
+                </div>
+                <div class="folio-map-cluster-caption">
+                    ${item.label ?? ''}${item.year ? ` (${item.year})` : ''} &middot; ${index + 1}/${items.length}
+                </div>
+            `;
+            container.querySelector('.folio-map-cluster-prev')?.addEventListener('click', () => {
+                index = (index - 1 + items.length) % items.length;
+                render();
+            });
+            container.querySelector('.folio-map-cluster-next')?.addEventListener('click', () => {
+                index = (index + 1) % items.length;
+                render();
+            });
+        };
+        render();
+
+        marker.bindPopup(container).openPopup();
     }
 
     async load() {

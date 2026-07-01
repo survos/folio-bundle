@@ -28,6 +28,7 @@ use Twig\Environment;
 final class FolioController extends AbstractController
 {
     private const MAX_MAP_FEATURES = 2000;
+    private const MAX_CLUSTER_ITEMS = 50;
 
     /** Zoom (Leaflet-style, 0-19) -> decimal places to round lat/lng to before grouping. Coarser at low zoom. */
     private const ZOOM_PRECISION = [
@@ -215,21 +216,7 @@ final class FolioController extends AbstractController
     public function mapGeoJson(string $provider, string $dataset, int $zoom, Request $request, ?string $filter = null): JsonResponse
     {
         $conn = $this->folios->context("$provider/$dataset")->em->getConnection();
-
-        $where = [
-            "json_extract(d.dto_data, '$.latitude') IS NOT NULL",
-            "json_extract(d.dto_data, '$.longitude') IS NOT NULL",
-        ];
-        $params = [];
-        $orderBy = $this->slideshowSortAndFilters($this->slideshowFilterParams($request, $filter), $conn, $where, $params);
-        unset($orderBy); // map plots the whole filtered set unordered; only the WHERE clause matters here
-
-        $bbox = $this->parseBbox($request->query->getString('bbox', ''));
-        if ($bbox !== null) {
-            $where[] = "CAST(json_extract(d.dto_data, '$.latitude') AS REAL) BETWEEN :bboxS AND :bboxN";
-            $where[] = "CAST(json_extract(d.dto_data, '$.longitude') AS REAL) BETWEEN :bboxW AND :bboxE";
-            $params += ['bboxW' => $bbox[0], 'bboxS' => $bbox[1], 'bboxE' => $bbox[2], 'bboxN' => $bbox[3]];
-        }
+        [$where, $params] = $this->mapWhereAndParams($conn, $request, $filter);
 
         $precision = self::ZOOM_PRECISION[$zoom] ?? self::MAX_MAP_PRECISION;
 
@@ -259,10 +246,77 @@ final class FolioController extends AbstractController
                 'type' => 'Feature',
                 'geometry' => ['type' => 'Point', 'coordinates' => [(float) $row['lng'], (float) $row['lat']]],
                 'properties' => (int) $row['n'] > 1
-                    ? ['cluster' => true, 'point_count' => (int) $row['n']]
+                    // bucketLat/bucketLng let the client ask mapClusterItems() for exactly this
+                    // bucket's rows (a mini-slideshow on click) -- the averaged lat/lng above isn't
+                    // reproducible from the client side, but the rounded bucket key is.
+                    ? ['cluster' => true, 'point_count' => (int) $row['n'], 'bucketLat' => (float) $row['bucketLat'], 'bucketLng' => (float) $row['bucketLng']]
                     : ['cluster' => false, 'id' => $row['id'], 'label' => $row['label'], 'thumbnailUrl' => $this->mapThumbnailUrl($row['thumbnailUrl']), 'year' => $row['year']],
             ], $rows),
         ]);
+    }
+
+    /**
+     * The individual items behind one cluster bucket (same bucketLat/bucketLng/zoom a mapGeoJson()
+     * cluster feature carries), for the mini-slideshow popup on cluster click -- plain JSON list, not
+     * GeoJSON, since these aren't independently plottable (they share one map position by definition).
+     */
+    #[Route('/{provider}/{dataset}/map.geojson/{filter}/{zoom}/at/{bucketLat}/{bucketLng}', name: 'survos_folio_map_cluster_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+', 'zoom' => '\d+', 'bucketLat' => '-?\d+(\.\d+)?', 'bucketLng' => '-?\d+(\.\d+)?'], options: ['expose' => true])]
+    #[Route('/{provider}/{dataset}/map.geojson/{zoom}/at/{bucketLat}/{bucketLng}', name: 'survos_folio_map_cluster', requirements: ['zoom' => '\d+', 'bucketLat' => '-?\d+(\.\d+)?', 'bucketLng' => '-?\d+(\.\d+)?'], options: ['expose' => true])]
+    public function mapClusterItems(string $provider, string $dataset, int $zoom, string $bucketLat, string $bucketLng, Request $request, ?string $filter = null): JsonResponse
+    {
+        $conn = $this->folios->context("$provider/$dataset")->em->getConnection();
+        [$where, $params] = $this->mapWhereAndParams($conn, $request, $filter);
+
+        $precision = self::ZOOM_PRECISION[$zoom] ?? self::MAX_MAP_PRECISION;
+        // CAST(:param AS REAL) matters here: PDO binds a PHP float as TEXT by default, and SQLite's
+        // storage-class comparison rules mean a numeric value (what ROUND() returns) never equals a
+        // TEXT value regardless of content -- confirmed 0 rows without the cast, correct with it.
+        $where[] = "ROUND(CAST(json_extract(d.dto_data, '$.latitude') AS REAL), :precision) = CAST(:bucketLat AS REAL)";
+        $where[] = "ROUND(CAST(json_extract(d.dto_data, '$.longitude') AS REAL), :precision) = CAST(:bucketLng AS REAL)";
+        $params += ['precision' => $precision, 'bucketLat' => (float) $bucketLat, 'bucketLng' => (float) $bucketLng];
+
+        $rows = $conn->executeQuery(
+            sprintf(
+                "SELECT
+                    d.local_id AS id,
+                    d.label,
+                    coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl')) AS thumbnailUrl,
+                    json_extract(d.dto_data, '\$.year') AS year
+                 FROM item d WHERE %s
+                 LIMIT :limit",
+                implode(' AND ', $where),
+            ),
+            $params + ['limit' => self::MAX_CLUSTER_ITEMS],
+        )->fetchAllAssociative();
+
+        return new JsonResponse(array_map(fn (array $row): array => [
+            'id' => $row['id'],
+            'label' => $row['label'],
+            'thumbnailUrl' => $this->mapThumbnailUrl($row['thumbnailUrl']),
+            'year' => $row['year'],
+        ], $rows));
+    }
+
+    /**
+     * @return array{0: list<string>, 1: array<string, mixed>}
+     */
+    private function mapWhereAndParams(Connection $conn, Request $request, ?string $filter): array
+    {
+        $where = [
+            "json_extract(d.dto_data, '$.latitude') IS NOT NULL",
+            "json_extract(d.dto_data, '$.longitude') IS NOT NULL",
+        ];
+        $params = [];
+        $this->slideshowSortAndFilters($this->slideshowFilterParams($request, $filter), $conn, $where, $params);
+
+        $bbox = $this->parseBbox($request->query->getString('bbox', ''));
+        if ($bbox !== null) {
+            $where[] = "CAST(json_extract(d.dto_data, '$.latitude') AS REAL) BETWEEN :bboxS AND :bboxN";
+            $where[] = "CAST(json_extract(d.dto_data, '$.longitude') AS REAL) BETWEEN :bboxW AND :bboxE";
+            $params += ['bboxW' => $bbox[0], 'bboxS' => $bbox[1], 'bboxE' => $bbox[2], 'bboxN' => $bbox[3]];
+        }
+
+        return [$where, $params];
     }
 
     /**

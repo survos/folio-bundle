@@ -70,6 +70,7 @@
                             {% endfor %}
 
                             {{ block('folio_search_slideshow_button') }}
+                            {{ block('folio_search_map_button') }}
                         </div>
                     </div>
                 </div>
@@ -186,4 +187,22 @@
             Slideshow
         </a>
     {% endif %}
+{% endblock %}
+
+{#
+   A ready-wired "Map" button: reuses the exact same slideshow-link controller (it's generic --
+   base + a /{token} path segment from the grid's current filter state), just pointed at the map
+   route instead of slideshow. Unlike Slideshow, Map isn't core-scoped (it plots the whole dataset),
+   so no selectedCore guard and no fixed/dtoType handling needed.
+   Reusable from any header override with {{ block('folio_search_map_button') }}.
+#}
+{% block folio_search_map_button %}
+    {% set mapBase = path('survos_folio_map', {provider: provider, dataset: dataset}) %}
+    <a class="btn btn-sm btn-outline-primary"
+       href="{{ mapBase }}"
+       data-controller="slideshow-link"
+       data-slideshow-link-base-value="{{ mapBase }}">
+        {{ ux_icon('tabler:map-2', { class: 'icon me-1' }) }}
+        Map
+    </a>
 {% endblock %}

@@ -68,6 +68,47 @@
                 border-radius: 0.35rem;
                 margin-bottom: 0.35rem;
             }
+
+            .folio-map-cluster-slideshow {
+                width: 180px;
+                text-align: center;
+            }
+
+            .folio-map-cluster-nav {
+                display: flex;
+                align-items: center;
+                gap: 0.35rem;
+            }
+
+            .folio-map-cluster-nav img {
+                flex: 1 1 auto;
+                width: 100%;
+                max-width: 140px;
+                border-radius: 0.35rem;
+            }
+
+            .folio-map-cluster-prev,
+            .folio-map-cluster-next {
+                flex: 0 0 auto;
+                border: none;
+                background: none;
+                font-size: 1.5rem;
+                line-height: 1;
+                cursor: pointer;
+                color: #066fd1;
+            }
+
+            .folio-map-cluster-prev:disabled,
+            .folio-map-cluster-next:disabled {
+                opacity: 0.3;
+                cursor: default;
+            }
+
+            .folio-map-cluster-caption {
+                margin-top: 0.35rem;
+                font-size: 0.8rem;
+                color: #555;
+            }
         </style>
     {% endif %}
 {% endblock %}
