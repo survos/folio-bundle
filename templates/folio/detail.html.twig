@@ -81,6 +81,7 @@
     {% set pdfUrl = attribute(row.dtoData, 'pdfUrl')|default(null) %}
     {% set docPageCount = attribute(row.dtoData, 'pageCount')|default(0) %}
     {% set videoPages = pages|filter(p => p.url matches '/\\.(mp4|mpe?g|mov|avi|wmv|m4v|webm)($|\\?)/i') %}
+    {% set hasFolioDetailActions = block('folio_detail_actions')|trim is not empty %}
 
     <div class="container-xl py-4 py-lg-5">
         <div class="folio-detail-shell">
@@ -174,50 +175,54 @@
                         {% endif %}
                     </div>
 
-                    <div class="col-lg-4">
-                        {% if pageAiUrls|length > 0 or th %}
+                    {% if pageAiUrls|length > 0 or th or hasFolioDetailActions %}
+                        <div class="col-lg-4">
                             <div class="d-flex flex-wrap justify-content-lg-end gap-2">
-                                <a href="{{ path('survos_folio_item_chat', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId}) }}"
-                                   data-turbo="false"
-                                   class="btn text-white border-0 shadow-sm rounded-pill px-4"
-                                   style="background: linear-gradient(135deg, #2b0b4f, #5b2aa0);">
-                                    {{ ux_icon('tabler:sparkles', { class: 'icon me-1' }) }}
-                                    Ask document
-                                </a>
+                                {{ block('folio_detail_actions') }}
 
-                                {% if pages|length > 1 and pageAskUrls is not empty %}
-                                    <a href="{{ pageAskUrls|first }}"
-                                       id="doc-page-scholar-link"
+                                {% if pageAiUrls|length > 0 or th %}
+                                    <a href="{{ path('survos_folio_item_chat', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId}) }}"
                                        data-turbo="false"
-                                       data-page-chat-urls="{{ pageAskUrls|json_encode|e('html_attr') }}"
-                                       class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill">
-                                        {{ ux_icon('tabler:message-chatbot', { class: 'icon me-1' }) }}
-                                        Ask page
+                                       class="btn text-white border-0 shadow-sm rounded-pill px-4"
+                                       style="background: linear-gradient(135deg, #2b0b4f, #5b2aa0);">
+                                        {{ ux_icon('tabler:sparkles', { class: 'icon me-1' }) }}
+                                        Ask document
                                     </a>
-                                {% endif %}
 
-                                {# OCR / Handwriting run a mediary AI task against THIS row's current
-                                   page (folio identifiers, not a bare url) via survos_folio_ai, which
-                                   persists the result onto the right Page. hrefs follow the viewer's
-                                   page (see the iiif-viewer:page listener below). #}
-                                {% if pages|length > 0 %}
-                                    {% set aiBase = path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId}) %}
-                                    <a class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill js-folio-ai-btn"
-                                       data-ai-base="{{ aiBase }}" data-ai-task="ocr_mistral"
-                                       href="{{ path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, task: 'ocr_mistral', run: 1, page: 0}) }}">
-                                        {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}
-                                        OCR
-                                    </a>
-                                    <a class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill js-folio-ai-btn"
-                                       data-ai-base="{{ aiBase }}" data-ai-task="handwriting"
-                                       href="{{ path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, task: 'handwriting', run: 1, page: 0}) }}">
-                                        {{ ux_icon('tabler:writing', { class: 'icon me-1' }) }}
-                                        Handwriting
-                                    </a>
+                                    {% if pages|length > 1 and pageAskUrls is not empty %}
+                                        <a href="{{ pageAskUrls|first }}"
+                                           id="doc-page-scholar-link"
+                                           data-turbo="false"
+                                           data-page-chat-urls="{{ pageAskUrls|json_encode|e('html_attr') }}"
+                                           class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill">
+                                            {{ ux_icon('tabler:message-chatbot', { class: 'icon me-1' }) }}
+                                            Ask page
+                                        </a>
+                                    {% endif %}
+
+                                    {# OCR / Handwriting run a mediary AI task against THIS row's current
+                                       page (folio identifiers, not a bare url) via survos_folio_ai, which
+                                       persists the result onto the right Page. hrefs follow the viewer's
+                                       page (see the iiif-viewer:page listener below). #}
+                                    {% if pages|length > 0 %}
+                                        {% set aiBase = path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId}) %}
+                                        <a class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill js-folio-ai-btn"
+                                           data-ai-base="{{ aiBase }}" data-ai-task="ocr_mistral"
+                                           href="{{ path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, task: 'ocr_mistral', run: 1, page: 0}) }}">
+                                            {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}
+                                            OCR
+                                        </a>
+                                        <a class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill js-folio-ai-btn"
+                                           data-ai-base="{{ aiBase }}" data-ai-task="handwriting"
+                                           href="{{ path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, task: 'handwriting', run: 1, page: 0}) }}">
+                                            {{ ux_icon('tabler:writing', { class: 'icon me-1' }) }}
+                                            Handwriting
+                                        </a>
+                                    {% endif %}
                                 {% endif %}
                             </div>
-                        {% endif %}
-                    </div>
+                        </div>
+                    {% endif %}
                 </div>
             </div>
 
@@ -1242,4 +1247,7 @@
             </style>
         </div>
     </div>
+{% endblock %}
+
+{% block folio_detail_actions %}
 {% endblock %}
