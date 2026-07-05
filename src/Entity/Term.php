@@ -6,15 +6,23 @@ namespace Survos\FolioBundle\Entity;
 
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
+use Survos\BabelBundle\Attribute\BabelLocale;
+use Survos\BabelBundle\Attribute\BabelStorage;
+use Survos\BabelBundle\Contract\BabelHooksInterface;
+use Survos\BabelBundle\Entity\Traits\BabelHooksTrait;
 use Survos\FolioBundle\Repository\TermRepository;
+use Survos\Lingua\Contracts\Attribute\Translatable;
 
 #[ORM\Entity(repositoryClass: TermRepository::class)]
 #[ORM\Table(name: 'term')]
 #[ORM\UniqueConstraint(name: 'uniq_term_code', columns: ['term_set_id', 'code'])]
 #[ORM\UniqueConstraint(name: 'uniq_term_path', columns: ['term_set_id', 'path'])]
 #[ORM\Index(name: 'idx_term_path', columns: ['term_set_id', 'path'])]
-class Term
+#[BabelStorage]
+class Term implements BabelHooksInterface
 {
+    use BabelHooksTrait;
+
     #[ORM\Id]
     #[ORM\Column(length: 260, options: ['comment' => 'Composite: termSetId:code'])]
     public string $id;
@@ -33,8 +41,14 @@ class Term
     #[ORM\Column(length: 512, options: ['comment' => 'Materialized path for hierarchy'])]
     public string $path;
 
-    #[ORM\Column(length: 500, nullable: true, options: ['comment' => 'Human-readable display label'])]
-    public ?string $label = null;
+    #[ORM\Column(name: 'label', length: 500, nullable: true, options: ['comment' => 'Human-readable display label'])]
+    private ?string $labelBacking = null;
+
+    #[Translatable(context: 'term')]
+    public ?string $label {
+        get => $this->resolveTranslatable('label', $this->labelBacking, 'term');
+        set => $this->labelBacking = $value;
+    }
 
     #[ORM\Column(type: Types::TEXT, nullable: true, options: ['comment' => 'Term description'])]
     public ?string $description = null;
@@ -60,5 +74,12 @@ class Term
         $this->code = $code;
         $this->path = $code;
         $this->id = "$termSet->id:$code";
+    }
+
+    /** Delegates to the owning TermSet -- a term's source language is a vocabulary-level fact. */
+    #[BabelLocale]
+    public function getSourceLocale(): ?string
+    {
+        return $this->termSet->sourceLocale;
     }
 }

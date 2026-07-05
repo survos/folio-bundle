@@ -10,6 +10,7 @@
     "doctrine/doctrine-bundle": "^2.14|^3.0",
     "doctrine/orm": "^3.4",
     "league/commonmark": "^2.4",
+    "survos/babel-bundle": "^2.10",
     "survos/dataset-bundle": "^2.5",
     "survos/data-contracts": "^2.5",
     "survos/field-bundle": "^2.5",

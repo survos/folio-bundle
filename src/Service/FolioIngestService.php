@@ -7,8 +7,9 @@ namespace Survos\FolioBundle\Service;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
+use Survos\DatasetBundle\Enum\Stage;
 use Survos\DatasetBundle\Service\DataPaths;
-use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Term,TermSet};
+use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Str,StrTranslation,Term,TermSet};
 use Survos\FolioBundle\Dto\PageDto;
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\JsonlBundle\IO\JsonlReader;
@@ -194,7 +195,7 @@ final class FolioIngestService
             $coreResults[$core] = ['count' => $count, 'file' => $file];
         }
 
-        $termCount = $this->timedPhase($io, 'terms', fn () => $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $batch, $io));
+        $termCount = $this->timedPhase($io, 'terms', fn () => $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $dataset->locale, $batch, $io));
         $linkResult = $this->timedPhase($io, 'links', fn () => $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $sinceCommit, $io));
         $pageResult = $this->timedPhase($io, 'pages', fn () => $this->ingestPages($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io));
         $claimResult = $this->timedPhase($io, 'claims', fn () => $this->ingestClaims($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io));
@@ -701,7 +702,122 @@ final class FolioIngestService
         $io->progressFinish();
     }
 
-    private function ingestTerms(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch, ?SymfonyStyle $io = null): int
+    /**
+     * Copies a dataset's translated term phrases (produced by
+     * dataset:intl:extract-terms + push/pull) into the folio's own str/str_tr
+     * tables, so BabelPostLoadHydrator -- which queries via whichever entity
+     * manager loaded the entity -- can resolve Term/TermSet::$label per-folio
+     * with no cross-database lookup.
+     *
+     * engine is hardcoded to 'babel' regardless of which MT engine (libre,
+     * deepl, ...) actually produced the text: that's the value
+     * BabelPostLoadHydrator::DEFAULT_ENGINE filters on.
+     */
+    private function ingestTermTranslations(EntityManagerInterface $em, string $datasetKey, string $sourceLocale, int $batch = 500): void
+    {
+        $intlDir = $this->dataPaths->stageDir($datasetKey, Stage::Intl->value);
+        $phrasesFile = "$intlDir/phrases.$sourceLocale.jsonl";
+        if (!is_file($phrasesFile)) {
+            return;
+        }
+
+        // One row per phrase, held in memory to batch-lookup existing rows instead
+        // of a findOneBy() per code -- fine at term-vocabulary scale (hundreds to a
+        // few thousand distinct phrases per dataset, deduped by content hash already).
+        $phrases = [];
+        foreach (JsonlReader::open($phrasesFile) as $row) {
+            $code = (string) ($row['code'] ?? '');
+            $text = $row['text'] ?? null;
+            if ($code === '' || !is_string($text) || $text === '') {
+                continue;
+            }
+            $phrases[$code] = $text;
+        }
+        if ($phrases === []) {
+            return;
+        }
+
+        $strRepo = $em->getRepository(Str::class);
+        $existingStr = $this->indexByField($strRepo, 'code', array_map('strval', array_keys($phrases)));
+
+        $i = 0;
+        foreach ($phrases as $code => $text) {
+            // A purely-numeric hash (rare but real at a few thousand hashes) makes PHP
+            // silently coerce $code to an int array key -- cast back before use as a value.
+            $code = (string) $code;
+            $str = $existingStr[$code] ?? new Str();
+            $str->code = $code;
+            $str->sourceLocale = $sourceLocale;
+            $str->source = $text;
+            $str->context = 'term';
+            $em->persist($str);
+
+            if (++$i % $batch === 0) {
+                $em->flush();
+            }
+        }
+        $em->flush();
+
+        $trRepo = $em->getRepository(StrTranslation::class);
+        foreach (glob("$intlDir/tr.*.jsonl") ?: [] as $trFile) {
+            if (!preg_match('/tr\.([a-zA-Z_-]+)\.jsonl$/', $trFile, $m)) {
+                continue;
+            }
+            $targetLocale = $m[1];
+            if ($targetLocale === $sourceLocale) {
+                continue;
+            }
+
+            $translations = [];
+            foreach (JsonlReader::open($trFile) as $row) {
+                $code = (string) ($row['code'] ?? '');
+                $text = $row['text'] ?? null;
+                if ($code === '' || !isset($phrases[$code]) || !is_string($text) || $text === '') {
+                    continue;
+                }
+                $translations[$code] = $text;
+            }
+            if ($translations === []) {
+                continue;
+            }
+
+            $existingTr = [];
+            foreach ($trRepo->findBy(['strCode' => array_map('strval', array_keys($translations)), 'targetLocale' => $targetLocale]) as $row) {
+                $existingTr[$row->strCode] = $row;
+            }
+
+            $i = 0;
+            foreach ($translations as $code => $text) {
+                $code = (string) $code;
+                $tr = $existingTr[$code] ?? new StrTranslation();
+                $tr->strCode = $code;
+                $tr->targetLocale = $targetLocale;
+                $tr->engine = 'babel';
+                $tr->text = $text;
+                $em->persist($tr);
+
+                if (++$i % $batch === 0) {
+                    $em->flush();
+                }
+            }
+            $em->flush();
+        }
+    }
+
+    /**
+     * @param list<string> $values
+     * @return array<string, object> keyed by the field's value
+     */
+    private function indexByField(object $repo, string $field, array $values): array
+    {
+        $out = [];
+        foreach ($repo->findBy([$field => $values]) as $entity) {
+            $out[$entity->{$field}] = $entity;
+        }
+        return $out;
+    }
+
+    private function ingestTerms(EntityManagerInterface $em, Folio $folio, string $datasetKey, ?string $sourceLocale, int $batch, ?SymfonyStyle $io = null): int
     {
         $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
         $termSetFile = $normalizeDir . '/termSet.jsonl';
@@ -716,6 +832,7 @@ final class FolioIngestService
             $code = $this->requiredString($data, 'code', $termSetFile);
             $set = new TermSet($folio, $code);
             $set->label = is_scalar($data['label'] ?? null) ? (string) $data['label'] : null;
+            $set->sourceLocale = $sourceLocale;
             $set->description = is_scalar($data['description'] ?? null) ? (string) $data['description'] : null;
             $set->rules = is_array($data['rules'] ?? null) ? $data['rules'] : null;
             $set->meta = is_array($data['meta'] ?? null) ? $data['meta'] : null;
@@ -724,6 +841,8 @@ final class FolioIngestService
             $sets[$code] = $set;
         }
         $em->flush();
+
+        $this->ingestTermTranslations($em, $datasetKey, $sourceLocale ?? 'en', $batch);
 
         $pendingParents = [];
         $count = 0;

@@ -11,7 +11,7 @@ use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioContextLi
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
-use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,TermRepository,TermSetRepository};
+use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
 use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
@@ -80,7 +80,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // zm configures this to "/f"; a mismatch 404s folio:pull.
         $builder->setParameter('survos_folio.route_prefix', $config['route_prefix']);
         $services = $container->services();
-        foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class] as $class) {
+        foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class, StrRepository::class, StrTranslationRepository::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');
         }
         $services->set(FolioSchemaManager::class)->autowire()->autoconfigure()->public();

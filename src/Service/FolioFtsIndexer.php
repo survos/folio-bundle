@@ -5,9 +5,17 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\DataContracts\Vocabulary\ItemField;
+use Survos\DataContracts\Vocabulary\TermSetBinding;
+use Symfony\Component\String\Slugger\AsciiSlugger;
+use Symfony\Component\String\Slugger\SluggerInterface;
 
 final class FolioFtsIndexer
 {
+    public function __construct(
+        private readonly SluggerInterface $slugger = new AsciiSlugger(),
+    ) {
+    }
+
     private const DEFAULT_SEARCHABLE_PROPERTIES = [
         ItemField::ID,
         'label',
@@ -217,7 +225,60 @@ final class FolioFtsIndexer
             return $this->validFacetValue($value) ? [$value] : [];
         }
 
-        return array_key_exists($field, $data) ? $this->facetValues($data[$field]) : [];
+        if (!array_key_exists($field, $data)) {
+            return [];
+        }
+
+        // Term-set-backed fields (subjects/keywords -> obj, cul, tec, mat, ...) are canonicalized
+        // to their term code instead of the raw label, so casing variants ("Children"/"children")
+        // collapse into one facet entry with a merged count, and the code gives translation
+        // lookup (see folio_term_label in the app) a stable key to resolve a locale-aware label at
+        // render time.
+        $setCode = $this->termSetFieldMap()[$field] ?? null;
+
+        return $setCode !== null ? $this->slugValues($data[$field]) : $this->facetValues($data[$field]);
+    }
+
+    /**
+     * @return array<string,string> raw dto_data field name => owning term-set code, derived from
+     * #[VocabTerm(termSet: true, sourceFields: [...])] bindings on MuseumVocab (e.g. 'obj' is fed by
+     * 'obj', 'subjects', 'keywords'). A field named after its own set code maps to itself.
+     */
+    private function termSetFieldMap(): array
+    {
+        static $map = null;
+        if ($map !== null) {
+            return $map;
+        }
+
+        $map = [];
+        foreach (TermSetBinding::fields() as $setCode => $fields) {
+            foreach ($fields as $field) {
+                $map[$field] = $setCode;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function slugValues(mixed $value): array
+    {
+        $labels = is_array($value) ? $value : [$value];
+        $codes = [];
+        foreach ($labels as $label) {
+            if (!is_scalar($label)) {
+                continue;
+            }
+            $code = $this->slugger->slug(trim((string) $label))->lower()->toString();
+            if ($code !== '') {
+                $codes[] = $code;
+            }
+        }
+
+        return array_values(array_unique($codes));
     }
 
     /**
