@@ -21,6 +21,7 @@ use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Twig\Environment;
 
 #[Route('')]
@@ -46,6 +47,7 @@ final class FolioController extends AbstractController
         private readonly FolioChatPromptSuggester $promptSuggester,
         private readonly FolioWordCloudService $wordCloud,
         private readonly Environment $twig,
+        private readonly HttpClientInterface $httpClient,
         private readonly ?ImgproxyUrlBuilder $imgproxy = null,
     ) {}
 
@@ -784,6 +786,40 @@ final class FolioController extends AbstractController
             'contextSections' => $contextSections,
             'chatHistory' => $chatHistory,
             'result' => $result,
+        ]);
+    }
+
+    /**
+     * Server-side fetch of a page's source file, returned inline as text. Some sources (e.g. NARA's
+     * plain-text digital objects) serve their file with `Content-Disposition: attachment`, which
+     * forces a download on direct/iframe navigation to the origin URL — proxying through here (like
+     * imgproxy already does for images) lets us control the response headers instead.
+     */
+    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/page/{seq}/raw', name: 'survos_folio_page_raw', requirements: ['seq' => '\d+'], options: ['expose' => true])]
+    public function pageRaw(string $provider, string $dataset, string $coreCode, string $dtoType, string $localId, int $seq): Response
+    {
+        $folioCode = "$provider/$dataset";
+        $ctx = $this->folios->context($folioCode);
+        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+            ?? throw $this->createNotFoundException($coreCode);
+        $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
+            ?? throw $this->createNotFoundException($localId);
+
+        $page = null;
+        foreach ($row->pages as $candidate) {
+            if ($candidate->seq === $seq) {
+                $page = $candidate;
+                break;
+            }
+        }
+        if ($page === null) {
+            throw $this->createNotFoundException(sprintf('Page %d was not found for %s.', $seq, $localId));
+        }
+
+        $upstream = $this->httpClient->request('GET', $page->url);
+
+        return new Response($upstream->getContent(), $upstream->getStatusCode(), [
+            'Content-Type' => 'text/plain; charset=UTF-8',
         ]);
     }
 

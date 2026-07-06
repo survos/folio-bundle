@@ -62,6 +62,11 @@
 
 {% block body %}
     {% set pages = pageTableExists ? row.pages : [] %}
+    {# Plain-text digital objects (e.g. NARA "ASCII Text" manifests) aren't an image/IIIF canvas —
+       piping them through imgproxy/OpenSeadragon just breaks the viewer. Pull them out of the
+       image page-set and render their content directly below instead. #}
+    {% set textFilePages = pages|filter(p => p.url matches '/\\.txt($|\\?)/i') %}
+    {% set pages = pages|filter(p => not (p.url matches '/\\.txt($|\\?)/i')) %}
     {% set pageAiUrls = pages|map(p => p.url) %}
     {% set pageTexts = pages|map(p => p.text|default('')) %}
     {# Mistral structured layout per page (typed blocks + bboxes). When present the viewer renders the
@@ -356,6 +361,31 @@
                                 </div>
                             {% endif %}
                         </div>
+                    {% endif %}
+
+                    {% for textPage in textFilePages %}
+                        {# survos_folio_page_raw fetches the source file server-side and strips origin
+                           headers (NARA serves these with Content-Disposition: attachment, which would
+                           force a download). Loaded into a <pre> via same-origin fetch rather than an
+                           <iframe>, so it inherits page styling/theme instead of its own blank frame. #}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span>{{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}Text file</span>
+                                <a href="{{ textPage.url }}" target="_blank" rel="noopener" class="small">Open raw</a>
+                            </div>
+                            <pre class="card-body mb-0 folio-text-page" style="max-height: 50vh; overflow: auto; white-space: pre-wrap;"
+                                 data-url="{{ path('survos_folio_page_raw', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: textPage.seq}) }}">Loading…</pre>
+                        </div>
+                    {% endfor %}
+                    {% if textFilePages|length > 0 %}
+                        <script>
+                            document.querySelectorAll('.folio-text-page').forEach(function (el) {
+                                fetch(el.dataset.url)
+                                    .then(function (r) { return r.text(); })
+                                    .then(function (t) { el.textContent = t; })
+                                    .catch(function () { el.textContent = 'Unable to load text file.'; });
+                            });
+                        </script>
                     {% endif %}
 
                     {% if pdfUrl or pages|length > 0 %}
