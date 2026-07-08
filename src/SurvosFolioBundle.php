@@ -6,7 +6,7 @@ namespace Survos\FolioBundle;
 
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
-use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand};
+use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMeiliBuildSetCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand};
 use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioContextListener,FolioFtsIndexListener};
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
@@ -113,6 +113,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         if (class_exists(\Survos\MeiliBundle\Service\MeiliService::class)) {
             $services->set(FolioMeiliDocumentBuilder::class)->autowire()->autoconfigure()->public();
             $services->set(FolioMeiliIndexer::class)->autowire()->autoconfigure()->public();
+            $services->set(FolioMeiliBuildSetCommand::class)->autowire()->autoconfigure()->public();
         }
         $services->set(FolioService::class)->autowire()->autoconfigure()->public()->args([
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
