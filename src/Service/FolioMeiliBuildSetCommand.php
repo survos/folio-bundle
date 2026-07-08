@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Survos\FolioBundle\Command;
+namespace Survos\FolioBundle\Service;
 
 use Survos\FolioBundle\Service\FolioMeiliDocumentBuilder;
 use Survos\FolioBundle\Service\FolioService;
