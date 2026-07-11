@@ -23,9 +23,10 @@ final class FolioService
         private readonly ?LoggerInterface $logger = null,
     ) {}
 
-    public function path(string $folioCode, bool $createDirectory = false): string
+    /** Pass $locale for a localized build, e.g. <code>.en.folio instead of <code>.folio. */
+    public function path(string $folioCode, bool $createDirectory = false, ?string $locale = null): string
     {
-        return $this->dataPaths->folioFile($folioCode, $this->extension, $createDirectory);
+        return $this->dataPaths->folioFile($folioCode, $this->localizedExtension($locale), $createDirectory);
     }
 
     public function rootPath(): string
@@ -34,9 +35,14 @@ final class FolioService
     }
 
     /** Path to the index-free distributable archive, e.g. <root>/folio-archive/<provider>/<code>.folio.gz. */
-    public function archivePath(string $folioCode, bool $createDirectory = false): string
+    public function archivePath(string $folioCode, bool $createDirectory = false, ?string $locale = null): string
     {
-        return $this->dataPaths->folioArchiveFile($folioCode, $this->extension . '.gz', $createDirectory);
+        return $this->dataPaths->folioArchiveFile($folioCode, $this->localizedExtension($locale) . '.gz', $createDirectory);
+    }
+
+    private function localizedExtension(?string $locale): string
+    {
+        return $locale !== null && $locale !== '' ? $locale . '.' . $this->extension : $this->extension;
     }
 
     /**
@@ -44,14 +50,14 @@ final class FolioService
      * The bootstrap is created on first use if it does not exist.
      * This is the "restore from backup" path — call before ingest.
      */
-    public function reset(string $folioCode): void
+    public function reset(string $folioCode, ?string $locale = null): void
     {
         $bootstrap = $this->bootstrapPath();
         if (!is_file($bootstrap)) {
             $this->buildBootstrap();
         }
 
-        $target = $this->path($folioCode, createDirectory: true);
+        $target = $this->path($folioCode, createDirectory: true, locale: $locale);
 
         // Close any open handle and drop a prior run's -wal/-shm/-journal BEFORE overwriting.
         // A stale WAL left by an aborted ingest would otherwise be replayed onto the fresh
@@ -127,7 +133,7 @@ final class FolioService
         }
     }
 
-    public function switch(string $folioCode): EntityManagerInterface
+    public function switch(string $folioCode, ?string $locale = null): EntityManagerInterface
     {
         $em = $this->folioEntityManager;
         $conn = $em->getConnection();
@@ -140,7 +146,7 @@ final class FolioService
             return $em;
         }
 
-        $target = $this->path($folioCode);
+        $target = $this->path($folioCode, locale: $locale);
         if (!is_file($target)) {
             throw new \RuntimeException(sprintf('Folio file not found: %s. Run folio:migrate first.', $target));
         }
@@ -158,9 +164,9 @@ final class FolioService
     /**
      * Open a folio, optionally updating its schema, and guarantee the Folio entity row exists.
      */
-    public function context(string $folioCode, bool $ensureSchema = false): FolioContext
+    public function context(string $folioCode, bool $ensureSchema = false, ?string $locale = null): FolioContext
     {
-        $em = $this->switch($folioCode);
+        $em = $this->switch($folioCode, $locale);
 
         // Self-healing schema: update() is a cheap PRAGMA-version check that no-ops when the folio
         // already matches the deployed entity schema, and ALTERs in new columns when it's stale — so
@@ -187,7 +193,7 @@ final class FolioService
             $em->flush();
         }
 
-        return new FolioContext($folioCode, $this->path($folioCode), $em);
+        return new FolioContext($folioCode, $this->path($folioCode, locale: $locale), $em);
     }
 
     private function bootstrapPath(): string

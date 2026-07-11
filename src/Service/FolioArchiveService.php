@@ -17,9 +17,9 @@ final readonly class FolioArchiveService
     /**
      * @return array{source:string,archive:string,sourceBytes:int,archiveBytes:int}
      */
-    public function archive(string $folioCode, ?string $archivePath = null): array
+    public function archive(string $folioCode, ?string $archivePath = null, ?string $locale = null): array
     {
-        $source = $this->folios->path($folioCode);
+        $source = $this->folios->path($folioCode, locale: $locale);
         if (!is_file($source)) {
             throw new \RuntimeException(sprintf('Folio database not found: %s', $source));
         }

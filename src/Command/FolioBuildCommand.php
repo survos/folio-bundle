@@ -94,6 +94,9 @@ final class FolioBuildCommand implements SignalableCommandInterface
 
         #[Option('Flush batch size')]
         int $batch = 500,
+
+        #[Option('Build a localized folio (e.g. --locale=en for mus/jarc) using pulled translations; falls back to source text for anything untranslated. Equal to the dataset\'s own source locale is a no-op. Written to <code>.<locale>.folio alongside the source-language build.')]
+        ?string $locale = null,
     ): int {
         $startedAt = microtime(true);
         $inflate ??= true;
@@ -143,6 +146,11 @@ final class FolioBuildCommand implements SignalableCommandInterface
             $code = $info->datasetKey;
             $io->section($code);
 
+            // A --locale equal to the dataset's own source locale is not a translated build —
+            // keep this dataset on the plain (unsuffixed) working/archive path, matching how
+            // FolioIngestService itself no-ops the substitution in that case.
+            $buildLocale = ($locale !== null && $locale !== '' && $locale !== ($info->locale ?? 'en')) ? $locale : null;
+
             $sources = $this->ingest->resolveSources($info, $coreFilter);
             if ($sources === [] && !$allowEmpty) {
                 $io->writeln('  ⚠ skipped — no rows in normalized source (use --allow-empty to build anyway)');
@@ -150,8 +158,8 @@ final class FolioBuildCommand implements SignalableCommandInterface
                 continue;
             }
 
-            $workingPath = $this->folios->path($code);
-            $archivePath = $this->folios->archivePath($code);
+            $workingPath = $this->folios->path($code, locale: $buildLocale);
+            $archivePath = $this->folios->archivePath($code, locale: $buildLocale);
 
             if (!$force && $this->isFresh($sources, $gz ? $archivePath : null, $inflate ? $workingPath : null)) {
                 $io->writeln('  ✓ up to date — skipping (use --force to rebuild)');
@@ -181,7 +189,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
 
             // Step 1: rows-only ingest — no FTS/index event, so the archive snapshot is clean.
             // Pass $io so the service renders a progress bar seeded from sidecar row counts.
-            $result = $this->ingest->ingestDataset($info, $coreFilter, $idField, $labelField, $batch, dispatchFinished: false, io: $io);
+            $result = $this->ingest->ingestDataset($info, $coreFilter, $idField, $labelField, $batch, dispatchFinished: false, io: $io, locale: $buildLocale);
             $io->writeln(sprintf('  rows     %s', number_format($result['rows'])));
             if (($result['skipped'] ?? 0) > 0) {
                 $io->writeln(sprintf('  <comment>skipped  %s duplicate-id row(s) (first occurrence kept)</comment>', number_format($result['skipped'])));
@@ -215,7 +223,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
             if ($gz) {
                 $io->writeln('  compressing archive…');
                 $t = microtime(true);
-                $res = $this->archiveService->archive($code, $archivePath);
+                $res = $this->archiveService->archive($code, $archivePath, locale: $buildLocale);
                 $archiveBytesTotal += $res['archiveBytes'];
                 $ratio = $res['sourceBytes'] > 0 ? (int) round(100 * (1 - $res['archiveBytes'] / $res['sourceBytes'])) : 0;
                 $io->writeln(sprintf('  archive  %s  (%d%% smaller, %s)  %s', $this->humanBytes($res['archiveBytes']), $ratio, $this->fmtSecs(microtime(true) - $t), $archivePath));

@@ -6,6 +6,7 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
+use Survos\DataContracts\Metadata\ContentType;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DatasetBundle\Enum\Stage;
 use Survos\DatasetBundle\Service\DataPaths;
@@ -14,6 +15,8 @@ use Survos\FolioBundle\Dto\PageDto;
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\JsonlBundle\IO\JsonlReader;
 use Survos\JsonlBundle\Service\JsonlCountService;
+use Survos\Lingua\Contracts\Util\TranslatableReflector;
+use Survos\Lingua\Core\Identity\HashUtil;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
@@ -85,6 +88,7 @@ final class FolioIngestService
         int $batch = 500,
         bool $dispatchFinished = true,
         ?SymfonyStyle $io = null,
+        ?string $locale = null,
     ): array {
         $batch = max(1, $batch);
         $sources = $this->resolveSources($dataset, $coreFilter);
@@ -92,9 +96,15 @@ final class FolioIngestService
             return ['rows' => 0, 'terms' => 0, 'links' => 0, 'cores' => []];
         }
 
+        // A build locale equal to the dataset's own source locale is not a translation --
+        // build the plain (untranslated) folio, same as $locale === null.
+        $sourceLocale = $dataset->locale ?? 'en';
+        $buildLocale = ($locale !== null && $locale !== '' && $locale !== $sourceLocale) ? $locale : null;
+        $translations = $buildLocale !== null ? $this->loadTranslationMap($dataset->datasetKey, $buildLocale) : [];
+
         // Restore once per dataset, then ingest every selected core into the same folio.
-        $this->folios->reset($dataset->datasetKey);
-        $ctx = $this->folios->context($dataset->datasetKey, ensureSchema: true);
+        $this->folios->reset($dataset->datasetKey, $buildLocale);
+        $ctx = $this->folios->context($dataset->datasetKey, ensureSchema: true, locale: $buildLocale);
 
         // Bulk load into a freshly-reset, rebuildable folio we are the sole writer of: trade durability
         // for speed. One transaction (no per-batch commits, no mid-ingest WAL checkpoints) +
@@ -142,13 +152,23 @@ final class FolioIngestService
                     throw new \RuntimeException(sprintf('Missing id near row %d in %s.', $count + 1, $file));
                 }
 
-                $label = isset($data[$labelField])
-                    ? (string) $data[$labelField]
-                    : (isset($data['title']) ? (string) $data['title'] : $localId);
                 $dtoType = $this->dtoTypeResolver->typeFromPayload($data);
                 // Backfill contentType from the resolved type so the stored field + facet are never empty
                 // when the row only carried a dtoClass (e.g. a Fortepan photograph).
                 $data['contentType'] ??= $dtoType;
+
+                // Localized build: overwrite each #[Translatable] field with its pulled translation,
+                // matched by the same content hash PhraseExtractor used to push it. A field with no
+                // matching translation (not yet translated, or MT never asked for it) is left as-is —
+                // silent fallback to the source-language text, never a placeholder/bracket in a
+                // published folio. See dataset:intl:push/pull for how $translations is populated.
+                if ($translations !== []) {
+                    $data = $this->applyTranslations($data, $dtoType, $sourceLocale, $translations);
+                }
+
+                $label = isset($data[$labelField])
+                    ? (string) $data[$labelField]
+                    : (isset($data['title']) ? (string) $data['title'] : $localId);
                 try {
                     [$dtoData, $extras] = $this->splitDtoData($dtoType, $data);
                 } catch (\TypeError) {
@@ -570,6 +590,64 @@ final class FolioIngestService
      * transaction is open). Any pending bulk-insert buffer is flushed first so it lands in the
      * committed transaction. Returns the running counter (reset to 0 when a commit happens).
      */
+    /**
+     * Load <dataset>/25_intl/tr.<locale>.jsonl (written by dataset:intl:pull) into a
+     * hash-code => translated-text map. Missing file (never pushed/pulled for this
+     * dataset+locale) just means "no translations available yet" — build proceeds with
+     * every field falling back to source text.
+     *
+     * @return array<string,string>
+     */
+    private function loadTranslationMap(string $datasetKey, string $locale): array
+    {
+        $file = $this->dataPaths->stageDir($datasetKey, Stage::Intl->value) . '/tr.' . $locale . '.jsonl';
+        if (!is_file($file)) {
+            return [];
+        }
+
+        $map = [];
+        foreach (JsonlReader::open($file) as $row) {
+            $code = $row['code'] ?? null;
+            $text = $row['text'] ?? null;
+            if (is_string($code) && $code !== '' && is_string($text) && $text !== '') {
+                $map[$code] = $text;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Overwrite each #[Translatable] field of $data with its translation, matched by the
+     * same xxh3(sourceLocale + text) hash PhraseExtractor computed when pushing phrases.
+     * Fields with no entry in $translations (untranslated, or not yet pulled) are left
+     * untouched — the source-language text is a valid, intentional fallback.
+     *
+     * @param array<string,mixed> $data
+     * @param array<string,string> $translations
+     * @return array<string,mixed>
+     */
+    private function applyTranslations(array $data, string $dtoType, string $sourceLocale, array $translations): array
+    {
+        $dtoClass = ContentType::dtoClass($dtoType);
+        if (!class_exists($dtoClass)) {
+            return $data;
+        }
+
+        foreach (TranslatableReflector::fieldsFor($dtoClass) as $field) {
+            $text = $data[$field] ?? null;
+            if (!is_string($text) || $text === '') {
+                continue;
+            }
+            $code = HashUtil::calcSourceKey($text, $sourceLocale);
+            if (isset($translations[$code])) {
+                $data[$field] = $translations[$code];
+            }
+        }
+
+        return $data;
+    }
+
     private function maybeCheckpoint(Connection $conn, int $sinceCommit, ?FolioBulkInserter $inserter = null): int
     {
         if ($sinceCommit < self::CHECKPOINT_ROWS) {
