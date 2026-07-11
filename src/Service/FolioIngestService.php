@@ -709,9 +709,15 @@ final class FolioIngestService
      * manager loaded the entity -- can resolve Term/TermSet::$label per-folio
      * with no cross-database lookup.
      *
-     * engine is hardcoded to 'babel' regardless of which MT engine (libre,
-     * deepl, ...) actually produced the text: that's the value
-     * BabelPostLoadHydrator::DEFAULT_ENGINE filters on.
+     * engine is stamped 'libre' -- the only engine dataset:intl:extract-terms
+     * actually uses today -- rather than the old 'babel' placeholder, which
+     * conflated "which MT engine produced this" with "this is the canonical
+     * row to display" (BabelPostLoadHydrator no longer filters by engine at
+     * all; one StrTranslation row per (str_code, target_locale) is the
+     * current invariant). This is still an approximation: tr.*.jsonl doesn't
+     * carry per-phrase engine provenance, even though DatasetIntlService knows
+     * it at generation time -- worth threading through properly if/when
+     * multiple engines can produce competing rows for the same phrase.
      */
     private function ingestTermTranslations(EntityManagerInterface $em, string $datasetKey, string $sourceLocale, int $batch = 500): void
     {
@@ -792,7 +798,7 @@ final class FolioIngestService
                 $tr = $existingTr[$code] ?? new StrTranslation();
                 $tr->strCode = $code;
                 $tr->targetLocale = $targetLocale;
-                $tr->engine = 'babel';
+                $tr->engine = 'libre';
                 $tr->text = $text;
                 $em->persist($tr);
 
