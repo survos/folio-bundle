@@ -310,16 +310,20 @@
                         {% set rowManifestUrl = url('survos_folio_iiif_manifest', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId}) %}
                         {% set viewerImages = [] %}
                         {% set viewerHires = [] %}
+                        {% set viewerInfoUrls = [] %}
 
                         {% for page in pages %}
                             {% set pageImg = page.url %}
                             {% set pageHires = page.url %}
+                            {% set pageInfoUrl = null %}
                             {% guard filter imgproxy %}
                                 {% set pageImg = page.url|imgproxy('thumb') %}
                                 {% set pageHires = page.url|imgproxy('archive') %}
+                                {% set pageInfoUrl = path('survos_imgproxy_info', {url: page.url}) %}
                             {% endguard %}
                             {% set viewerImages = viewerImages|merge([pageImg]) %}
                             {% set viewerHires = viewerHires|merge([pageHires]) %}
+                            {% set viewerInfoUrls = viewerInfoUrls|merge([pageInfoUrl]) %}
                         {% endfor %}
 
                         <div id="doc-viewer" class="card mb-3">
@@ -335,6 +339,7 @@
                                 <twig:iiif:viewer
                                     :images="viewerImages"
                                     :hiresImages="viewerHires"
+                                    :infoUrls="viewerInfoUrls"
                                     :height="600"
                                     :showLinks="false"
                                 />
