@@ -323,6 +323,14 @@
                         {% endfor %}
 
                         <div id="doc-viewer" class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                                <span class="small text-muted">OpenSeadragon</span>
+                                {# diva.js standalone debug viewer (iiif-bundle), fed this row's manifest — lets us compare OSD vs diva.js side by side. #}
+                                <a href="{{ path('survos_iiif_debug', {manifest: rowManifestUrl}) }}"
+                                   target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                                    {{ ux_icon('tabler:book', { class: 'icon me-1' }) }} Open in diva.js viewer
+                                </a>
+                            </div>
                             <div class="card-body p-0">
                                 <twig:iiif:viewer
                                     :images="viewerImages"
