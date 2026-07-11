@@ -21,8 +21,9 @@ final class FolioBrowseCommand
         #[MapInput] DatasetArg $input,
         #[Option('Core name')] ?string $core = null,
         #[Option('Rows to show')] int $limit = 25,
+        #[Option('Browse the localized <code>.<locale>.folio instead of the source-language one')] ?string $locale = null,
     ): int {
-        $ctx = $this->folios->context($input->folioCode());
+        $ctx = $this->folios->context($input->folioCode(), locale: $locale);
 
         $io->text(sprintf('Path: %s', $ctx->path));
 
