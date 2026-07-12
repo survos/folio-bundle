@@ -20,9 +20,17 @@ final class FolioSearchController extends AbstractController
     #[Route('/{provider}/{dataset}/search/{coreCode}/{dtoType}', name: 'survos_folio_core_type_search', priority: 40)]
     #[Route('/{provider}/{dataset}/search/{coreCode}', name: 'survos_folio_core_search', priority: 30)]
     #[Route('/{provider}/{dataset}/search', name: 'survos_folio_search', priority: 20)]
+    // Public slug alias (survos-sites/scanseum#12), resolved by FolioRouteAttributeListener —
+    // same mechanism as survos_folio_show_slug. Explicit priority: this is exactly 2 segments,
+    // same shape as survos_folio_show's fully-dynamic /{provider}/{dataset} (priority 0 by
+    // default), which would otherwise swallow it first for any /{x}/search URL.
+    #[Route('/{slug}/search', name: 'survos_folio_search_slug', requirements: ['slug' => '[^/]+'], priority: 10)]
     public function __invoke(string $provider, string $dataset, ?string $coreCode = null, ?string $dtoType = null): Response
     {
         $folioCode = "$provider/$dataset";
+        // Content locale (e.g. dataset="jarc.en") is stripped and applied by
+        // FolioRouteAttributeListener before this method runs — context() picks it up via
+        // FolioService::$requestContentLocale. See survos-sites/scanseum#18.
         $ctx = $this->folios->context($folioCode);
 
         return $this->render('@SurvosFolioBundle/folio/search.html.twig', [

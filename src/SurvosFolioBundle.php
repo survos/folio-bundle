@@ -6,13 +6,13 @@ namespace Survos\FolioBundle;
 
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
-use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand};
-use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioContextListener,FolioFtsIndexListener};
+use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand,FolioTranslateCommand};
+use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioContextListener,FolioFtsIndexListener,FolioRouteAttributeListener};
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
+use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\Kit\AbstractUxBundle;
@@ -124,11 +124,24 @@ final class SurvosFolioBundle extends AbstractUxBundle
             '$routePrefix' => $config['route_prefix'],
             '$kernelDebug' => '%kernel.debug%',
         ]);
+        // Same "null if the optional collaborator isn't installed" pattern as FolioRegistry above
+        // — a bare app with folio-bundle but not dataset-bundle/lingua-bundle gets folio:translate
+        // registered but erroring clearly at runtime, not a container compile failure.
+        $services->set(FolioTranslateCommand::class)->autowire()->autoconfigure()->public()->args([
+            '$intl' => service(\Survos\DatasetBundle\Service\DatasetIntlService::class)->ignoreOnInvalid(),
+            '$datasets' => service(\Survos\DatasetBundle\Repository\DatasetInfoRepository::class)->ignoreOnInvalid(),
+            '$dataPaths' => service(\Survos\DatasetBundle\Service\DataPaths::class)->ignoreOnInvalid(),
+        ]);
         foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
         $services->set(BuildFolioRequestedListener::class)->autowire()->autoconfigure()->public()
             ->arg('$buildArchive', $config['build_archive']);
+        // No implementation required — a bare app without a slug registry just gets slug
+        // routes that 404 (see FolioRouteAttributeListener), and its provider/dataset routes
+        // keep working unchanged.
+        $services->set(FolioRouteAttributeListener::class)->autowire()->autoconfigure()->public()
+            ->arg('$slugResolver', service(FolioSlugResolverInterface::class)->ignoreOnInvalid());
         $services->set(\Survos\FolioBundle\Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public()
             ->arg('$searchRoute', $config['search_route'])
             ->arg('$searchProviderParam', $config['search_provider_param']);

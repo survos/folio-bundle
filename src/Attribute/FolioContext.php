@@ -10,5 +10,7 @@ final class FolioContext
     public function __construct(
         public readonly string $providerParam = 'provider',
         public readonly string $datasetParam  = 'dataset',
+        /** Route path param carrying a public slug (see FolioSlugResolverInterface) instead of provider+dataset. */
+        public readonly string $slugParam = 'slug',
     ) {}
 }

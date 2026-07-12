@@ -53,6 +53,11 @@ final class FolioController extends AbstractController
 
 
     #[Route('/{provider}/{dataset}', name: 'survos_folio_show')]
+    // Public slug alias (survos-sites/scanseum#12) — {slug} is resolved to provider+dataset
+    // by FolioSlugRouteListener before this method's arguments are bound, so $provider/$dataset
+    // arrive populated either way. 404s if no FolioSlugResolverInterface is configured or the
+    // slug is unknown. The /{provider}/{dataset} route above keeps working unchanged.
+    #[Route('/{slug}', name: 'survos_folio_show_slug', requirements: ['slug' => '[^/]+'])]
     public function show(string $provider, string $dataset): Response
     {
         $ctx = $this->folios->context("$provider/$dataset");
@@ -1138,9 +1143,13 @@ final class FolioController extends AbstractController
     }
 
     #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}', name: 'survos_folio_row_show', options: ['expose' => true])]
-    public function rowShow(string $provider, string $dataset, string $coreCode, string $dtoType, string $localId): Response
+    public function rowShow(string $provider, string $dataset, string $coreCode, string $dtoType, string $localId, Request $request): Response
     {
         $folioCode = "$provider/$dataset";
+        // Content locale (e.g. dataset="jarc.en") is already stripped and applied by
+        // FolioRouteAttributeListener before this method runs — context() picks it up via
+        // FolioService::$requestContentLocale, no need to read the request here.
+        // See FolioBuildCommand's --locale build, survos-sites/scanseum#18.
         $ctx = $this->folios->context($folioCode);
         $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
@@ -1148,13 +1157,15 @@ final class FolioController extends AbstractController
             ?? throw $this->createNotFoundException($localId);
 
         if ($row->dtoType && $dtoType !== $row->dtoType) {
-            return $this->redirectToRoute('survos_folio_row_show', [
+            $contentLocale = $request->attributes->get('content_locale');
+
+            return $this->redirectToRoute('survos_folio_row_show', array_filter([
                 'provider' => $provider,
-                'dataset' => $dataset,
+                'dataset' => $contentLocale ? "$dataset.$contentLocale" : $dataset,
                 'coreCode' => $coreCode,
                 'dtoType' => $row->dtoType,
                 'localId' => $localId,
-            ]);
+            ]));
         }
 
         $schemaTable = $this->schemaTable($ctx->em->getConnection(), $coreCode, $row->dtoType);

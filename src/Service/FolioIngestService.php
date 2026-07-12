@@ -197,6 +197,15 @@ final class FolioIngestService
             $items->flush();
             $totalCount += $count;
             $coreEntity->rowCount = $count;
+            // Same latitude/longitude JSON path mapGeoJson() plots — lets the map button/icon
+            // (search.html.twig) know up front whether this core has anything to show, without
+            // a request-time query over every row.
+            $coreEntity->geoCount = (int) $conn->executeQuery(
+                "SELECT COUNT(*) FROM item WHERE core_id = ?
+                    AND json_extract(dto_data, '\$.latitude') IS NOT NULL
+                    AND json_extract(dto_data, '\$.longitude') IS NOT NULL",
+                [$coreId],
+            )->fetchOne();
             $coreEntity->fieldSummary = $this->registry->populatedFields($dataset, $core);
             $ctx->em->flush();
             $this->advanceIngestProgress($io, $count % $batch);

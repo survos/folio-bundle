@@ -30,6 +30,9 @@ class Core
     #[ORM\Column(options: ['default' => 0, 'comment' => 'Number of rows in this core'])]
     public int $rowCount = 0;
 
+    #[ORM\Column(options: ['default' => 0, 'comment' => 'Number of rows with both latitude and longitude set'])]
+    public int $geoCount = 0;
+
     #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Populated field names from source SQLite sidecar'])]
     public ?array $fieldSummary = null;
 

@@ -66,6 +66,9 @@
                                     {% if core.rowCount %}
                                         &middot; {{ core.rowCount|number_format }}
                                     {% endif %}
+                                    {% if core.geoCount > 0 %}
+                                        {{ ux_icon('tabler:map-2', { class: 'icon icon-sm ms-1', title: core.geoCount ~ ' mapped' }) }}
+                                    {% endif %}
                                 </a>
                             {% endfor %}
 
@@ -197,12 +200,16 @@
    Reusable from any header override with {{ block('folio_search_map_button') }}.
 #}
 {% block folio_search_map_button %}
-    {% set mapBase = path('survos_folio_map', {provider: provider, dataset: dataset}) %}
-    <a class="btn btn-sm btn-outline-primary"
-       href="{{ mapBase }}"
-       data-controller="slideshow-link"
-       data-slideshow-link-base-value="{{ mapBase }}">
-        {{ ux_icon('tabler:map-2', { class: 'icon me-1' }) }}
-        Map
-    </a>
+    {# Nothing to plot if no core has any geolocated rows (Core::$geoCount, set at ingest —
+       see FolioIngestService) — hide rather than send visitors to an empty map. #}
+    {% if cores|filter(c => c.geoCount > 0)|length > 0 %}
+        {% set mapBase = path('survos_folio_map', {provider: provider, dataset: dataset}) %}
+        <a class="btn btn-sm btn-outline-primary"
+           href="{{ mapBase }}"
+           data-controller="slideshow-link"
+           data-slideshow-link-base-value="{{ mapBase }}">
+            {{ ux_icon('tabler:map-2', { class: 'icon me-1' }) }}
+            Map
+        </a>
+    {% endif %}
 {% endblock %}

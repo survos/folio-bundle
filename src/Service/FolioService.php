@@ -15,6 +15,14 @@ final class FolioService
 {
     public ?string $currentFolioCode = null;
 
+    /**
+     * Content locale resolved from the current request's URL (e.g. "jarc.en" → "en"), set by
+     * FolioRouteAttributeListener before routing. Callers that pass $locale explicitly always
+     * win; this is only a fallback so controller actions don't each need to read the request
+     * and thread a locale through — see survos-sites/scanseum#12/#18.
+     */
+    public ?string $requestContentLocale = null;
+
     public function __construct(
         private readonly EntityManagerInterface $folioEntityManager,
         private readonly FolioSchemaManager $schemaManager,
@@ -42,6 +50,8 @@ final class FolioService
 
     private function localizedExtension(?string $locale): string
     {
+        $locale ??= $this->requestContentLocale;
+
         return $locale !== null && $locale !== '' ? $locale . '.' . $this->extension : $this->extension;
     }
 

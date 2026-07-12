@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
+use Survos\FolioBundle\Entity\Core;
 use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Service\FolioRegistry;
 use Survos\FolioBundle\Service\FolioService;
@@ -55,6 +56,20 @@ final class FolioMigrateCommand extends Command
             $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
             $folio->label = $dataset->label;
             $folio->datasetKey = $dataset->datasetKey;
+
+            // Backfill Core::$geoCount for folios ingested before that column existed — the
+            // self-healing schema (FolioService::context() -> FolioSchemaManager::update())
+            // ALTERs the column in but leaves it at its 0 default; only a re-ingest or this
+            // recomputes the real value. Safe/cheap to run every time: one COUNT per core.
+            foreach ($ctx->em->getRepository(Core::class)->findBy(['folio' => $folio]) as $core) {
+                $core->geoCount = (int) $ctx->em->getConnection()->executeQuery(
+                    "SELECT COUNT(*) FROM item WHERE core_id = ?
+                        AND json_extract(dto_data, '\$.latitude') IS NOT NULL
+                        AND json_extract(dto_data, '\$.longitude') IS NOT NULL",
+                    [$core->id],
+                )->fetchOne();
+            }
+
             $ctx->em->flush();
 
             $io->text(sprintf('  ✓ %s → %s', $dataset->datasetKey, $ctx->path));
