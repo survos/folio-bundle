@@ -24,6 +24,12 @@
         "enabled": true,
         "fetch": "lazy",
         "autoimport": []
+      },
+      "photo-grid": {
+        "main": "controllers/photo_grid_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
       }
     }
   }
