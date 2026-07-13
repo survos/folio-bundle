@@ -138,11 +138,6 @@ final class FolioPullCommand
         }
         $baseUrl = rtrim($baseUrl, '/');
 
-        // Direct dataset pulls should not need the registry or archive storage credentials.
-        if ($dataset !== null && $dataset !== '') {
-            return $this->pullSingleFromApi($io, $baseUrl, $dataset, $force);
-        }
-
         // Nothing requested → just show what's available (first page of the registry).
         if (($dataset === null || $dataset === '') && ($provider === null || $provider === '') && !$all) {
             return $this->showApiList($io, $baseUrl);
@@ -199,66 +194,6 @@ final class FolioPullCommand
         $this->rmdir($tmpDir);
         $io->success(sprintf('Pulled %d folio(s) from API, skipped %d existing', $pulled, $skipped));
         return Command::SUCCESS;
-    }
-
-    private function pullSingleFromApi(SymfonyStyle $io, string $baseUrl, string $code, bool $force): int
-    {
-        $io->title(sprintf('Pulling %s from %s', $code, $baseUrl));
-        if ($this->downloader === null) {
-            $io->error('HTTP folio downloads require survos/fetch-bundle. Install it to use folio:pull from a folio server.');
-            return Command::FAILURE;
-        }
-
-        $target = $this->folios->path($code);
-        if (is_file($target) && !$force) {
-            $io->text('Exists, skipping (use --force to replace)');
-            return Command::SUCCESS;
-        }
-
-        $tmpDir = sys_get_temp_dir() . '/folio_pull_' . uniqid();
-        mkdir($tmpDir, 0775, true);
-
-        $localGz = $tmpDir . '/' . str_replace('/', '_', $code) . '.folio.gz';
-        $downloadUrl = $this->downloadUrl($baseUrl, $code);
-        $io->text('Downloading: ' . $downloadUrl);
-        $this->logger?->info('folio:pull downloading folio', ['code' => $code, 'url' => $downloadUrl]);
-
-        $bytes = $this->downloader->download(
-            $downloadUrl,
-            $localGz,
-            static function (int $written, ?int $total, float $bps) use ($io): void {
-                if ($total !== null && $total > 0) {
-                    $io->write(sprintf("\r  %s / %s", Bytes::parse($written)->humanize(), Bytes::parse($total)->humanize()));
-                }
-            },
-            ['overwrite' => true, 'timeout' => 120.0],
-        );
-        $io->writeln('');
-        $io->text(sprintf('Downloaded: %s', Bytes::parse($bytes)->humanize()));
-
-        $result = $this->archiveService->restore($localGz, $code, $force);
-        $io->text(sprintf(
-            'Inflated: %s (%s, %s FTS rows)',
-            $result['target'],
-            Bytes::parse($result['targetBytes'])->humanize(),
-            number_format($result['indexedRows']),
-        ));
-        $this->registerRestoredFolio($code, $result['target']);
-
-        $this->rmdir($tmpDir);
-        $io->success(sprintf('Pulled %s from API', $code));
-
-        return Command::SUCCESS;
-    }
-
-    private function downloadUrl(string $baseUrl, string $code): string
-    {
-        [$provider, $dataset] = array_pad(explode('/', $code, 2), 2, '');
-        if ($provider === '' || $dataset === '') {
-            throw new \InvalidArgumentException(sprintf('Invalid folio code "%s". Expected provider/dataset.', $code));
-        }
-
-        return sprintf('%s%s/%s/%s/download', $baseUrl, $this->routePrefix, rawurlencode($provider), rawurlencode($dataset));
     }
 
     /**
