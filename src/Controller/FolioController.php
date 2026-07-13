@@ -86,6 +86,19 @@ final class FolioController extends AbstractController
         )->fetchFirstColumn();
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
 
+        // The overview page's hero timeline: the primary (largest) core's year spread, if it has
+        // one. Capped to a sample for the preview strip — the full unfiltered set is one click
+        // away via "View all" (survos_folio_slideshow), which has no such cap. Counts/min/max
+        // still reflect the true full range so the ruler itself isn't misleading.
+        $timeline = null;
+        if ($cores !== []) {
+            $primaryCore = $cores[0];
+            $timelineData = $this->yearTimelineData($conn, $primaryCore->id, limit: 300);
+            if ($timelineData !== null) {
+                $timeline = $timelineData + ['core' => $primaryCore];
+            }
+        }
+
         return $this->render('@SurvosFolioBundle/folio/show.html.twig', [
             'ctx'           => $ctx,
             'cores'         => $cores,
@@ -95,7 +108,69 @@ final class FolioController extends AbstractController
             'schemaTables'  => $schemaTables,
             'views'         => $views,
             'linkTypes'     => $folio?->linkTypes ?? [],
+            'timeline'      => $timeline,
         ]);
+    }
+
+    /**
+     * Shared by show() (a homepage-style preview, capped + always year-sorted) and slideshow()
+     * (the full page, honouring the search/facet-derived sort). Returns null if the core has no
+     * usable year spread (e.g. every row's year is null, or they're all the same year) — the
+     * caller should just render without a timeline rather than show a degenerate one-point ruler.
+     *
+     * @return array{slides: list<array<string, mixed>>, slider: array<string, mixed>, counts: array<int, int>}|null
+     */
+    private function yearTimelineData(Connection $conn, string $coreId, int $limit = 0): ?array
+    {
+        $sort = $this->slideshowSortColumn('year:asc');
+        \assert($sort !== null);
+
+        $where = 'd.core_id = :core';
+        $params = ['core' => $coreId];
+
+        $ends = $conn->executeQuery(
+            sprintf('SELECT MIN(%1$s) AS lo, MAX(%1$s) AS hi FROM item d WHERE %2$s', $sort['expr'], $where),
+            $params,
+        )->fetchAssociative();
+
+        if ($ends === false || $ends['lo'] === null || $ends['hi'] === null || $ends['lo'] == $ends['hi']) {
+            return null;
+        }
+
+        $counts = $conn->executeQuery(
+            sprintf(
+                'SELECT %1$s AS year, COUNT(*) AS n FROM item d WHERE %2$s AND %1$s IS NOT NULL GROUP BY %1$s',
+                $sort['expr'],
+                $where,
+            ),
+            $params,
+        )->fetchAllKeyValue();
+
+        $limitSql = $limit > 0 ? sprintf(' LIMIT %d', $limit) : '';
+        $slides = $conn->executeQuery(
+            sprintf(
+                "SELECT d.local_id AS id,
+                        coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl')) AS thumb,
+                        %s AS v
+                 FROM item d WHERE %s ORDER BY %s ASC%s",
+                $sort['expr'],
+                $where,
+                $sort['expr'],
+                $limitSql,
+            ),
+            $params,
+        )->fetchAllAssociative();
+
+        return [
+            'slides' => $slides,
+            'slider' => [
+                'numeric' => true,
+                'min' => (int) $ends['lo'],
+                'max' => (int) $ends['hi'],
+                'value' => $slides === [] ? (int) $ends['lo'] : (int) $slides[0]['v'],
+            ],
+            'counts' => $counts,
+        ];
     }
 
     #[Route('/{provider}/{dataset}/download', name: 'survos_folio_download')]
@@ -165,6 +240,10 @@ final class FolioController extends AbstractController
         // spread, switch to value mode: min/max are the field's actual min/max over the same filtered
         // set, so the slider reads e.g. 1908 … 2020 and its handle tracks the year.
         $slider = ['numeric' => false, 'min' => 1, 'max' => count($slides), 'value' => 1];
+        // year -> count, for the slider's badge (Fortepan.hu's "little black number that hovers
+        // above the red timeline marker" -- fortepan.us's own slider has no equivalent, so this is
+        // net-new rather than ported). Only meaningful in numeric (year) mode.
+        $counts = [];
         if ($sort !== null && $sort['numeric'] && $slides !== []) {
             $ends = $conn->executeQuery(
                 sprintf('SELECT MIN(%1$s) AS lo, MAX(%1$s) AS hi FROM item d WHERE %2$s', $sort['expr'], implode(' AND ', $where)),
@@ -177,6 +256,15 @@ final class FolioController extends AbstractController
                     'max' => (int) $ends['hi'],
                     'value' => (int) $slides[0]['v'],
                 ];
+
+                $counts = $conn->executeQuery(
+                    sprintf(
+                        'SELECT %1$s AS year, COUNT(*) AS n FROM item d WHERE %2$s AND %1$s IS NOT NULL GROUP BY %1$s',
+                        $sort['expr'],
+                        implode(' AND ', $where),
+                    ),
+                    $params,
+                )->fetchAllKeyValue();
             }
         }
 
@@ -186,6 +274,7 @@ final class FolioController extends AbstractController
             'dtoType' => $dtoType,
             'slides' => $slides,
             'slider' => $slider,
+            'counts' => $counts,
         ]);
     }
 

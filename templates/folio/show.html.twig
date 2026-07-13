@@ -26,6 +26,127 @@
 {% block title %}{{ folioLabel }}{% endblock %}
 
 {% block body %}
+    {% if timeline %}
+        {% set controllerName = 'survos--folio-bundle--slideshow' %}
+
+        <div class="folio-slideshow mb-4" {{ stimulus_controller(controllerName, {slides: timeline.slides}) }}>
+            <div class="row g-3 align-items-stretch">
+                <div class="col-lg-8">
+                    <div class="card h-100 text-white overflow-hidden" style="background: #111;">
+                        <div class="ratio ratio-4x3">
+                            <img
+                                class="w-100 h-100 folio-slideshow-image"
+                                style="object-fit: contain; background: #111;"
+                                alt=""
+                                {{ stimulus_target(controllerName, 'image') }}
+                            >
+                        </div>
+                        <div class="card-footer bg-dark border-secondary d-flex justify-content-between align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-light" {{ stimulus_action(controllerName, 'previous') }}>
+                                {% guard function ux_icon %}{{ ux_icon('tabler:chevron-left', {class: 'icon me-1'}) }}{% endguard %}
+                                Previous
+                            </button>
+                            <span class="badge text-bg-light" {{ stimulus_target(controllerName, 'index') }}></span>
+                            <button type="button" class="btn btn-outline-light" {{ stimulus_action(controllerName, 'next') }}>
+                                Next
+                                {% guard function ux_icon %}{{ ux_icon('tabler:chevron-right', {class: 'icon ms-1'}) }}{% endguard %}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header d-flex align-items-center justify-content-between">
+                            <h2 class="card-title mb-0">{{ timeline.core.rowCount|number_format }} photos, {{ timeline.slider.min }}&ndash;{{ timeline.slider.max }}</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="text-muted" {{ stimulus_target(controllerName, 'detail') }}></div>
+                        </div>
+                        <div class="card-footer">
+                            <a class="btn btn-sm btn-primary w-100"
+                               href="{{ path('survos_folio_slideshow', {provider: provider, dataset: dataset, coreCode: timeline.core.code}) }}">
+                                View full timeline
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="folio-thumbnail-strip mt-3">
+                {% for slide in timeline.slides|slice(0, 120) %}
+                    <button
+                        type="button"
+                        class="folio-thumbnail"
+                        title="#{{ slide.id }}"
+                        data-slide-index="{{ loop.index0 }}"
+                        {{ stimulus_target(controllerName, 'thumbnail') }}
+                        {{ stimulus_action(controllerName, 'jump') }}
+                    >
+                        {% if slide.thumb %}
+                            <img src="{{ slide.thumb|imgproxy('thumb') }}" alt="" loading="lazy" decoding="async">
+                        {% else %}
+                            <span class="small text-muted">{{ loop.index }}</span>
+                        {% endif %}
+                    </button>
+                {% endfor %}
+            </div>
+
+            <collection-slider
+                min="{{ timeline.slider.min }}"
+                max="{{ timeline.slider.max }}"
+                value="{{ timeline.slider.value }}"
+                step="1"
+                tick-count="10"
+                counts="{{ timeline.counts|json_encode }}"
+                data-slideshow-numeric="1"
+                {{ stimulus_target(controllerName, 'slider') }}
+            ></collection-slider>
+        </div>
+
+        <style>
+            .folio-thumbnail-strip {
+                display: flex;
+                gap: 0.5rem;
+                overflow-x: auto;
+                padding: 0.5rem 0;
+                scrollbar-width: thin;
+            }
+
+            .folio-thumbnail {
+                flex: 0 0 auto;
+                width: 72px;
+                height: 56px;
+                padding: 2px;
+                border: 2px solid transparent;
+                border-radius: 0.5rem;
+                background: #fff;
+                cursor: pointer;
+            }
+
+            .folio-thumbnail img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                border-radius: 0.35rem;
+                display: block;
+            }
+
+            .folio-thumbnail.is-active {
+                border-color: #066fd1;
+            }
+
+            .folio-slideshow-image {
+                opacity: 1;
+                transition: opacity 140ms ease;
+            }
+
+            .folio-slideshow-image.is-changing {
+                opacity: 0;
+            }
+        </style>
+    {% endif %}
+
     {% set installCommand = 'bin/console folio:pull --dataset ' ~ ctx.folioCode %}
 
     <div class="card mb-4" {{ stimulus_controller('clipboard', { successContent: 'Copied!' }) }}>

@@ -1,4 +1,8 @@
 import { Controller } from '@hotwired/stimulus';
+// Registers <collection-slider> as a side effect. The element is the producer for the
+// collection-slider-change event this controller consumes below -- see collection-slider.js
+// for why it lives as a plain custom element rather than another Stimulus controller.
+import '../elements/collection-slider.js';
 
 /*
  * Lightweight thumbnail slideshow. To stay memory-safe over very large result sets,

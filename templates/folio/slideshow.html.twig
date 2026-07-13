@@ -111,6 +111,7 @@
                 value="{{ slider.value }}"
                 step="1"
                 tick-count="10"
+                counts="{{ counts|default({})|json_encode }}"
                 data-slideshow-numeric="{{ slider.numeric ? '1' : '0' }}"
                 {{ stimulus_target(controllerName, 'slider') }}
             ></collection-slider>
@@ -156,6 +157,114 @@
 
         .folio-slideshow-image.is-changing {
             opacity: 0;
+        }
+
+        /* <collection-slider> -- Fortepan.hu-style year ruler: red draggable knob, a black
+           count badge pinned above it, decade tick marks. See assets/elements/collection-slider.js. */
+        .cslider {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+            padding-top: 1.75rem; /* room for the badge above the knob */
+            user-select: none;
+            touch-action: none;
+        }
+
+        .cslider__label {
+            font-size: 0.8rem;
+            color: var(--tblr-secondary, #6c757d);
+            flex: 0 0 auto;
+        }
+
+        .cslider__track {
+            position: relative;
+            flex: 1 1 auto;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--tblr-border-color, #dfe3e8);
+            cursor: pointer;
+        }
+
+        .cslider__fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            border-radius: 3px;
+            background: #c0392b;
+            pointer-events: none;
+        }
+
+        .cslider__ticks {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        .cslider__tick {
+            position: absolute;
+            top: 100%;
+            width: 1px;
+            height: 5px;
+            margin-top: 2px;
+            background: var(--tblr-border-color, #dfe3e8);
+            transform: translateX(-0.5px);
+        }
+
+        .cslider__knob {
+            position: absolute;
+            top: 50%;
+            width: 16px;
+            height: 16px;
+            margin-left: -8px;
+            border-radius: 50%;
+            background: #c0392b;
+            border: 2px solid #fff;
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+            transform: translateY(-50%);
+            cursor: grab;
+        }
+
+        .cslider__knob.is-active {
+            cursor: grabbing;
+            transform: translateY(-50%) scale(1.15);
+        }
+
+        .cslider__knob.is-empty {
+            background: #adb5bd;
+        }
+
+        .cslider__badge {
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            margin-bottom: 8px;
+            transform: translateX(-50%);
+            background: #111;
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: 600;
+            line-height: 1;
+            white-space: nowrap;
+            padding: 0.3rem 0.5rem;
+            border-radius: 0.35rem;
+        }
+
+        .cslider__hover {
+            position: absolute;
+            top: -1.6rem;
+            transform: translateX(-50%);
+            font-size: 0.7rem;
+            color: var(--tblr-secondary, #6c757d);
+            opacity: 0;
+            transition: opacity 120ms ease;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .cslider__hover.is-visible {
+            opacity: 1;
         }
     </style>
 {% endblock %}
