@@ -15,13 +15,6 @@
 {% block title %}Map · {{ provider }}/{{ dataset }}{% endblock %}
 
 {% block body %}
-    <div class="d-flex flex-wrap gap-2 mb-3">
-        <a class="btn btn-outline-secondary" href="{{ path('survos_folio_show', {provider: provider, dataset: dataset}) }}">
-            {% guard function ux_icon %}{{ ux_icon('tabler:layout-dashboard', {class: 'icon me-1'}) }}{% endguard %}
-            Overview
-        </a>
-    </div>
-
     {% if not hasUxMap %}
         <div class="alert alert-warning">
             The Map view needs <code>symfony/ux-map</code> (with a renderer, e.g.
