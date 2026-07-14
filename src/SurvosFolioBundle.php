@@ -129,6 +129,16 @@ final class SurvosFolioBundle extends AbstractUxBundle
             $services->set(FolioMeiliIndexer::class)->autowire()->autoconfigure()->public();
             $services->set(FolioMeiliBuildSetCommand::class)->autowire()->autoconfigure()->public();
         }
+        // The 'folio_row' search this bundle's own search.html.twig already assumes exists
+        // (hardcodes name: 'folio_row' + hitTemplate: 'search/hits/folio_row.html.twig') --
+        // shared here rather than every host app hand-writing an identical class. Requires the
+        // host app to composer require tacman/ux-search + survos/search-bundle, configure a
+        // 'folio_fts' adapter (mezcalito_ux_search.yaml: folio_fts: 'sqlite-fts5://folio'), and
+        // provide its own templates/search/hits/folio_row.html.twig (the hit card's links/chrome
+        // are legitimately app-specific, unlike the facet/sort logic this class owns).
+        if (class_exists(\Mezcalito\UxSearchBundle\Search\AbstractSearch::class) && interface_exists(\Survos\SearchBundle\Search\HitTemplateSearchInterface::class)) {
+            $services->set(\Survos\FolioBundle\Search\FolioRowSearch::class)->autowire()->autoconfigure()->public();
+        }
         $services->set(FolioService::class)->autowire()->autoconfigure()->public()->args([
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
             '$extension' => $config['extension'],
