@@ -1,31 +1,41 @@
 {# templates/components/PhotoGrid.html.twig
    Justified-grid, infinite-scroll photo browser. See src/Twig/Components/PhotoGrid.php
    for the props/data-source contract. #}
-{% set controllerName = survos_stimulus('folio-bundle', 'photo-grid') %}
+{% set _sc = survos_stimulus('folio-bundle', 'photo-grid') %}
 
 <div
     class="folio-photo-grid"
-    {{ stimulus_controller(controllerName, {
+    {{ stimulus_controller(_sc, {
         endpoint: endpoint,
         itemsPerPage: itemsPerPage,
         page: 2,
         filters: filters,
+        rowUrlTemplate: rowUrlTemplate,
     }) }}
 >
-    <div class="folio-photo-grid__items" {{ stimulus_target(controllerName, 'grid') }}>
+    <div class="folio-photo-grid__items" {{ stimulus_target(_sc, 'grid') }}>
         {% for item in items %}
-            <a href="{{ item.citationUrl ?? '#' }}"
+            <a href="{{ rowUrlTemplate|replace({
+                    '__PROVIDER__': item.rp.provider|default(''),
+                    '__DATASET__': item.rp.dataset|default(''),
+                    '__CORE_CODE__': item.rp.coreCode|default(''),
+                    '__DTO_TYPE__': item.rp.dtoType|default(''),
+                    '__LOCAL_ID__': item.rp.localId|default(''),
+                }) }}"
                class="folio-photo-grid__item"
-               title="{{ item.label }}"
-               {% if item.citationUrl %}target="_blank" rel="noopener"{% endif %}>
+               title="{{ item.label }}">
+                {# thumbnailUrl is already a signed imgproxy URL -- FolioRowProvider::resolveThumbnails()
+                   resolves it server-side (both for this page-1 render and the client-fetched pages
+                   the Stimulus controller appends). Applying |imgproxy() again here would double-proxy
+                   every image (imgproxy fetching its own already-proxied output as the "source"). #}
                 {% if item.thumbnailUrl %}
-                    <img src="{{ item.thumbnailUrl|imgproxy('thumb') }}" alt="{{ item.label }}" loading="lazy" decoding="async">
+                    <img src="{{ item.thumbnailUrl }}" alt="{{ item.label }}" loading="lazy" decoding="async">
                 {% endif %}
             </a>
         {% endfor %}
     </div>
 
-    <div class="folio-photo-grid__loader" {{ stimulus_target(controllerName, 'loader') }} hidden>
+    <div class="folio-photo-grid__loader" {{ stimulus_target(_sc, 'loader') }} hidden>
         {{ 'Loading…'|trans }}
     </div>
 </div>

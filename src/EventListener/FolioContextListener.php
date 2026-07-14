@@ -6,15 +6,20 @@ namespace Survos\FolioBundle\EventListener;
 
 use Survos\FolioBundle\Attribute\FolioContext;
 use Survos\FolioBundle\Entity\Folio;
+use Survos\FolioBundle\Event\FolioContextResolvedEvent;
 use Survos\FolioBundle\Service\FolioService;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpKernel\Event\ControllerAttributeEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 #[AsEventListener(event: KernelEvents::CONTROLLER_ARGUMENTS . '.' . FolioContext::class)]
 final class FolioContextListener
 {
-    public function __construct(private readonly FolioService $folioService) {}
+    public function __construct(
+        private readonly FolioService $folioService,
+        private readonly EventDispatcherInterface $eventDispatcher,
+    ) {}
 
     /**
      * @param ControllerAttributeEvent<FolioContext> $event
@@ -43,5 +48,10 @@ final class FolioContextListener
             'current_folio_title',
             $folio?->label ?: $ctx->folioCode
         );
+
+        // folio-bundle stops here — it has no concept of "tenant" or host-app chrome. A host
+        // app listens for this to resolve whatever else IT needs (a Tenant entity, which layout
+        // to render, …) and stash it on the request before rendering starts.
+        $this->eventDispatcher->dispatch(new FolioContextResolvedEvent($ctx->folioCode, $provider, $dataset, $request));
     }
 }

@@ -1,0 +1,207 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Survos\FolioBundle\Twig\Components;
+
+use Survos\FolioBundle\Entity\Core;
+use Survos\FolioBundle\Entity\Row;
+use Survos\FolioBundle\Service\FolioService;
+use Survos\FolioBundle\Service\RowTermsResolver;
+use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\UX\TwigComponent\Attribute\AsTwigComponent;
+use Symfony\UX\TwigComponent\Attribute\ExposeInTemplate;
+
+/**
+ * Lean, public-facing single-photo view — fortepan.hu's /photos/?id=X page (big image,
+ * details alongside, download/share/bookmark, prev/next), NOT folio-bundle's own
+ * templates/folio/detail.html.twig, which is a deliberately chrome-free, power-user
+ * viewer (schema debug, AI chat, OCR/handwriting tooling) built for a different use case —
+ * see that template's own `.navbar { display: none; }` rule. This component renders
+ * inside whatever chrome the host app's page template provides.
+ *
+ * Minimal usage:
+ *   <twig:folio:item provider="mus" dataset="cazma" coreCode="obj" localId="2157686" />
+ *
+ * Pointing prev/next at a host app's own chrome-preserving page (same placeholder-token
+ * convention as PhotoGrid's rowUrlTemplate — defaults to folio-bundle's own chrome-free
+ * survos_folio_row_show if not overridden):
+ *   <twig:folio:item provider="mus" dataset="cazma" coreCode="obj" localId="2157686"
+ *       rowUrlTemplate="{{ path('tenant_photo_show', {tenantCode: 'cazma', localId: '__LOCAL_ID__'}) }}" />
+ */
+#[AsTwigComponent(name: 'folio:item', template: '@SurvosFolioBundle/components/FolioItem.html.twig')]
+final class FolioItem
+{
+    public string $provider = '';
+    public string $dataset = '';
+    public string $coreCode = '';
+    public string $localId = '';
+
+    /** Placeholder-token URL template for prev/next — same tokens as PhotoGrid::$rowUrlTemplate. */
+    public string $rowUrlTemplate = '';
+
+    private ?Row $resolvedRow = null;
+    private bool $rowResolved = false;
+    private ?array $adjacent = null;
+
+    public function __construct(
+        private readonly FolioService $folios,
+        private readonly UrlGeneratorInterface $urlGenerator,
+        private readonly RequestStack $requestStack,
+        private readonly RowTermsResolver $rowTermsResolver,
+    ) {
+    }
+
+    public function mount(
+        string $provider = '',
+        string $dataset = '',
+        string $coreCode = '',
+        string $localId = '',
+        ?string $rowUrlTemplate = null,
+    ): void {
+        $this->provider = $provider;
+        $this->dataset = $dataset;
+        $this->coreCode = $coreCode;
+        $this->localId = $localId;
+        $this->rowUrlTemplate = $rowUrlTemplate ?? $this->urlGenerator->generate('survos_folio_row_show', [
+            'provider' => '__PROVIDER__',
+            'dataset' => '__DATASET__',
+            'coreCode' => '__CORE_CODE__',
+            'dtoType' => '__DTO_TYPE__',
+            'localId' => '__LOCAL_ID__',
+        ]);
+    }
+
+    #[ExposeInTemplate]
+    public function getRow(): ?Row
+    {
+        if ($this->rowResolved) {
+            return $this->resolvedRow;
+        }
+        $this->rowResolved = true;
+
+        $folioCode = "{$this->provider}/{$this->dataset}";
+        $ctx = $this->folios->context($folioCode);
+        $core = $ctx->em->find(Core::class, Core::id($folioCode, $this->coreCode));
+        if ($core === null) {
+            return null;
+        }
+
+        return $this->resolvedRow = $ctx->em->find(Row::class, Row::id($core->id, $this->localId));
+    }
+
+    #[ExposeInTemplate]
+    public function getShareUrl(): string
+    {
+        return $this->requestStack->getCurrentRequest()?->getUri() ?? '';
+    }
+
+    /**
+     * Escape hatch to folio-bundle's own chrome-free power-user viewer (schema debug, AI chat,
+     * OCR/handwriting, claims, relations) — everything this lean component deliberately doesn't
+     * show. Null if the row can't be resolved (nothing sensible to link to).
+     */
+    #[ExposeInTemplate]
+    public function getFocusModeUrl(): ?string
+    {
+        $row = $this->getRow();
+        if ($row === null) {
+            return null;
+        }
+
+        return $this->urlGenerator->generate('survos_folio_row_show', [
+            'provider' => $this->provider,
+            'dataset' => $this->dataset,
+            'coreCode' => $this->coreCode,
+            'dtoType' => $row->dtoType ?: 'row',
+            'localId' => $this->localId,
+        ]);
+    }
+
+    /**
+     * Tags/keywords, grouped by term set (same data detail.html.twig's "Terms" card shows) —
+     * see RowTermsResolver for the field->termset binding.
+     *
+     * @return array<string,list<array{code:string,label:string,term:?\Survos\FolioBundle\Entity\Term}>>
+     */
+    #[ExposeInTemplate]
+    public function getTerms(): array
+    {
+        $row = $this->getRow();
+        if ($row === null) {
+            return [];
+        }
+
+        $folioCode = "{$this->provider}/{$this->dataset}";
+
+        return $this->rowTermsResolver->resolve($this->folios->context($folioCode)->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
+    }
+
+    #[ExposeInTemplate]
+    public function getPrevUrl(): ?string
+    {
+        return $this->buildAdjacentUrl($this->getAdjacent()['prev'] ?? null);
+    }
+
+    #[ExposeInTemplate]
+    public function getNextUrl(): ?string
+    {
+        return $this->buildAdjacentUrl($this->getAdjacent()['next'] ?? null);
+    }
+
+    /**
+     * Adapted from FolioController::adjacentRows() — same query shape, not shared code
+     * (that method is private to the controller); a real "one folio row" abstraction
+     * living in one place is the longer-term fix if a third caller needs this.
+     *
+     * @return array{prev: ?array{localId: string, dtoType: string}, next: ?array{localId: string, dtoType: string}}
+     */
+    private function getAdjacent(): array
+    {
+        if ($this->adjacent !== null) {
+            return $this->adjacent;
+        }
+
+        $row = $this->getRow();
+        if ($row === null) {
+            return $this->adjacent = ['prev' => null, 'next' => null];
+        }
+
+        $conn = $this->folios->context("{$this->provider}/{$this->dataset}")->em->getConnection();
+
+        $data = $conn->fetchAssociative(
+            'SELECT prev_id, prev_type, next_id, next_type FROM (
+                SELECT local_id,
+                       LAG(local_id)  OVER (ORDER BY rowid) AS prev_id,
+                       LAG(dto_type)  OVER (ORDER BY rowid) AS prev_type,
+                       LEAD(local_id) OVER (ORDER BY rowid) AS next_id,
+                       LEAD(dto_type) OVER (ORDER BY rowid) AS next_type
+                FROM item WHERE core_id = :core
+            ) WHERE local_id = :current',
+            ['core' => $row->core->id, 'current' => $this->localId],
+        ) ?: [];
+
+        $mk = static fn (?string $id, ?string $type): ?array => $id === null || $id === ''
+            ? null
+            : ['localId' => $id, 'dtoType' => $type ?: 'row'];
+
+        return $this->adjacent = [
+            'prev' => $mk($data['prev_id'] ?? null, $data['prev_type'] ?? null),
+            'next' => $mk($data['next_id'] ?? null, $data['next_type'] ?? null),
+        ];
+    }
+
+    private function buildAdjacentUrl(?array $target): ?string
+    {
+        if ($target === null) {
+            return null;
+        }
+
+        return str_replace(
+            ['__PROVIDER__', '__DATASET__', '__CORE_CODE__', '__DTO_TYPE__', '__LOCAL_ID__'],
+            [$this->provider, $this->dataset, $this->coreCode, $target['dtoType'], $target['localId']],
+            $this->rowUrlTemplate,
+        );
+    }
+}

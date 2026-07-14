@@ -30,7 +30,35 @@
         "enabled": true,
         "fetch": "lazy",
         "autoimport": []
+      },
+      "bookmark": {
+        "main": "controllers/bookmark_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
+      },
+      "bookmark-badge": {
+        "main": "controllers/bookmark_badge_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
+      },
+      "share-button": {
+        "main": "controllers/share_button_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
+      },
+      "download-button": {
+        "main": "controllers/download_button_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
       }
     }
+  },
+  "peerDependencies": {
+    "@hotwired/stimulus": "^3.2.0",
+    "sweetalert2": "^11.0.0"
   }
 }

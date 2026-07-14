@@ -55,7 +55,33 @@ final class FolioCoreTwig
         private readonly ?string $searchRoute = null,
         /** Query param the search route reads to pre-select a provider/aggregator facet. */
         private readonly string $searchProviderParam = 'dataset_aggregator',
+        /** True when bookmark_class + folder_class are both configured — see docs/bookmarks.md. */
+        private readonly bool $bookmarksEnabled = false,
+        /** survos_folio.base_template — the layout folio-bundle pages extend; null uses 'base.html.twig'. */
+        private readonly ?string $baseTemplate = null,
     ) {}
+
+    /**
+     * Every folio-bundle top-level template does `{% extends folio_base_template() %}` instead of
+     * hardcoding 'base.html.twig', so a host app can point them at its own chrome (navbar/logo) via
+     * survos_folio.yaml's base_template config, without needing per-app template overrides.
+     */
+    #[AsTwigFunction('folio_base_template')]
+    public function baseTemplate(): string
+    {
+        return $this->baseTemplate ?? 'base.html.twig';
+    }
+
+    /**
+     * Gates the bookmark widget the bundle auto-embeds on the row detail page
+     * (see templates/folio/detail.html.twig's folio_detail_actions block) — only
+     * apps that configure survos_folio.bookmark_class/folder_class get it.
+     */
+    #[AsTwigFunction('folio_bookmarks_enabled')]
+    public function bookmarksEnabled(): bool
+    {
+        return $this->bookmarksEnabled;
+    }
 
     /**
      * Render markdown → HTML — for AI prose (observation, summaries) that uses paragraph breaks and

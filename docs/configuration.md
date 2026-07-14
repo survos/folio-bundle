@@ -55,3 +55,10 @@ After ingest, folio prepares the archive metadata:
 4. rebuild FTS5 search indexes.
 
 See `archive-metadata.md` for the archive contract.
+
+## Bookmarks
+
+`Bookmark`/`Folder` are the bundle's first entities meant to be mapped into
+the *host app's* `default` entity manager rather than the `folio` EM above —
+see `bookmarks.md` for the MappedSuperclass pattern, why it's structured
+that way, and the `bookmark_class`/`folder_class` config keys.

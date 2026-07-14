@@ -1,0 +1,14 @@
+{% if app.user %}
+    <span
+        class="badge bg-blue-lt border text-truncate d-none"
+        style="max-width: 10rem;"
+        title="Bookmarked"
+        data-bookmark-badge-provider-value="{{ provider|e('html_attr') }}"
+        data-bookmark-badge-dataset-value="{{ dataset|e('html_attr') }}"
+        data-bookmark-badge-core-code-value="{{ coreCode|e('html_attr') }}"
+        data-bookmark-badge-local-id-value="{{ localId|e('html_attr') }}"
+        {{ stimulus_controller('bookmark-badge') }}
+    >
+        {{ ux_icon('tabler:bookmark', { class: 'icon icon-sm me-1' }) }}<span data-bookmark-badge-target="label"></span>
+    </span>
+{% endif %}

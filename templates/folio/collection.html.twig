@@ -1,4 +1,4 @@
-{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
 
 {% block body_class %}folio-layout{% endblock %}
 

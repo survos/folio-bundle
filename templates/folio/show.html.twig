@@ -1,4 +1,4 @@
-{% extends app.request.attributes.get('_layout')|default('base.html.twig') %}
+{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
 
 {% set parts = ctx.folioCode|split('/') %}
 {% set provider = parts[0] %}

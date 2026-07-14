@@ -48,6 +48,14 @@ final class PhotoGrid
     /** Override the computed endpoint entirely (e.g. to point at a different app's folio API) */
     public ?string $endpoint = null;
 
+    /**
+     * Placeholder-token URL template, substituted per-item both server-side (Twig `replace`
+     * filter) and client-side (JS can't call path()). Defaults to survos_folio_row_show (the
+     * chrome-free detail page) but a host app can override it — e.g. openfoto passes its own
+     * tenant_photo_show template so grid items link to its chrome-preserving photo page instead.
+     */
+    public string $rowUrlTemplate = '';
+
     private ?array $items = null;
 
     public function __construct(
@@ -71,6 +79,7 @@ final class PhotoGrid
         array $filters = [],
         int $itemsPerPage = 50,
         ?string $endpoint = null,
+        ?string $rowUrlTemplate = null,
     ): void {
         $this->provider = $provider;
         $this->dataset = $dataset;
@@ -82,6 +91,13 @@ final class PhotoGrid
             'dataset' => $dataset,
             'coreCode' => $coreCode,
         ], UrlGeneratorInterface::ABSOLUTE_URL);
+        $this->rowUrlTemplate = $rowUrlTemplate ?? $this->urlGenerator->generate('survos_folio_row_show', [
+            'provider' => '__PROVIDER__',
+            'dataset' => '__DATASET__',
+            'coreCode' => '__CORE_CODE__',
+            'dtoType' => '__DTO_TYPE__',
+            'localId' => '__LOCAL_ID__',
+        ]);
     }
 
     /**

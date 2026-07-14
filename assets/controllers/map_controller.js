@@ -130,10 +130,39 @@ export default class extends Controller {
         // dataset's extent until the data arrives), so fit the view to what actually came back.
         if (!this._hasFitBounds) {
             this._hasFitBounds = true;
-            const bounds = this.layer.getBounds();
-            if (bounds.isValid()) {
+            const bounds = this.majorityBounds(geojson.features);
+            if (bounds) {
                 this.map.fitBounds(bounds, { padding: [20, 20] });
             }
         }
+    }
+
+    // A handful of mis-geocoded photos on the other side of the world would otherwise drag
+    // fitBounds() out to a whole-world view for a dataset that's really concentrated in one
+    // region. Weight by point_count (features are already server-side clusters) and keep only
+    // the largest clusters until they account for 90% of all plotted items -- outliers just end
+    // up off-screen, which is the point.
+    majorityBounds(features) {
+        if (!features.length) {
+            return null;
+        }
+
+        const countOf = (feature) => feature.properties.point_count ?? feature.properties.n ?? 1;
+        const total = features.reduce((sum, feature) => sum + countOf(feature), 0);
+        const sorted = [...features].sort((a, b) => countOf(b) - countOf(a));
+
+        const majority = [];
+        let running = 0;
+        for (const feature of sorted) {
+            majority.push(feature);
+            running += countOf(feature);
+            if (running >= total * 0.9) {
+                break;
+            }
+        }
+
+        const bounds = L.latLngBounds(majority.map((feature) => [feature.geometry.coordinates[1], feature.geometry.coordinates[0]]));
+
+        return bounds.isValid() ? bounds : null;
     }
 }

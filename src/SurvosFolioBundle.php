@@ -6,13 +6,14 @@ namespace Survos\FolioBundle;
 
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
+use Survos\FolioBundle\Bookmark\Service\BookmarkManager;
 use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand,FolioTranslateCommand};
 use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioContextListener,FolioFtsIndexListener,FolioRouteAttributeListener};
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioViewBuilder,FolioSummaryService,FolioWordCloudService};
+use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowTermsResolver};
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\Kit\AbstractUxBundle;
@@ -61,6 +62,18 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('Query param the search_route reads to pre-select a provider/aggregator facet.')
                 ->defaultValue('dataset_aggregator')
             ->end()
+            ->scalarNode('bookmark_class')
+                ->info('Host app\'s concrete Bookmark entity (extends Survos\FolioBundle\Bookmark\Entity\BookmarkBase). Set alongside folder_class to enable BookmarkManager. See docs/bookmarks.md.')
+                ->defaultNull()
+            ->end()
+            ->scalarNode('folder_class')
+                ->info('Host app\'s concrete Folder entity (extends Survos\FolioBundle\Bookmark\Entity\FolderBase).')
+                ->defaultNull()
+            ->end()
+            ->scalarNode('base_template')
+                ->info('Layout every folio-bundle page (map.html.twig, search.html.twig, detail.html.twig, …) extends. Set to your own app chrome, e.g. "tenant/base.html.twig", so folio-bundle pages reached directly (not wrapped by a host controller) still get your navbar/logo instead of this bundle\'s bare fallback. Null uses "base.html.twig" resolved from the host app\'s own template root.')
+                ->defaultNull()
+            ->end()
         ->end();
     }
 
@@ -96,6 +109,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // autoconfigure() applies the ai-bundle's #[AsTool] autoconfiguration, tagging this ai.tool.
         $services->set(FolioChatTools::class)->autowire()->autoconfigure()->public();
         $services->set(FolioWordCloudService::class)->autowire()->autoconfigure()->public();
+        $services->set(RowTermsResolver::class)->autowire()->autoconfigure()->public();
         $services->set(FolioChatPromptSuggester::class)->autowire()->autoconfigure()->public();
         $services->set(FolioChatService::class)->autowire()->autoconfigure()->public()->args([
             '$agent' => new Reference('ai.agent.folio', ContainerInterface::NULL_ON_INVALID_REFERENCE),
@@ -144,7 +158,9 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->arg('$slugResolver', service(FolioSlugResolverInterface::class)->ignoreOnInvalid());
         $services->set(\Survos\FolioBundle\Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public()
             ->arg('$searchRoute', $config['search_route'])
-            ->arg('$searchProviderParam', $config['search_provider_param']);
+            ->arg('$searchProviderParam', $config['search_provider_param'])
+            ->arg('$bookmarksEnabled', $config['bookmark_class'] !== null && $config['folder_class'] !== null)
+            ->arg('$baseTemplate', $config['base_template']);
         if ($config['routes_enabled']) {
             foreach ([FolioCollectionController::class, FolioController::class, FolioSearchController::class] as $class) {
                 $services->set($class)->autowire()->autoconfigure()->public();
@@ -160,6 +176,15 @@ final class SurvosFolioBundle extends AbstractUxBundle
             $services->set(FolioMenu::class)->autowire()->autoconfigure()->public()->args([
                 '$folioServer' => $config['folio_server'],
                 '$routePrefix' => $config['route_prefix'],
+            ]);
+        }
+        // Same "null if the optional collaborator isn't configured" pattern as FolioRegistry
+        // above — a host app that hasn't set bookmark_class/folder_class simply doesn't get
+        // this service, rather than a container compile failure.
+        if ($config['bookmark_class'] !== null && $config['folder_class'] !== null) {
+            $services->set(BookmarkManager::class)->autowire()->autoconfigure()->public()->args([
+                '$bookmarkClass' => $config['bookmark_class'],
+                '$folderClass' => $config['folder_class'],
             ]);
         }
         $this->registerRouteLoader($builder);

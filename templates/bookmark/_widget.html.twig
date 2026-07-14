@@ -1,0 +1,85 @@
+{% set isAuthenticated = app.user is not null %}
+{% set compact = compact|default(false) %}
+
+<div
+    class="bookmark-widget"
+    data-bookmark-provider-value="{{ provider|e('html_attr') }}"
+    data-bookmark-dataset-value="{{ dataset|e('html_attr') }}"
+    data-bookmark-core-code-value="{{ coreCode|e('html_attr') }}"
+    data-bookmark-local-id-value="{{ localId|e('html_attr') }}"
+    data-bookmark-dto-type-value="{{ dtoType|default('row')|e('html_attr') }}"
+    data-bookmark-label-value="{{ label|default(localId)|e('html_attr') }}"
+    {{ stimulus_controller('bookmark') }}
+    data-action="keydown.esc@window->bookmark#close click@window->bookmark#closeOnOutsideClick"
+>
+    {% if isAuthenticated %}
+        <button
+            type="button"
+            class="btn {{ compact ? 'btn-icon' : 'bg-white bg-opacity-75' }} border shadow-sm rounded-pill"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            data-bookmark-target="button"
+            data-action="bookmark#toggle"
+            title="Bookmark"
+        >
+            {{ ux_icon('tabler:bookmark', { class: compact ? 'icon' : 'icon me-1' }) }}
+            {% if not compact %}
+                <span data-bookmark-target="buttonLabel">Bookmark</span>
+            {% else %}
+                <span class="visually-hidden" data-bookmark-target="buttonLabel">Bookmark</span>
+            {% endif %}
+        </button>
+
+        <div class="dropdown-menu dropdown-menu-end dropdown-menu-arrow p-0 bookmark-widget__menu" role="menu" data-bookmark-target="menu">
+            <div class="dropdown-header border-bottom bg-body bookmark-widget__header">
+                <div class="d-flex align-items-center gap-2 min-w-0">
+                    {{ ux_icon('tabler:folders', { class: 'icon text-muted flex-shrink-0' }) }}
+                    <span class="text-truncate">Save to folder</span>
+                </div>
+            </div>
+
+            <div class="bookmark-widget__folder-list" data-bookmark-target="folderList"></div>
+
+            <form class="border-top p-2" data-action="submit->bookmark#createFolder">
+                <label class="visually-hidden" for="bookmark-folder-name-{{ provider|replace({':': '-', '/': '-'}) }}-{{ dataset|replace({':': '-', '/': '-'}) }}-{{ coreCode }}-{{ localId|replace({':': '-', '/': '-'}) }}">New folder name</label>
+                <div class="input-group input-group-sm">
+                    <input
+                        id="bookmark-folder-name-{{ provider|replace({':': '-', '/': '-'}) }}-{{ dataset|replace({':': '-', '/': '-'}) }}-{{ coreCode }}-{{ localId|replace({':': '-', '/': '-'}) }}"
+                        type="text"
+                        class="form-control"
+                        placeholder="New folder"
+                        maxlength="120"
+                        autocomplete="off"
+                        data-bookmark-target="newFolderInput"
+                    >
+                    <button class="btn" type="submit">
+                        {{ ux_icon('tabler:plus', { class: 'icon me-0' }) }}
+                        <span class="visually-hidden">Create folder</span>
+                    </button>
+                </div>
+            </form>
+
+            <div class="px-3 py-2 small text-danger d-none" data-bookmark-target="status"></div>
+
+            <button
+                type="button"
+                class="dropdown-item text-danger border-top"
+                data-bookmark-target="removeButton"
+                data-action="bookmark#removeBookmark"
+                role="menuitem"
+            >
+                {{ ux_icon('tabler:trash', { class: 'icon' }) }}
+                Remove bookmark
+            </button>
+        </div>
+    {% else %}
+        <a class="btn {{ compact ? 'btn-icon' : 'bg-white bg-opacity-75' }} border shadow-sm rounded-pill" href="{{ path('app_login', { _target_path: app.request.requestUri }) }}" title="Bookmark">
+            {{ ux_icon('tabler:bookmark', { class: compact ? 'icon' : 'icon me-1' }) }}
+            {% if compact %}
+                <span class="visually-hidden">Bookmark</span>
+            {% else %}
+                Bookmark
+            {% endif %}
+        </a>
+    {% endif %}
+</div>

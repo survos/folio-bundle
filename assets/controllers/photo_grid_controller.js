@@ -6,9 +6,10 @@ import { Controller } from '@hotwired/stimulus';
  * Platform endpoint (Row::API_ROWS) as the loader element scrolls into view,
  * appending thumbnails to the grid.
  *
- * Note: server-rendered items go through the `imgproxy` Twig filter for their
- * thumbnail URL; client-fetched items here use `thumbnailUrl` as-is (no JS
- * imgproxy helper exists yet) -- a known, small inconsistency until one does.
+ * `thumbnailUrl` is already a signed imgproxy URL by the time it reaches either code path --
+ * FolioRowProvider::resolveThumbnails() resolves it server-side for every page (1 and beyond),
+ * so both the server-rendered items and these client-fetched ones use it as-is, no JS-side
+ * imgproxy call needed.
  */
 export default class extends Controller {
     static targets = ['grid', 'loader'];
@@ -18,6 +19,7 @@ export default class extends Controller {
         itemsPerPage: { type: Number, default: 50 },
         page: { type: Number, default: 2 },
         filters: { type: Object, default: {} },
+        rowUrlTemplate: String,
     };
 
     connect() {
@@ -72,16 +74,26 @@ export default class extends Controller {
         }
     }
 
+    rowUrl(rp) {
+        if (!rp || !this.hasRowUrlTemplateValue) {
+            return '#';
+        }
+
+        const enc = (value) => encodeURIComponent(value ?? '');
+
+        return this.rowUrlTemplateValue
+            .replace('__PROVIDER__', enc(rp.provider))
+            .replace('__DATASET__', enc(rp.dataset))
+            .replace('__CORE_CODE__', enc(rp.coreCode))
+            .replace('__DTO_TYPE__', enc(rp.dtoType))
+            .replace('__LOCAL_ID__', enc(rp.localId));
+    }
+
     appendItem(item) {
         const a = document.createElement('a');
         a.className = 'folio-photo-grid__item';
-        a.href = item.citationUrl || '#';
+        a.href = this.rowUrl(item.rp);
         a.title = item.label || '';
-
-        if (item.citationUrl) {
-            a.target = '_blank';
-            a.rel = 'noopener';
-        }
 
         if (item.thumbnailUrl) {
             const img = document.createElement('img');

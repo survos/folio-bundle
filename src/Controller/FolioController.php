@@ -7,7 +7,7 @@ namespace Survos\FolioBundle\Controller;
 use Doctrine\DBAL\Connection;
 use Survos\FolioBundle\Attribute\FolioContext;
 use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Page,Row,Term,TermSet};
-use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService};
+use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService,RowTermsResolver};
 use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
@@ -48,6 +48,7 @@ final class FolioController extends AbstractController
         private readonly FolioWordCloudService $wordCloud,
         private readonly Environment $twig,
         private readonly HttpClientInterface $httpClient,
+        private readonly RowTermsResolver $rowTermsResolver,
         private readonly ?ImgproxyUrlBuilder $imgproxy = null,
     ) {}
 
@@ -278,8 +279,14 @@ final class FolioController extends AbstractController
         ]);
     }
 
+    // Explicit priority: $filter's default (?string $filter = null) makes Symfony infer it as an
+    // OPTIONAL trailing segment on survos_folio_map_filtered too, so its compiled regex matches
+    // bare /{provider}/{dataset}/map URLs just as well as ...+/{filter} ones. With equal (default)
+    // priority, declaration order decides ties — survos_folio_map would never actually match
+    // anything, shadowed entirely by its own "_filtered" sibling (and TenantMenu's "Map" link
+    // would never show as active, since the resolved route name never equals what it links to).
     #[Route('/{provider}/{dataset}/map/{filter}', name: 'survos_folio_map_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
-    #[Route('/{provider}/{dataset}/map', name: 'survos_folio_map', options: ['expose' => true])]
+    #[Route('/{provider}/{dataset}/map', name: 'survos_folio_map', options: ['expose' => true], priority: 10)]
     public function map(string $provider, string $dataset, ?string $filter = null): Response
     {
         return $this->render('@SurvosFolioBundle/folio/map.html.twig', [
@@ -1264,7 +1271,7 @@ final class FolioController extends AbstractController
         $claims = $this->rowClaims($ctx->em->getConnection(), $row->id);
         $aiTaskRuns = $this->aiTaskRuns($claims);
         $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
-        $terms = $this->rowTerms($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
+        $terms = $this->rowTermsResolver->resolve($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
         $adjacent = $this->adjacentRows($ctx->em->getConnection(), $core->id, $localId);
 
         // Fields shown elsewhere (as Terms, or as relation links) are excluded from the DTO Data
@@ -1413,75 +1420,6 @@ final class FolioController extends AbstractController
         usort($rows, static fn (array $a, array $b): int => $a['sequence'] <=> $b['sequence']);
 
         return $rows;
-    }
-
-    /**
-     * @param array<string,mixed> $dtoData
-     * @param array<string,mixed> $extras
-     * @return array<string,list<array{code:string,label:string,term:?Term}>>
-     */
-    private function rowTerms(\Doctrine\ORM\EntityManagerInterface $em, string $folioCode, array $dtoData, array $extras): array
-    {
-        // Same field→termset binding the extractor used to write the Term rows (single source of
-        // truth: #[VocabTerm(termSet:true, sourceFields:…)] on MuseumVocab), so what we resolve here
-        // matches what exists. A set draws from several fields (e.g. obj ← subjects/keywords).
-        $terms = [];
-        foreach (TermSetBinding::fields() as $setCode => $fields) {
-            $labels = [];
-            foreach ($fields as $field) {
-                foreach ($this->termValues($dtoData[$field] ?? $extras[$field] ?? null) as $label) {
-                    $labels[] = $label;
-                }
-            }
-            // Dedupe by value (array_unique), NOT by key — a numeric-string label like "1886" used as
-            // an array key would be coerced to an int and break termCode(string).
-            foreach (array_unique($labels) as $label) {
-                $code = $this->termCode($label);
-                $term = $em->find(Term::class, "$folioCode:$setCode:$code");
-                $terms[$setCode][] = [
-                    'code' => $code,
-                    'label' => $label,
-                    'term' => $term instanceof Term ? $term : null,
-                ];
-            }
-        }
-
-        return array_filter($terms);
-    }
-
-    /** @return list<string> */
-    private function termValues(mixed $value): array
-    {
-        if (is_array($value)) {
-            $values = [];
-            foreach ($value as $item) {
-                if (is_array($item)) {
-                    foreach (['name', 'label', 'value', 'type'] as $key) {
-                        if (isset($item[$key]) && is_scalar($item[$key])) {
-                            $values[] = trim((string) $item[$key]);
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                if (is_scalar($item)) {
-                    $values[] = trim((string) $item);
-                }
-            }
-
-            return array_values(array_unique(array_filter($values, 'strlen')));
-        }
-
-        return is_scalar($value) && trim((string) $value) !== '' ? [trim((string) $value)] : [];
-    }
-
-    private function termCode(string $label): string
-    {
-        $code = strtolower(iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $label) ?: $label);
-        $code = preg_replace('/[^a-z0-9]+/', '-', $code) ?? '';
-        $code = trim($code, '-');
-
-        return $code !== '' ? $code : hash('xxh128', $label);
     }
 
     /**

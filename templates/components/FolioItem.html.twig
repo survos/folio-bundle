@@ -1,0 +1,182 @@
+{# templates/components/FolioItem.html.twig
+   Lean single-photo view (fortepan.hu style: big image + details alongside). See
+   src/Twig/Components/FolioItem.php for the props/data contract. NOT a replacement for
+   folio/detail.html.twig -- that stays the full power-user viewer. #}
+{% if row is null %}
+    <div class="alert alert-warning">{{ 'Item not found.'|trans }}</div>
+{% else %}
+    {% set tombstoneTitle = attribute(row.dtoData, 'title')|default(attribute(row.extras, 'dcterms:title')|default(row.label ?: row.localId)) %}
+    {% if tombstoneTitle starts with '"' and tombstoneTitle ends with '"' %}
+        {% set tombstoneTitle = tombstoneTitle|trim('"') %}
+    {% endif %}
+    {% set tombstoneDescription = attribute(row.dtoData, 'description')|default(attribute(row.extras, 'dcterms:description')|default(null)) %}
+    {% set tombstoneDate = attribute(row.dtoData, 'date')|default(attribute(row.extras, 'dcterms:date')|default(null)) %}
+    {% set tombstoneYear = attribute(row.dtoData, 'year')|default(tombstoneDate) %}
+    {% set tombstoneCredit = attribute(row.dtoData, 'citation')|default(null) %}
+    {% set tombstoneDonor = attribute(row.dtoData, 'donor')|default(null) %}
+    {% set tombstoneLocation = [
+        attribute(row.dtoData, 'city')|default(null),
+        attribute(row.dtoData, 'state')|default(null),
+        attribute(row.dtoData, 'country')|default(null),
+    ]|filter(v => v is not empty)|join(', ') %}
+    {% set sourceCaption = attribute(row.dtoData, 'sourceCaption')|default(attribute(row.extras, 'sourceCaption')|default(null)) %}
+    {% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
+    {% set imageSource = row.thumbnailSource %}
+    {% set downloadUrl = attribute(row.dtoData, 'largeImageUrl')|default(imageSource) %}
+    {% set tombstoneLicense = attribute(row.dtoData, 'rightsUri')|default(null) %}
+    {% set downloadFilename = dataset ~ '-' ~ row.localId ~ '.jpg' %}
+    {% set downloadCitation = [tombstoneTitle, tombstoneCredit, citationUrl]|filter(v => v is not empty)|join(' — ') %}
+
+    <div class="folio-row">
+        <div class="folio-row__image">
+            {% if imageSource %}
+                <img src="{{ imageSource|imgproxy('archive') }}" alt="{{ tombstoneTitle }}" loading="eager">
+            {% endif %}
+        </div>
+
+        <div class="folio-row__details">
+            <h1 class="folio-row__title">{{ tombstoneTitle }}</h1>
+
+            {% if tombstoneYear %}
+                <div class="folio-row__date text-secondary">{{ tombstoneYear }}</div>
+            {% endif %}
+
+            {% if tombstoneLocation %}
+                <div class="folio-row__location text-secondary">
+                    {{ ux_icon('tabler:map-pin', {class: 'icon icon-sm me-1'}) }}{{ tombstoneLocation }}
+                </div>
+            {% endif %}
+
+            {% if tombstoneDescription %}
+                <p class="folio-row__description">{{ tombstoneDescription }}</p>
+            {% endif %}
+
+            {% if sourceCaption and sourceCaption != tombstoneDescription %}
+                <p class="folio-row__source-caption text-secondary">{{ sourceCaption }}</p>
+            {% endif %}
+
+            {% if tombstoneCredit or tombstoneDonor %}
+                <div class="folio-row__credit text-secondary">
+                    {{ tombstoneCredit }}{% if tombstoneCredit and tombstoneDonor and tombstoneDonor != tombstoneCredit %} · {% endif %}
+                    {% if tombstoneDonor and tombstoneDonor != tombstoneCredit %}{{ 'Donor'|trans }}: {{ tombstoneDonor }}{% endif %}
+                </div>
+            {% endif %}
+
+            {% if terms %}
+                <div class="folio-row__terms mt-2">
+                    {% for set, values in terms %}
+                        {% for value in values %}
+                            {% if value.term %}
+                                <a
+                                    class="badge text-bg-light border me-1 mb-1 text-decoration-none"
+                                    href="{{ path('survos_folio_term_show', {provider: provider, dataset: dataset, setCode: set, termCode: value.code}) }}"
+                                >
+                                    {{ value.label }}
+                                </a>
+                            {% else %}
+                                <span class="badge text-bg-light border me-1 mb-1">{{ value.label }}</span>
+                            {% endif %}
+                        {% endfor %}
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div class="folio-row__actions d-flex flex-wrap gap-2 mt-3">
+                {% if folio_bookmarks_enabled() %}
+                    {{ include('@SurvosFolioBundle/bookmark/_widget.html.twig', {
+                        provider: provider,
+                        dataset: dataset,
+                        coreCode: coreCode,
+                        localId: row.localId,
+                        dtoType: row.dtoType ?: 'row',
+                        label: tombstoneTitle,
+                    }) }}
+                {% endif %}
+
+                {% if downloadUrl %}
+                    {% set _sc = survos_stimulus('folio-bundle', 'download-button') %}
+                    <button type="button" class="btn btn-outline-secondary"
+                        {{ stimulus_controller(_sc, {
+                            title: tombstoneTitle,
+                            thumbnail: imageSource ? imageSource|imgproxy('display') : '',
+                            creator: tombstoneCredit ?: tombstoneDonor,
+                            date: tombstoneYear,
+                            license: tombstoneLicense,
+                            filename: downloadFilename,
+                            citation: downloadCitation,
+                            url: downloadUrl,
+                        }) }}
+                        {{ stimulus_action(_sc, 'download') }}
+                    >
+                        {{ ux_icon('tabler:download', {class: 'icon me-1'}) }}
+                        {{ 'Download'|trans }}
+                    </button>
+                {% endif %}
+
+                {% set _sc = survos_stimulus('folio-bundle', 'share-button') %}
+                <button type="button" class="btn btn-outline-secondary"
+                    {{ stimulus_controller(_sc, {url: shareUrl, title: tombstoneTitle}) }}
+                    {{ stimulus_action(_sc, 'share') }}
+                >
+                    {{ ux_icon('tabler:share-3', {class: 'icon me-1'}) }}
+                    {{ 'Share'|trans }}
+                </button>
+
+                {% if citationUrl %}
+                    <a href="{{ citationUrl }}" class="btn btn-outline-secondary" target="_blank" rel="noopener">
+                        {{ ux_icon('tabler:external-link', {class: 'icon me-1'}) }}
+                        {{ 'Source'|trans }}
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if prevUrl or nextUrl %}
+        <div class="folio-row__nav d-flex justify-content-between mt-4">
+            <div>
+                {% if prevUrl %}
+                    <a href="{{ prevUrl }}" class="btn btn-link px-0">&larr; {{ 'Previous'|trans }}</a>
+                {% endif %}
+            </div>
+            <div>
+                {% if nextUrl %}
+                    <a href="{{ nextUrl }}" class="btn btn-link px-0">{{ 'Next'|trans }} &rarr;</a>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+{% endif %}
+
+<style>
+    .folio-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2rem;
+        align-items: flex-start;
+    }
+    .folio-row__image {
+        flex: 1 1 55%;
+        min-width: 280px;
+    }
+    .folio-row__image img {
+        width: 100%;
+        height: auto;
+        border-radius: 0.5rem;
+        display: block;
+    }
+    .folio-row__details {
+        flex: 1 1 35%;
+        min-width: 240px;
+    }
+    .folio-row__title {
+        font-size: clamp(1.5rem, 3vw, 2.25rem);
+        margin-bottom: 0.5rem;
+    }
+    @media screen and (max-width: 767px) {
+        .folio-row__image,
+        .folio-row__details {
+            flex-basis: 100%;
+        }
+    }
+</style>

@@ -146,10 +146,23 @@ final class FolioBuildCommand implements SignalableCommandInterface
             $code = $info->datasetKey;
             $io->section($code);
 
-            // A --locale equal to the dataset's own source locale is not a translated build —
+            // --locale is a manual override/test path (build just that one locale). Without it,
+            // build the plain source-language folio PLUS one per target the dataset itself
+            // declares (DatasetInfo::$targetLocales, from _meta/dataset.json's locale.targets —
+            // see LocaleConfiguration::withTargets()/addTarget() in the singleton that writes it).
+            // No separate opt-in needed: a dataset with no declared targets just builds the one
+            // plain folio, same as before this existed.
+            $requestedLocales = ($locale !== null && $locale !== '') ? [$locale] : [null, ...$info->targetLocales];
+
+            foreach ($requestedLocales as $requestedLocale) {
+            if (count($requestedLocales) > 1) {
+                $io->writeln(sprintf('  locale: %s', $requestedLocale ?? ($info->locale ?? 'en') . ' (source)'));
+            }
+
+            // A build locale equal to the dataset's own source locale is not a translated build —
             // keep this dataset on the plain (unsuffixed) working/archive path, matching how
             // FolioIngestService itself no-ops the substitution in that case.
-            $buildLocale = ($locale !== null && $locale !== '' && $locale !== ($info->locale ?? 'en')) ? $locale : null;
+            $buildLocale = ($requestedLocale !== null && $requestedLocale !== '' && $requestedLocale !== ($info->locale ?? 'en')) ? $requestedLocale : null;
 
             $sources = $this->ingest->resolveSources($info, $coreFilter);
             if ($sources === [] && !$allowEmpty) {
@@ -238,6 +251,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
                         'sourceBytes' => $res['sourceBytes'],
                         'archiveBytes' => $res['archiveBytes'],
                     ],
+                    code: $buildLocale ?? Artifact::CODE_DEFAULT,
                 );
             } else {
                 // inflate-only: still need the schema snapshot for view generation.
@@ -292,12 +306,14 @@ final class FolioBuildCommand implements SignalableCommandInterface
                         'pageCount' => $this->tableCount($workingPath, 'page'),
                         'claimCount' => $this->tableCount($workingPath, 'claim'),
                     ],
+                    code: $buildLocale ?? Artifact::CODE_DEFAULT,
                 );
             } elseif (is_file($workingPath)) {
                 unlink($workingPath);
             }
 
             $built++;
+            } // end foreach ($requestedLocales as $requestedLocale)
         }
 
         $io->newLine();
@@ -379,7 +395,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
      * @param array<string,int>|null $dtoCounts
      * @param array<string,mixed> $metadata
      */
-    private function dispatchArtifactUpdated(string $datasetKey, string $type, string $uri, ?int $rowCount, ?array $dtoCounts, array $metadata): void
+    private function dispatchArtifactUpdated(string $datasetKey, string $type, string $uri, ?int $rowCount, ?array $dtoCounts, array $metadata, string $code = Artifact::CODE_DEFAULT): void
     {
         $this->dispatcher?->dispatch(new DatasetArtifactUpdatedEvent(
             datasetKey: $datasetKey,
@@ -388,6 +404,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
             rowCount: $rowCount,
             dtoCounts: $dtoCounts,
             metadata: $metadata,
+            code: $code,
         ));
     }
 
