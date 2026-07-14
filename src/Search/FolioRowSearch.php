@@ -21,6 +21,13 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
     public function __construct(
         private readonly FolioService $folios,
         private readonly TranslatorInterface $translator,
+        /** survos_folio.yaml's search_title_sort_enabled — off for collections where titles are
+         *  sparse/generic and year is the meaningful ordering (e.g. openfoto's photo archives). */
+        private readonly bool $titleSortEnabled = true,
+        /** survos_folio.yaml's search_default_sort — must match one of the sort keys actually
+         *  added below (e.g. 'year:asc') or it's silently ignored and the first-added sort wins,
+         *  same as AbstractSearch's own default-sort behavior. */
+        private readonly ?string $defaultSort = null,
     ) {
     }
 
@@ -80,14 +87,27 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             $facetColumns[$field['name']] = $this->jsonExtract($field['name']);
         }
 
-        $this->addAvailableSort('label:asc', 'Title A-Z');
-        $this->addAvailableSort('label:desc', 'Title Z-A');
+        $sorts = [];
+        if ($this->titleSortEnabled) {
+            $sorts['label:asc'] = 'Title A-Z';
+            $sorts['label:desc'] = 'Title Z-A';
+        }
         // Sort by year (the integer), not the fuzzy date string ("ca. 1920" sorts lexicographically
         // wrong) — but only when the dataset actually has integer years. Many datasets carry only a
         // free-text `date` (never normalised to `year`); offering a no-op "Year" sort there is misleading.
         if ($this->hasColumnValues($connection, 'year')) {
-            $this->addAvailableSort('year:asc', 'Year Old-New');
-            $this->addAvailableSort('year:desc', 'Year New-Old');
+            $sorts['year:asc'] = 'Year Old-New';
+            $sorts['year:desc'] = 'Year New-Old';
+        }
+        // AbstractSearch::search() picks current($this->availableSorts) as the default -- whichever
+        // sort was added FIRST -- so move the configured default to the front of the list rather
+        // than needing a separate "set default" API. Silently falls back to natural order if the
+        // configured key isn't in $sorts (e.g. defaultSort=year:asc but this dataset has no years).
+        if ($this->defaultSort !== null && isset($sorts[$this->defaultSort])) {
+            $sorts = [$this->defaultSort => $sorts[$this->defaultSort]] + $sorts;
+        }
+        foreach ($sorts as $key => $label) {
+            $this->addAvailableSort($key, $label);
         }
         $this->enableUrlRewriting();
 

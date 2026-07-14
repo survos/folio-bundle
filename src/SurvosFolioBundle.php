@@ -74,6 +74,14 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('Layout every folio-bundle page (map.html.twig, search.html.twig, detail.html.twig, …) extends. Set to your own app chrome, e.g. "tenant/base.html.twig", so folio-bundle pages reached directly (not wrapped by a host controller) still get your navbar/logo instead of this bundle\'s bare fallback. Null uses "base.html.twig" resolved from the host app\'s own template root.')
                 ->defaultNull()
             ->end()
+            ->booleanNode('search_title_sort_enabled')
+                ->info('FolioRowSearch\'s Title A-Z/Z-A sort options. Off for collections where titles are sparse/generic and year is the meaningful ordering (e.g. photo archives).')
+                ->defaultTrue()
+            ->end()
+            ->scalarNode('search_default_sort')
+                ->info('FolioRowSearch\'s default sort key, e.g. "year:asc" — must match a sort this class actually offers or it\'s silently ignored. Null keeps the historical default (whichever sort is added first — Title A-Z when search_title_sort_enabled).')
+                ->defaultNull()
+            ->end()
         ->end();
     }
 
@@ -137,7 +145,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // provide its own templates/search/hits/folio_row.html.twig (the hit card's links/chrome
         // are legitimately app-specific, unlike the facet/sort logic this class owns).
         if (class_exists(\Mezcalito\UxSearchBundle\Search\AbstractSearch::class) && interface_exists(\Survos\SearchBundle\Search\HitTemplateSearchInterface::class)) {
-            $services->set(\Survos\FolioBundle\Search\FolioRowSearch::class)->autowire()->autoconfigure()->public();
+            $services->set(\Survos\FolioBundle\Search\FolioRowSearch::class)->autowire()->autoconfigure()->public()->args([
+                '$titleSortEnabled' => $config['search_title_sort_enabled'],
+                '$defaultSort' => $config['search_default_sort'],
+            ]);
         }
         $services->set(FolioService::class)->autowire()->autoconfigure()->public()->args([
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
