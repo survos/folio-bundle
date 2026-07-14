@@ -134,6 +134,9 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 "json_extract(d.dto_data, '$.itemCount') AS itemCount",
                 "json_extract(d.dto_data, '$.sourceFormat') AS sourceFormat",
                 "json_extract(d.dto_data, '$.year') AS year",
+                "json_extract(d.dto_data, '$.city') AS city",
+                "json_extract(d.dto_data, '$.state') AS state",
+                "json_extract(d.dto_data, '$.country') AS country",
             ],
             'facetColumns' => $facetColumns,
             'sortColumns' => [

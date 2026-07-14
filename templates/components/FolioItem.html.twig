@@ -27,9 +27,42 @@
     {% set downloadFilename = dataset ~ '-' ~ row.localId ~ '.jpg' %}
     {% set downloadCitation = [tombstoneTitle, tombstoneCredit, citationUrl]|filter(v => v is not empty)|join(' — ') %}
 
+    {# Same OSD (OpenSeadragon) viewer detail.html.twig uses for its images -- compact toolbar,
+       real zoom/pan, and it works on plain (non-IIIF) source images too, not just true IIIF
+       endpoints (imgproxy stands in for image tiling/info.json). Falls back to a plain <img>
+       when the row has no Page entities (not every ingest populates them). #}
+    {% set pages = row.pages %}
+    {% if pages|length > 0 %}
+        {% set viewerImages = [] %}
+        {% set viewerHires = [] %}
+        {% set viewerInfoUrls = [] %}
+        {% for page in pages %}
+            {% set pageImg = page.url %}
+            {% set pageHires = page.url %}
+            {% set pageInfoUrl = null %}
+            {% guard filter imgproxy %}
+                {% set pageImg = page.url|imgproxy('thumb') %}
+                {% set pageHires = page.url|imgproxy('archive') %}
+                {% set pageInfoUrl = path('survos_imgproxy_info', {url: page.url}) %}
+            {% endguard %}
+            {% set viewerImages = viewerImages|merge([pageImg]) %}
+            {% set viewerHires = viewerHires|merge([pageHires]) %}
+            {% set viewerInfoUrls = viewerInfoUrls|merge([pageInfoUrl]) %}
+        {% endfor %}
+    {% endif %}
+
     <div class="folio-row">
         <div class="folio-row__image">
-            {% if imageSource %}
+            {% if pages|length > 0 %}
+                <twig:iiif:viewer
+                    :images="viewerImages"
+                    :hiresImages="viewerHires"
+                    :infoUrls="viewerInfoUrls"
+                    :manifestUrl="path('survos_folio_iiif_manifest', {provider: provider, dataset: dataset, coreCode: coreCode, localId: row.localId})"
+                    :height="500"
+                    :showLinks="false"
+                />
+            {% elseif imageSource %}
                 <img src="{{ imageSource|imgproxy('archive') }}" alt="{{ tombstoneTitle }}" loading="eager">
             {% endif %}
         </div>
