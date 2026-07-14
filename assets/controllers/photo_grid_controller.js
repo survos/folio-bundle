@@ -25,6 +25,13 @@ export default class extends Controller {
     connect() {
         this.loading = false;
         this.done = false;
+        this.columns = [];
+        this.nextColumn = 0;
+
+        this._layoutColumns();
+
+        this._resizeObserver = new ResizeObserver(() => this._onResize());
+        this._resizeObserver.observe(this.gridTarget);
 
         this.observer = new IntersectionObserver((entries) => {
             if (entries[0].isIntersecting) {
@@ -37,6 +44,42 @@ export default class extends Controller {
 
     disconnect() {
         this.observer?.disconnect();
+        this._resizeObserver?.disconnect();
+    }
+
+    // Round-robin item placement into a fixed number of flex columns, computed from the
+    // grid's current width. Plain CSS multi-column (`columns:`) balances by total column
+    // height instead -- it fills column 1 with the first N items, column 2 with the next N,
+    // etc, so a year-sorted list stops *reading* sorted left-to-right even though the
+    // underlying order is correct. Round-robin keeps reading order matching sort order.
+    _targetColumnWidth() {
+        return this.gridTarget.clientWidth <= 640 ? 128 : 192;
+    }
+
+    _columnCount() {
+        return Math.max(1, Math.floor(this.gridTarget.clientWidth / this._targetColumnWidth()));
+    }
+
+    _layoutColumns() {
+        const items = Array.from(this.gridTarget.querySelectorAll('.folio-photo-grid__item'));
+        const numColumns = this._columnCount();
+
+        this.gridTarget.innerHTML = '';
+        this.columns = Array.from({ length: numColumns }, () => {
+            const col = document.createElement('div');
+            col.className = 'folio-photo-grid__column';
+            this.gridTarget.appendChild(col);
+            return col;
+        });
+
+        items.forEach((item, i) => this.columns[i % numColumns].appendChild(item));
+        this.nextColumn = items.length % numColumns;
+    }
+
+    _onResize() {
+        if (this._columnCount() !== this.columns.length) {
+            this._layoutColumns();
+        }
     }
 
     async loadMore() {
@@ -45,7 +88,7 @@ export default class extends Controller {
         }
 
         this.loading = true;
-        this.loaderTarget.hidden = false;
+        this.loaderTarget.classList.add('is-loading');
 
         const params = new URLSearchParams({
             ...this.filtersValue,
@@ -63,6 +106,8 @@ export default class extends Controller {
             if (items.length === 0) {
                 this.done = true;
                 this.observer.disconnect();
+                // Safe to actually remove from layout now -- nothing observes it anymore.
+                this.loaderTarget.hidden = true;
                 return;
             }
 
@@ -70,7 +115,7 @@ export default class extends Controller {
             this.pageValue += 1;
         } finally {
             this.loading = false;
-            this.loaderTarget.hidden = true;
+            this.loaderTarget.classList.remove('is-loading');
         }
     }
 
@@ -89,6 +134,15 @@ export default class extends Controller {
             .replace('__LOCAL_ID__', enc(rp.localId));
     }
 
+    // Same extras.place / dtoData fallback PhotoGrid.html.twig uses server-side, so
+    // client-fetched pages (2+) get an identical caption to the SSR-rendered page 1.
+    place(item) {
+        if (item.extras?.place) {
+            return item.extras.place;
+        }
+        return [item.dtoData?.city, item.dtoData?.state, item.dtoData?.country].filter(Boolean).join(', ');
+    }
+
     appendItem(item) {
         const a = document.createElement('a');
         a.className = 'folio-photo-grid__item';
@@ -104,6 +158,37 @@ export default class extends Controller {
             a.appendChild(img);
         }
 
-        this.gridTarget.appendChild(a);
+        const year = item.dtoData?.year;
+        const place = this.place(item);
+        if (year || place) {
+            const caption = document.createElement('div');
+            caption.className = 'folio-photo-grid__caption';
+            if (year) {
+                const yearEl = document.createElement('span');
+                yearEl.className = 'folio-photo-grid__caption-year';
+                yearEl.textContent = year;
+                caption.appendChild(yearEl);
+            }
+            if (place) {
+                const placeEl = document.createElement('span');
+                placeEl.className = 'folio-photo-grid__caption-place';
+                // countryFlagCode is resolved server-side (Row::getCountryFlagCode(), via
+                // Symfony Intl) so this stays a plain flag-icons span, no client-side
+                // country-name lookup table to keep in sync with the PHP one.
+                if (item.countryFlagCode) {
+                    const flag = document.createElement('span');
+                    flag.className = `fi fi-${item.countryFlagCode.toLowerCase()}`;
+                    placeEl.appendChild(flag);
+                    placeEl.append(' ');
+                }
+                placeEl.append(place);
+                caption.appendChild(placeEl);
+            }
+            a.appendChild(caption);
+        }
+
+        const column = this.columns[this.nextColumn % this.columns.length] ?? this.gridTarget;
+        column.appendChild(a);
+        this.nextColumn += 1;
     }
 }

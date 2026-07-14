@@ -54,26 +54,48 @@ final class FolioRowProvider implements ProviderInterface
         $page         = max(1, (int) ($request?->query->get('page', 1) ?? 1));
         $itemsPerPage = max(1, (int) ($request?->query->get('itemsPerPage', 50) ?? 50));
 
-        $qb = $ctx->em->getRepository(Row::class)
-            ->createQueryBuilder('r')
-            ->where('r.core = :core')
-            ->setParameter('core', $core)
-            ->orderBy('r.localId', 'ASC');
-
+        // Sort by the year (nulls last, so undated rows don't cluster at the front) rather than
+        // local_id insertion order -- same "year:asc = Year Old-New" default FolioRowSearch's
+        // faceted search already uses. Doctrine ORM/DQL has no json_extract() support, so this
+        // goes through the raw connection like FolioRowSearch and TenantController::timelineData()
+        // already do for the same dto_data-is-JSON reason; Row entities are then hydrated by id
+        // and reordered to match, since a WHERE id IN (...) doesn't preserve that order itself.
+        $conn = $ctx->em->getConnection();
+        $where = ['core_id = :coreId'];
+        $params = ['coreId' => $core->id];
         if ($dtoType) {
-            $qb->andWhere('r.dtoType = :dto')->setParameter('dto', $dtoType);
+            $where[] = 'dto_type = :dtoType';
+            $params['dtoType'] = $dtoType;
+        }
+        $whereSql = implode(' AND ', $where);
+
+        $total = (int) $conn->executeQuery("SELECT COUNT(*) FROM item WHERE $whereSql", $params)->fetchOne();
+
+        $localIds = $conn->executeQuery(
+            sprintf(
+                "SELECT local_id FROM item WHERE %s
+                 ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC
+                 LIMIT %d OFFSET %d",
+                $whereSql,
+                $itemsPerPage,
+                ($page - 1) * $itemsPerPage,
+            ),
+            $params,
+        )->fetchFirstColumn();
+
+        if ($localIds === []) {
+            return new TraversablePaginator(new \ArrayIterator([]), $page, $itemsPerPage, $total);
         }
 
-        $total = (int) (clone $qb)
-            ->select('COUNT(r.id)')
-            ->getQuery()
-            ->getSingleScalarResult();
-
-        $results = $qb
-            ->setFirstResult(($page - 1) * $itemsPerPage)
-            ->setMaxResults($itemsPerPage)
-            ->getQuery()
-            ->getResult();
+        $compositeIds = array_map(static fn (string $localId): string => Row::id($core->id, $localId), $localIds);
+        $rowsById = [];
+        foreach ($ctx->em->getRepository(Row::class)->findBy(['id' => $compositeIds]) as $row) {
+            $rowsById[$row->id] = $row;
+        }
+        $results = array_values(array_filter(array_map(
+            static fn (string $id): ?Row => $rowsById[$id] ?? null,
+            $compositeIds,
+        )));
 
         $this->resolveThumbnails($results);
 

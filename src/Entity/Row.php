@@ -19,6 +19,7 @@ use Survos\FieldBundle\Attribute\EntityMeta;
 use Survos\FolioBundle\Repository\RowRepository;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\IiifBundle\Service\IiifUrl;
+use Symfony\Component\Intl\Countries;
 use Symfony\Component\Serializer\Attribute\Groups;
 
 #[EntityMeta(icon: 'mdi:table-row', group: 'Folio', label: 'Folio Rows', adminBrowsable: false)]
@@ -146,6 +147,31 @@ class Row
     public function setResolvedThumbnailUrl(?string $resolvedThumbnailUrl): void
     {
         $this->resolvedThumbnailUrl = $resolvedThumbnailUrl;
+    }
+
+    /** Lazy, shared across every Row in the process -- Intl's name table doesn't change per-request. */
+    private static ?array $countryCodesByName = null;
+
+    /**
+     * ISO 3166-1 alpha-2 code for `<span class="fi fi-{code}">` (flag-icons), or null when the
+     * country isn't known/doesn't match. dto_data.country is free-text from the source
+     * aggregator ("United States", "Switzerland", ...), not a code, so this reverse-looks-up
+     * against Symfony Intl's own name table rather than shipping a second name->code list to
+     * maintain. Exposed on the entity (not left to each template) so both the SSR-rendered page
+     * and the client-fetched JSON pages (PhotoGrid's infinite scroll) get the same value from
+     * one place.
+     */
+    #[Groups(['row:read'])]
+    public function getCountryFlagCode(): ?string
+    {
+        $country = $this->canonicalDtoValue(ItemField::COUNTRY);
+        if ($country === null) {
+            return null;
+        }
+
+        self::$countryCodesByName ??= array_flip(Countries::getNames('en'));
+
+        return self::$countryCodesByName[$country] ?? null;
     }
 
     /**

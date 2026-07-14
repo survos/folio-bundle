@@ -6,13 +6,14 @@ namespace Survos\FolioBundle\Twig\Components;
 
 use Survos\FolioBundle\Entity\Row;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Contracts\HttpClient\Exception\ExceptionInterface as HttpClientExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\UX\TwigComponent\Attribute\AsTwigComponent;
 use Symfony\UX\TwigComponent\Attribute\ExposeInTemplate;
 
 /**
- * Justified-grid, infinite-scroll photo browser for one core of one folio — the
- * fortepan.hu-style "browse everything" view, backed by Row's own #[ApiResource]
+ * Masonry-style, infinite-scroll photo browser for one core of one folio — the
+ * "browse everything" view, backed by Row's own #[ApiResource]
  * (Survos\FolioBundle\State\FolioRowProvider) rather than a new endpoint.
  *
  * Minimal usage:
@@ -101,6 +102,18 @@ final class PhotoGrid
     }
 
     /**
+     * Stimulus's typed `filters: Object` value rejects an empty $filters as-is -- PHP can't
+     * distinguish an empty list from an empty map, so json_encode([]) is always "[]" (a JSON
+     * array), never "{}", and Stimulus's runtime type check throws on that mismatch. Only the
+     * empty case needs correcting; a populated $filters is already a proper map.
+     */
+    #[ExposeInTemplate]
+    public function getFiltersForStimulus(): array|\stdClass
+    {
+        return $this->filters === [] ? new \stdClass() : $this->filters;
+    }
+
+    /**
      * First page of items, fetched server-side against the same endpoint the
      * Stimulus controller continues from. Same Hydra unwrapping tabler-bundle's
      * DataAwareTrait::fetchFromEndpoint() does (survos/mono#19) — folio-bundle
@@ -122,7 +135,20 @@ final class PhotoGrid
         }
 
         $query = array_merge($this->filters, ['page' => 1, 'itemsPerPage' => $this->itemsPerPage]);
-        $data = $this->httpClient->request('GET', $this->endpoint, ['query' => $query])->toArray(false);
+
+        try {
+            $data = $this->httpClient->request('GET', $this->endpoint, ['query' => $query])->toArray(false);
+        } catch (HttpClientExceptionInterface) {
+            // Self-referential server-to-server call (this endpoint is this same app's own API)
+            // -- can fail in ways the browser wouldn't hit, e.g. the app's own public hostname
+            // not being resolvable/reachable from inside the box making the request (a dev-proxy
+            // domain, a container without loopback DNS for its own vanity host, ...). Degrade to
+            // an empty first page rather than 500ing the whole template; PhotoGrid.html.twig
+            // starts the client-side controller at page 1 (not 2) whenever no items were
+            // server-rendered, so the browser -- which can always reach its own origin -- fills
+            // the grid in immediately after mount instead.
+            return $this->items = [];
+        }
 
         return $this->items = $data['member'] ?? $data['hydra:member'] ?? [];
     }
