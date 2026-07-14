@@ -2,15 +2,12 @@
 
 {% set controllerName = 'survos--folio-bundle--map' %}
 
+{# Same reasoning as the Overview button this page used to have: the page-header banner
+   (pretitle/title/subtitle) predates the navbar and just repeats what it already shows,
+   while pushing the map itself further down the page. #}
+{% set _ = page({ showPageHeader: false }) %}
+
 {% block body_class %}folio-layout{% endblock %}
-
-{% block page_pretitle %}Folio Map{% endblock %}
-
-{% block page_title %}{{ dataset }}{% endblock %}
-
-{% block page_subtitle %}
-    <span class="font-monospace">{{ provider }}/{{ dataset }}</span>
-{% endblock %}
 
 {% block title %}Map · {{ provider }}/{{ dataset }}{% endblock %}
 
