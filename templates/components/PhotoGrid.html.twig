@@ -14,6 +14,7 @@
         page: items|length > 0 ? 2 : 1,
         filters: filtersForStimulus,
         rowUrlTemplate: rowUrlTemplate,
+        homeCountryCode: homeCountryCode ?? '',
     }) }}
 >
     <div class="folio-photo-grid__items" {{ stimulus_target(_sc, 'grid') }}>
@@ -21,9 +22,21 @@
             {# extras.place is already a pre-joined "City, State, Country" string (see the
                ingest pipeline); dtoData.city/state/country is the fallback for items that
                don't have it, same fields the search hit cards use (folio_row.html.twig). #}
-            {% set place = item.extras.place|default(
+            {% set rawPlace = item.extras.place|default(
                 [item.dtoData.city|default(null), item.dtoData.state|default(null), item.dtoData.country|default(null)]|filter(v => v is not empty)|join(', ')
             ) %}
+            {# A single-country folio (homeCountryCode set, e.g. fpus is always "us") suppresses
+               the flag and the trailing ", <country>" for photos actually from that country --
+               out-of-region photos are the interesting exceptions, so they're the ones that keep
+               the flag/country and stand out. #}
+            {# countryFlagCode is only present at all when Row::getCountryFlagCode() resolved a
+               real ISO code (skip_null_values omits it entirely for items with no/unmatched
+               country) -- |default(null) is required here, not optional, or any item missing
+               the key 500s the whole grid. #}
+            {% set isHomeCountry = homeCountryCode is defined and homeCountryCode and item.countryFlagCode|default(null) and item.countryFlagCode|lower == homeCountryCode|lower %}
+            {% set place = isHomeCountry and item.dtoData.country|default(null)
+                ? rawPlace|replace({(', ' ~ item.dtoData.country): ''})
+                : rawPlace %}
             {% set year = item.dtoData.year|default(null) %}
             <a href="{{ rowUrlTemplate|replace({
                     '__PROVIDER__': item.rp.provider|default(''),
@@ -33,7 +46,8 @@
                     '__LOCAL_ID__': item.rp.localId|default(''),
                 }) }}"
                class="folio-photo-grid__item"
-               title="{{ item.label }}">
+               title="{{ item.label }}"
+               {% if year %}data-year="{{ year }}"{% endif %}>
                 {# thumbnailUrl is already a signed imgproxy URL -- FolioRowProvider::resolveThumbnails()
                    resolves it server-side (both for this page-1 render and the client-fetched pages
                    the Stimulus controller appends). Applying |imgproxy() again here would double-proxy
@@ -46,7 +60,7 @@
                         {% if year %}<span class="folio-photo-grid__caption-year">{{ year }}</span>{% endif %}
                         {% if place %}
                             <span class="folio-photo-grid__caption-place">
-                                {% if item.countryFlagCode %}<span class="fi fi-{{ item.countryFlagCode|lower }}"></span>{% endif %}
+                                {% if item.countryFlagCode|default(null) and not isHomeCountry %}<span class="fi fi-{{ item.countryFlagCode|lower }}"></span>{% endif %}
                                 {{ place }}
                             </span>
                         {% endif %}
@@ -63,6 +77,13 @@
     <div class="folio-photo-grid__loader" {{ stimulus_target(_sc, 'loader') }}>
         {{ 'Loading…'|trans }}
     </div>
+
+    {# Sticky year scrubber (Google Photos-style) -- built entirely from years already present
+       in the DOM (SSR items' data-year, then whatever the controller appends), no separate
+       "counts per year" endpoint. Ticks are added lazily as new years are encountered, and
+       clicking one scrolls to that year's first-seen photo, which is only possible because that
+       photo is already loaded -- a year further down that hasn't been fetched yet has no tick. #}
+    <div class="folio-photo-grid__timeline" {{ stimulus_target(_sc, 'timeline') }}></div>
 </div>
 
 <style>
@@ -135,5 +156,50 @@
     }
     .folio-photo-grid__loader.is-loading {
         visibility: visible;
+    }
+    /* Docked to the viewport edge (not the grid column) so it stays put regardless of the
+       grid's own width/scroll position -- same idea as Google Photos' year scrubber. */
+    .folio-photo-grid__timeline {
+        position: fixed;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 1px;
+        max-height: 70vh;
+        overflow-y: auto;
+        scrollbar-width: none;
+    }
+    .folio-photo-grid__timeline::-webkit-scrollbar {
+        display: none;
+    }
+    .folio-photo-grid__timeline-tick {
+        border: none;
+        background: none;
+        padding: 1px 0.6rem;
+        font-size: 0.7rem;
+        line-height: 1.4;
+        color: var(--tblr-secondary-color, #8c8c8c);
+        cursor: pointer;
+        opacity: 0.55;
+        transition: opacity .15s ease, font-size .15s ease;
+    }
+    .folio-photo-grid__timeline-tick:hover {
+        opacity: 1;
+    }
+    .folio-photo-grid__timeline-tick.is-active {
+        opacity: 1;
+        font-weight: 700;
+        font-size: 0.8rem;
+        color: var(--tblr-primary, #206bc4);
+    }
+    @media screen and (max-width: 767px) {
+        /* Not enough horizontal room next to the content alongside a narrow viewport. */
+        .folio-photo-grid__timeline {
+            display: none;
+        }
     }
 </style>

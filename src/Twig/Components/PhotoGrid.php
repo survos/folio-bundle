@@ -57,6 +57,15 @@ final class PhotoGrid
      */
     public string $rowUrlTemplate = '';
 
+    /**
+     * ISO 3166-1 alpha-2 (any case), when this folio is a single-country archive (e.g. fpus is
+     * always US) -- the caption then suppresses the flag/country for photos that match it, so
+     * out-of-region photos (the interesting exceptions) stand out instead of every caption
+     * repeating the same flag. Null (the default) always shows the full place + flag, which is
+     * also correct for a folio that isn't single-country.
+     */
+    public ?string $homeCountryCode = null;
+
     private ?array $items = null;
 
     public function __construct(
@@ -81,12 +90,14 @@ final class PhotoGrid
         int $itemsPerPage = 50,
         ?string $endpoint = null,
         ?string $rowUrlTemplate = null,
+        ?string $homeCountryCode = null,
     ): void {
         $this->provider = $provider;
         $this->dataset = $dataset;
         $this->coreCode = $coreCode;
         $this->filters = $filters;
         $this->itemsPerPage = $itemsPerPage;
+        $this->homeCountryCode = $homeCountryCode;
         $this->endpoint = $endpoint ?? $this->urlGenerator->generate(Row::API_ROWS, [
             'provider' => $provider,
             'dataset' => $dataset,
