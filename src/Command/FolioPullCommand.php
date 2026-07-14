@@ -567,7 +567,25 @@ final class FolioPullCommand
         rmdir($dir);
     }
 
+    /**
+     * Best-effort dataset-registry bookkeeping. The folio file itself is already downloaded
+     * and inflated by the time this runs -- that's the actual job of folio:pull, and it's
+     * already done. A failure here (e.g. a stale/mismatched Artifact row from an older schema)
+     * shouldn't crash the whole pull, and especially shouldn't leave $datasetEntityManager
+     * closed for a caller (like tenants:load) that reuses this same command across a loop of
+     * many datasets -- one bad registration would otherwise cascade into "EntityManager is
+     * closed" for every dataset pulled after it.
+     */
     private function registerRestoredFolio(string $code, string $dbFile): void
+    {
+        try {
+            $this->doRegisterRestoredFolio($code, $dbFile);
+        } catch (\Throwable) {
+            // Swallow: see docblock above.
+        }
+    }
+
+    private function doRegisterRestoredFolio(string $code, string $dbFile): void
     {
         if ($this->datasetEntityManager === null || $this->summaryService === null || !is_file($dbFile)) {
             return;
@@ -589,6 +607,15 @@ final class FolioPullCommand
         }
         $provider->setSyncedAt(new \DateTime());
         $dataset->setProviderEntity($provider);
+        // Flush before the Artifact lookup below: on a re-pull of an already-registered
+        // dataset, $dataset/$provider are pre-existing (found, not created) so this flush is
+        // a no-op there -- but on the FIRST pull of a brand-new dataset they were just
+        // persist()'d above and have no committed row yet. Querying findOneBy(['dataset' =>
+        // $dataset, ...]) against an unflushed parent can miss the not-yet-existing Artifact
+        // and fall through to `new Artifact(...)`, which then collides with the
+        // (dataset_key, type, code) unique constraint on the INSERT once $dataset itself
+        // flushes moments later in the same transaction.
+        $em->flush();
 
         $summary = $this->summaryService->summarize($dbFile);
         if (isset($summary->coreCounts['obj'])) {
