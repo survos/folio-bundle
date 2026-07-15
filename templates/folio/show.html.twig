@@ -44,11 +44,11 @@
                         <div class="card-footer bg-dark border-secondary d-flex justify-content-between align-items-center gap-2">
                             <button type="button" class="btn btn-outline-light" {{ stimulus_action(controllerName, 'previous') }}>
                                 {% guard function ux_icon %}{{ ux_icon('tabler:chevron-left', {class: 'icon me-1'}) }}{% endguard %}
-                                Previous
+                                {{ 'previous'|trans({}, 'folio') }}
                             </button>
                             <span class="badge text-bg-light" {{ stimulus_target(controllerName, 'index') }}></span>
                             <button type="button" class="btn btn-outline-light" {{ stimulus_action(controllerName, 'next') }}>
-                                Next
+                                {{ 'next'|trans({}, 'folio') }}
                                 {% guard function ux_icon %}{{ ux_icon('tabler:chevron-right', {class: 'icon ms-1'}) }}{% endguard %}
                             </button>
                         </div>

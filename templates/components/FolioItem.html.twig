@@ -3,7 +3,7 @@
    src/Twig/Components/FolioItem.php for the props/data contract. NOT a replacement for
    folio/detail.html.twig -- that stays the full power-user viewer. #}
 {% if row is null %}
-    <div class="alert alert-warning">{{ 'Item not found.'|trans }}</div>
+    <div class="alert alert-warning">{{ 'item_not_found'|trans({}, 'folio') }}</div>
 {% else %}
     {% set tombstoneTitle = attribute(row.dtoData, 'title')|default(attribute(row.extras, 'dcterms:title')|default(row.label ?: row.localId)) %}
     {% if tombstoneTitle starts with '"' and tombstoneTitle ends with '"' %}
@@ -91,7 +91,7 @@
             {% if tombstoneCredit or tombstoneDonor %}
                 <div class="folio-row__credit text-secondary">
                     {{ tombstoneCredit }}{% if tombstoneCredit and tombstoneDonor and tombstoneDonor != tombstoneCredit %} · {% endif %}
-                    {% if tombstoneDonor and tombstoneDonor != tombstoneCredit %}{{ 'Donor'|trans }}: {{ tombstoneDonor }}{% endif %}
+                    {% if tombstoneDonor and tombstoneDonor != tombstoneCredit %}{{ 'donor'|trans({}, 'folio') }}: {{ tombstoneDonor }}{% endif %}
                 </div>
             {% endif %}
 
@@ -142,7 +142,7 @@
                         {{ stimulus_action(_sc, 'download') }}
                     >
                         {{ ux_icon('tabler:download', {class: 'icon me-1'}) }}
-                        {{ 'Download'|trans }}
+                        {{ 'download'|trans({}, 'folio') }}
                     </button>
                 {% endif %}
 
@@ -152,13 +152,13 @@
                     {{ stimulus_action(_sc, 'share') }}
                 >
                     {{ ux_icon('tabler:share-3', {class: 'icon me-1'}) }}
-                    {{ 'Share'|trans }}
+                    {{ 'share'|trans({}, 'folio') }}
                 </button>
 
                 {% if citationUrl %}
                     <a href="{{ citationUrl }}" class="btn btn-outline-secondary" target="_blank" rel="noopener">
                         {{ ux_icon('tabler:external-link', {class: 'icon me-1'}) }}
-                        {{ 'Source'|trans }}
+                        {{ 'source'|trans({}, 'folio') }}
                     </a>
                 {% endif %}
             </div>
@@ -169,12 +169,12 @@
         <div class="folio-row__nav d-flex justify-content-between mt-4">
             <div>
                 {% if prevUrl %}
-                    <a href="{{ prevUrl }}" class="btn btn-link px-0">&larr; {{ 'Previous'|trans }}</a>
+                    <a href="{{ prevUrl }}" class="btn btn-link px-0">&larr; {{ 'previous'|trans({}, 'folio') }}</a>
                 {% endif %}
             </div>
             <div>
                 {% if nextUrl %}
-                    <a href="{{ nextUrl }}" class="btn btn-link px-0">{{ 'Next'|trans }} &rarr;</a>
+                    <a href="{{ nextUrl }}" class="btn btn-link px-0">{{ 'next'|trans({}, 'folio') }} &rarr;</a>
                 {% endif %}
             </div>
         </div>

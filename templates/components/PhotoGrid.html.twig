@@ -75,7 +75,7 @@
        loadMore() would never fire. Visibility is toggled via the is-loading class
        instead, which keeps this in the layout (and therefore observable) at rest. #}
     <div class="folio-photo-grid__loader" {{ stimulus_target(_sc, 'loader') }}>
-        {{ 'Loading…'|trans }}
+        {{ 'loading'|trans({}, 'folio') }}
     </div>
 
     {# Sticky year scrubber (Google Photos-style) -- built entirely from years already present
