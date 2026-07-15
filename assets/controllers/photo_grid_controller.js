@@ -69,7 +69,7 @@ export default class extends Controller {
     // etc, so a year-sorted list stops *reading* sorted left-to-right even though the
     // underlying order is correct. Round-robin keeps reading order matching sort order.
     _targetColumnWidth() {
-        return this.gridTarget.clientWidth <= 640 ? 128 : 192;
+        return this.gridTarget.clientWidth <= 640 ? 160 : 260;
     }
 
     _columnCount() {
