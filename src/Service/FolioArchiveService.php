@@ -87,13 +87,13 @@ final readonly class FolioArchiveService
     /**
      * @return array{archive:string,target:string,targetBytes:int,indexedRows:int}
      */
-    public function restore(string $archivePath, string $folioCode, bool $force = false): array
+    public function restore(string $archivePath, string $folioCode, bool $force = false, ?string $locale = null): array
     {
         if (!is_file($archivePath)) {
             throw new \RuntimeException(sprintf('Folio archive not found: %s', $archivePath));
         }
 
-        $target = $this->folios->path($folioCode, createDirectory: true);
+        $target = $this->folios->path($folioCode, createDirectory: true, locale: $locale);
         if (is_file($target) && !$force) {
             throw new \RuntimeException(sprintf('Target folio already exists: %s. Use --force to replace it.', $target));
         }

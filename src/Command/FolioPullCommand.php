@@ -165,29 +165,34 @@ final class FolioPullCommand
             if ($code === '' || $downloadUrl === '') {
                 continue;
             }
-            $io->section($code);
+            // Translated variant entries carry a locale (e.g. mus/jarc + "en" → jarc.en.folio);
+            // absent/empty on the source-language build and on pre-locale servers.
+            $locale = (string) ($entry['locale'] ?? '');
+            $locale = $locale !== '' ? $locale : null;
+            $display = $code . ($locale !== null ? '.' . $locale : '');
+            $io->section($display);
 
-            $target = $this->folios->path($code);
+            $target = $this->folios->path($code, locale: $locale);
             if (is_file($target) && !$force) {
                 $io->text('Exists, skipping (use --force to replace)');
                 $skipped++;
                 continue;
             }
 
-            $localGz = $tmpDir . '/' . str_replace('/', '_', $code) . '.folio.gz';
-            $this->logger?->info('folio:pull downloading folio', ['code' => $code, 'url' => $downloadUrl]);
+            $localGz = $tmpDir . '/' . str_replace('/', '_', $display) . '.folio.gz';
+            $this->logger?->info('folio:pull downloading folio', ['code' => $display, 'url' => $downloadUrl]);
             $bytes = $this->downloader->download($downloadUrl, $localGz, null, ['overwrite' => true, 'timeout' => 120.0]);
             $io->text(sprintf('Downloaded: %s (%s)', $downloadUrl, Bytes::parse($bytes)->humanize()));
 
             // restore() gunzips → working folio AND inflates (indexes + FTS + views).
-            $result = $this->archiveService->restore($localGz, $code, $force);
+            $result = $this->archiveService->restore($localGz, $code, $force, locale: $locale);
             $io->text(sprintf(
                 'Inflated: %s (%s, %s FTS rows)',
                 $result['target'],
                 Bytes::parse($result['targetBytes'])->humanize(),
                 number_format($result['indexedRows']),
             ));
-            $this->registerRestoredFolio($code, $result['target']);
+            $this->registerRestoredFolio($code, $result['target'], $locale);
             $pulled++;
         }
 
@@ -249,9 +254,10 @@ final class FolioPullCommand
         $io->title(sprintf('%d folio(s) at %s', $total, $baseUrl));
 
         $page = array_slice($folios, 0, 25);
-        $io->table(['dataset', 'title', 'size', 'rows'], array_map(
+        $io->table(['dataset', 'locale', 'title', 'size', 'rows'], array_map(
             static fn (array $f): array => [
                 (string) ($f['datasetKey'] ?? ''),
+                (string) ($f['locale'] ?? ''),
                 (string) ($f['title'] ?? ''),
                 (string) Bytes::parse($f['sizeBytes'] ?? 0)->humanize(),
                 number_format((int) ($f['rowCount'] ?? 0)),
@@ -576,16 +582,22 @@ final class FolioPullCommand
      * many datasets -- one bad registration would otherwise cascade into "EntityManager is
      * closed" for every dataset pulled after it.
      */
-    private function registerRestoredFolio(string $code, string $dbFile): void
+    private function registerRestoredFolio(string $code, string $dbFile, ?string $locale = null): void
     {
         try {
-            $this->doRegisterRestoredFolio($code, $dbFile);
-        } catch (\Throwable) {
-            // Swallow: see docblock above.
+            $this->doRegisterRestoredFolio($code, $dbFile, $locale);
+        } catch (\Throwable $e) {
+            // Swallow (see docblock above) — but leave a trace so a broken registration is
+            // diagnosable instead of silently producing a half-updated registry.
+            $this->logger?->warning('folio:pull registry bookkeeping failed', [
+                'dataset' => $code,
+                'locale' => $locale,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 
-    private function doRegisterRestoredFolio(string $code, string $dbFile): void
+    private function doRegisterRestoredFolio(string $code, string $dbFile, ?string $locale = null): void
     {
         if ($this->datasetEntityManager === null || $this->summaryService === null || !is_file($dbFile)) {
             return;
@@ -624,11 +636,11 @@ final class FolioPullCommand
             $dataset->objCount = $summary->rowCount;
         }
 
-        $artifact = $em->getRepository(Artifact::class)->findOneBy([
-            'dataset' => $dataset,
-            'type' => Artifact::TYPE_FOLIO,
-            'code' => Artifact::CODE_DEFAULT,
-        ]) ?? new Artifact($dataset, Artifact::TYPE_FOLIO);
+        // A translated variant registers under its own artifact code (e.g. "en"), the same
+        // convention folio:build uses, so the source-language artifact keeps CODE_DEFAULT.
+        $artifactCode = $locale ?? Artifact::CODE_DEFAULT;
+        $artifact = $this->findArtifact($em, $dataset, $artifactCode)
+            ?? new Artifact($dataset, Artifact::TYPE_FOLIO, $artifactCode);
 
         $artifact->uri = $dbFile;
         $artifact->sizeBytes = filesize($dbFile) ?: null;
@@ -637,7 +649,7 @@ final class FolioPullCommand
         $artifact->updatedAt = (new \DateTimeImmutable())->setTimestamp((int) filemtime($dbFile));
         $artifact->discoveredAt = new \DateTimeImmutable();
         $artifact->metadata = [
-            'relativePath' => $code . '.folio',
+            'relativePath' => $code . ($locale !== null ? '.' . $locale : '') . '.folio',
             'cores' => $summary->cores,
             'coreCounts' => $summary->coreCounts,
             'registeredBy' => 'folio:pull',
@@ -645,7 +657,39 @@ final class FolioPullCommand
 
         $dataset->addArtifact($artifact);
         $em->persist($artifact);
-        $provider->setDatasetCount($em->getRepository(DatasetInfo::class)->count(['providerEntity' => $provider]));
+
+        // Surface the variant on the default artifact so consumers discover it without
+        // enumerating locales (mirrors DatasetRegistryUpdater's availableLocales bookkeeping).
+        if ($locale !== null) {
+            $default = $this->findArtifact($em, $dataset, Artifact::CODE_DEFAULT);
+            if ($default !== null && !in_array($locale, $default->availableLocales, true)) {
+                $default->availableLocales = [...$default->availableLocales, $locale];
+                $em->persist($default);
+            }
+        }
+        $provider->setDatasetCount((int) $em->createQuery(
+            'SELECT COUNT(d) FROM ' . DatasetInfo::class . ' d WHERE d.providerEntity = :provider'
+        )->setParameter('provider', $provider)->getSingleScalarResult());
         $em->flush();
+    }
+
+    /**
+     * Look up a folio Artifact through $em itself, NOT $em->getRepository(): ArtifactRepository
+     * is a ServiceEntityRepository, so getRepository() returns the container service bound to
+     * whichever entity manager ManagerRegistry resolves first for Artifact. In an app whose
+     * default EM also maps the dataset entities (openfoto), that's the DEFAULT EM's (empty)
+     * tables — every lookup misses, each re-pull double-inserts, and the unique constraint on
+     * (dataset_key, type, code) kills the flush. Querying via $em keeps the read on the same
+     * connection we flush to.
+     */
+    private function findArtifact(EntityManagerInterface $em, DatasetInfo $dataset, string $code): ?Artifact
+    {
+        return $em->createQuery(
+            'SELECT a FROM ' . Artifact::class . ' a WHERE a.dataset = :dataset AND a.type = :type AND a.code = :code'
+        )
+            ->setParameter('dataset', $dataset)
+            ->setParameter('type', Artifact::TYPE_FOLIO)
+            ->setParameter('code', $code)
+            ->getOneOrNullResult();
     }
 }
