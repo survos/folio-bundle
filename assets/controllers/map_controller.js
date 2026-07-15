@@ -67,7 +67,13 @@ export default class extends Controller {
         }
 
         const { id, label, city, thumbnailUrl, year } = feature.properties;
-        const marker = L.marker(latlng);
+        // A themeable div (CSS-only: color/size/shape all come from map.html.twig's
+        // --folio-map-* custom properties) instead of Leaflet's default raster pin -- a designer
+        // can restyle it without touching this JS at all. See map.html.twig for the full set of
+        // knobs and alternative shapes (square, ring, etc.).
+        const marker = L.marker(latlng, {
+            icon: L.divIcon({ html: '<div class="folio-map-marker"></div>', className: '', iconSize: [16, 16] }),
+        });
         marker.bindPopup(this.popupHtml({ id, label, city, thumbnailUrl, year }));
 
         return marker;
