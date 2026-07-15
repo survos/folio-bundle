@@ -31,6 +31,31 @@ survos_folio:
   entity_manager: folio
 ```
 
+## Routes
+
+Routes are registered by kit-bundle's `BundleRouteLoader` (via the `HasConfigurableRoutes`
+trait), **not** by a yaml import. The loader is chained onto `router.resource` and adds the
+bundle's routes *after* everything in the app's `routes.yaml` — so re-importing the bundle's
+controller directory from `routes.yaml` with a `prefix:` silently does nothing (same route
+names, clobbered by the loader). Use the bundle config instead:
+
+```yaml
+survos_folio:
+  route_prefix: /folio        # default; zm uses /f
+  # Folio pages are shareable/bookmarkable — bake the locale into the URL
+  # (/{_locale}/folio/...). Without this, navigating from a localized app page to a
+  # folio route resets the request locale to kernel.default_locale (core
+  # LocaleListener falls back whenever the matched route has no _locale).
+  locale_prefix: true         # zm and openfoto both enable this
+  routes_enabled: true        # false = manage the bundle's routes yourself
+```
+
+With `locale_prefix: true` (and >1 `framework.enabled_locales`), paths become
+`/{_locale}/folio/...` with `_locale` defaulting to `kernel.default_locale` and constrained
+to `enabled_locales`. Old unprefixed URLs 404 — add app-level redirects if needed. Note:
+FOSJsRouting-generated URLs (`expose: true` routes) fill `_locale` with the default unless
+the caller passes it — harmless for data endpoints (map.geojson), matters for navigation.
+
 ## Commands
 
 Dataset keys are opaque provider/dataset identifiers. `harvest/...`, `md/...`, `dc/...`, and legacy keys such as `mus/...` should all be treated as data identifiers, not application names.
