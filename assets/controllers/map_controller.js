@@ -9,7 +9,13 @@ import L from 'leaflet';
  * cluster granularity tracks the current zoom level.
  */
 export default class extends Controller {
-    static values = { geojsonUrl: String };
+    static values = { geojsonUrl: String, rowUrlTemplate: String };
+
+    // __LOCAL_ID__ placeholder convention shared with PhotoGrid's rowUrlTemplate (server-side
+    // Twig can't reach into this JS-side substitution, so both sides just agree on the token).
+    rowUrl(id) {
+        return this.rowUrlTemplateValue ? this.rowUrlTemplateValue.replace('__LOCAL_ID__', encodeURIComponent(id)) : null;
+    }
 
     connect() {
         this._onConnect = (event) => {
@@ -53,12 +59,32 @@ export default class extends Controller {
             return marker;
         }
 
-        const { label, thumbnailUrl, year } = feature.properties;
+        const { id, label, city, thumbnailUrl, year } = feature.properties;
         const marker = L.marker(latlng);
-        const thumb = thumbnailUrl ? `<img src="${thumbnailUrl}" alt="">` : '';
-        marker.bindPopup(`<div class="folio-map-popup">${thumb}<strong>${label ?? ''}</strong>${year ? ` (${year})` : ''}</div>`);
+        marker.bindPopup(this.popupHtml({ id, label, city, thumbnailUrl, year }));
 
         return marker;
+    }
+
+    // Dataset text (label/city) is untrusted content from the source archive, not markup this app
+    // authored -- escape it before it lands in a Leaflet popup's innerHTML.
+    escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        })[char]);
+    }
+
+    // Shared popup markup for both a lone marker and one slide of a cluster's mini-slideshow:
+    // thumbnail + caption (label · year) + place, the whole thing a link to the photo's own
+    // detail page (rowUrlTemplate) when one is configured, so the popup is a way IN, not a dead end.
+    popupHtml({ id, label, city, thumbnailUrl, year }) {
+        const thumb = thumbnailUrl ? `<img src="${thumbnailUrl}" alt="">` : '';
+        const caption = `<strong>${this.escapeHtml(label)}</strong>${year ? ` (${year})` : ''}`;
+        const place = city ? `<div class="folio-map-popup-place">${this.escapeHtml(city)}</div>` : '';
+        const url = this.rowUrl(id);
+        const body = `${thumb}${caption}${place}`;
+
+        return `<div class="folio-map-popup">${url ? `<a href="${url}">${body}</a>` : body}</div>`;
     }
 
     // Fetches the cluster's individual rows once (cached per bucket+zoom) and shows them as an
@@ -87,15 +113,19 @@ export default class extends Controller {
         const render = () => {
             const item = items[index];
             const disabled = items.length <= 1 ? 'disabled' : '';
+            const url = this.rowUrl(item.id);
+            const openTag = url ? `<a href="${url}">` : '<div>';
+            const closeTag = url ? '</a>' : '</div>';
             container.innerHTML = `
                 <div class="folio-map-cluster-nav">
                     <button type="button" class="folio-map-cluster-prev" ${disabled}>&lsaquo;</button>
-                    <img src="${item.thumbnailUrl ?? ''}" alt="">
+                    ${openTag}<img src="${item.thumbnailUrl ?? ''}" alt="">${closeTag}
                     <button type="button" class="folio-map-cluster-next" ${disabled}>&rsaquo;</button>
                 </div>
                 <div class="folio-map-cluster-caption">
-                    ${item.label ?? ''}${item.year ? ` (${item.year})` : ''} &middot; ${index + 1}/${items.length}
+                    ${openTag}${this.escapeHtml(item.label)}${item.year ? ` (${item.year})` : ''}${closeTag} &middot; ${index + 1}/${items.length}
                 </div>
+                ${item.city ? `<div class="folio-map-popup-place">${this.escapeHtml(item.city)}</div>` : ''}
             `;
             // Leaflet's Popup stops click propagation on its own container so map clicks (which close
             // popups by default) don't fire from clicks inside -- but that guard is installed once, on

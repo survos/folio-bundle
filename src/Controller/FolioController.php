@@ -294,6 +294,14 @@ final class FolioController extends AbstractController
             'dataset' => $dataset,
             'filter' => $filter,
             'hasUxMap' => class_exists(\Symfony\UX\Map\Map::class),
+            // Same placeholder-token convention as PhotoGrid's rowUrlTemplate: defaults to the
+            // chrome-free generic detail page (redirects to survos_folio_row_show), but a host app
+            // can override map.html.twig to pass its own branded photo-page template instead.
+            'rowUrlTemplate' => $this->generateUrl('survos_folio_row_shortcut', [
+                'provider' => $provider,
+                'dataset' => $dataset,
+                'localId' => '__LOCAL_ID__',
+            ]),
         ]);
     }
 
@@ -333,6 +341,7 @@ final class FolioController extends AbstractController
                     AVG(CAST(json_extract(d.dto_data, '\$.longitude') AS REAL)) AS lng,
                     MIN(d.local_id) AS id,
                     MIN(d.label) AS label,
+                    MIN(json_extract(d.dto_data, '\$.city')) AS city,
                     MIN(coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl'))) AS thumbnailUrl,
                     MIN(json_extract(d.dto_data, '\$.year')) AS year
                  FROM item d WHERE %s
@@ -353,7 +362,7 @@ final class FolioController extends AbstractController
                     // bucket's rows (a mini-slideshow on click) -- the averaged lat/lng above isn't
                     // reproducible from the client side, but the rounded bucket key is.
                     ? ['cluster' => true, 'point_count' => (int) $row['n'], 'bucketLat' => (float) $row['bucketLat'], 'bucketLng' => (float) $row['bucketLng']]
-                    : ['cluster' => false, 'id' => $row['id'], 'label' => $row['label'], 'thumbnailUrl' => $this->mapThumbnailUrl($row['thumbnailUrl']), 'year' => $row['year']],
+                    : ['cluster' => false, 'id' => $row['id'], 'label' => $row['label'], 'city' => $row['city'], 'thumbnailUrl' => $this->mapThumbnailUrl($row['thumbnailUrl']), 'year' => $row['year']],
             ], $rows),
         ]);
     }
@@ -383,6 +392,7 @@ final class FolioController extends AbstractController
                 "SELECT
                     d.local_id AS id,
                     d.label,
+                    json_extract(d.dto_data, '\$.city') AS city,
                     coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl')) AS thumbnailUrl,
                     json_extract(d.dto_data, '\$.year') AS year
                  FROM item d WHERE %s
@@ -395,6 +405,7 @@ final class FolioController extends AbstractController
         return new JsonResponse(array_map(fn (array $row): array => [
             'id' => $row['id'],
             'label' => $row['label'],
+            'city' => $row['city'],
             'thumbnailUrl' => $this->mapThumbnailUrl($row['thumbnailUrl']),
             'year' => $row['year'],
         ], $rows));
