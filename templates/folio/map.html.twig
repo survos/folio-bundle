@@ -33,7 +33,7 @@
             ? path('survos_folio_map_geojson_filtered', {provider: provider, dataset: dataset, filter: filter, zoom: 0})
             : path('survos_folio_map_geojson', {provider: provider, dataset: dataset, zoom: 0})
         )|slice(0, -2) %}
-        {{ ux_map(center: [20, 0], zoom: 2, attributes: stimulus_controller(controllerName, {geojsonUrl: geojsonUrlBase, rowUrlTemplate: rowUrlTemplate})|merge({
+        {{ ux_map(center: [20, 0], zoom: 2, attributes: stimulus_controller(controllerName, {geojsonUrl: geojsonUrlBase, rowUrlTemplate: rowUrlTemplate, slideshowBaseUrl: slideshowBaseUrl|default('')})|merge({
             style: 'height: 70vh; width: 100%; border-radius: 0.5rem;',
         })) }}
 
@@ -122,6 +122,21 @@
             }
 
             .folio-map-cluster-caption a:hover {
+                text-decoration: underline;
+            }
+
+            .folio-map-cluster-view-all {
+                display: block;
+                margin-top: 0.5rem;
+                padding-top: 0.4rem;
+                border-top: 1px solid rgba(0, 0, 0, 0.1);
+                font-size: 0.8rem;
+                font-weight: 600;
+                color: #066fd1;
+                text-decoration: none;
+            }
+
+            .folio-map-cluster-view-all:hover {
                 text-decoration: underline;
             }
         </style>

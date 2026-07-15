@@ -9,12 +9,19 @@ import L from 'leaflet';
  * cluster granularity tracks the current zoom level.
  */
 export default class extends Controller {
-    static values = { geojsonUrl: String, rowUrlTemplate: String };
+    static values = { geojsonUrl: String, rowUrlTemplate: String, slideshowBaseUrl: String };
 
     // __LOCAL_ID__ placeholder convention shared with PhotoGrid's rowUrlTemplate (server-side
     // Twig can't reach into this JS-side substitution, so both sides just agree on the token).
     rowUrl(id) {
         return this.rowUrlTemplateValue ? this.rowUrlTemplateValue.replace('__LOCAL_ID__', encodeURIComponent(id)) : null;
+    }
+
+    // A plain `?city=` query param (no filter token) -- FolioController's slideshowFilterParams()
+    // reads req.query.all() as-is whenever no {filter} path segment is present, so this needs no
+    // base64 encoding on this end to be understood as a city facet filter server-side.
+    cityCollectionUrl(city) {
+        return city && this.slideshowBaseUrlValue ? `${this.slideshowBaseUrlValue}?city=${encodeURIComponent(city)}` : null;
     }
 
     connect() {
@@ -91,7 +98,7 @@ export default class extends Controller {
     // in-place mini-slideshow in the marker's popup: one thumbnail at a time with prev/next arrows,
     // like fortepan.us/fortepan.hu's grouped map markers -- but paging is just an array-index change
     // (all items fetched upfront), no per-click round trip.
-    async openClusterPopup(marker, { bucketLat, bucketLng }) {
+    async openClusterPopup(marker, { bucketLat, bucketLng, point_count: pointCount, city }) {
         const zoom = Math.round(this.map.getZoom());
         const key = `${zoom}:${bucketLat}:${bucketLng}`;
         this._clusterCache ??= new Map();
@@ -105,6 +112,16 @@ export default class extends Controller {
         if (!items.length) {
             return;
         }
+
+        // City-level geocoding means every photo from the same place lands on the exact same point
+        // -- no amount of zooming ever splits this cluster apart, unlike real per-photo GPS. Paging
+        // through a mini-slideshow one at a time doesn't scale past a handful, so a uniformly-one-
+        // city cluster (city !== null, see mapGeoJson()) gets a "View all" link to the full,
+        // filtered collection instead -- a dynamic collection, not a dead-end popup.
+        const collectionUrl = this.cityCollectionUrl(city);
+        const collectionLink = collectionUrl
+            ? `<a class="folio-map-cluster-view-all" href="${collectionUrl}">View all ${pointCount} in ${this.escapeHtml(city)}</a>`
+            : '';
 
         let index = 0;
         const container = document.createElement('div');
@@ -126,6 +143,7 @@ export default class extends Controller {
                     ${openTag}${this.escapeHtml(item.label)}${item.year ? ` (${item.year})` : ''}${closeTag} &middot; ${index + 1}/${items.length}
                 </div>
                 ${item.city ? `<div class="folio-map-popup-place">${this.escapeHtml(item.city)}</div>` : ''}
+                ${collectionLink}
             `;
             // Leaflet's Popup stops click propagation on its own container so map clicks (which close
             // popups by default) don't fire from clicks inside -- but that guard is installed once, on

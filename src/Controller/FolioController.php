@@ -289,6 +289,13 @@ final class FolioController extends AbstractController
     #[Route('/{provider}/{dataset}/map', name: 'survos_folio_map', options: ['expose' => true], priority: 10)]
     public function map(string $provider, string $dataset, ?string $filter = null): Response
     {
+        $em = $this->folios->context("$provider/$dataset")->em;
+        // Same "obj first, else largest core" default the tenant/gallery pages already use --
+        // city-level clusters never separate by zooming further (see map_controller.js), so their
+        // popup instead offers a "View all in <city>" link into this core's slideshow/grid.
+        $defaultCore = $em->find(Core::class, Core::id("$provider/$dataset", 'obj'))
+            ?? ($em->getRepository(Core::class)->findBy([], ['rowCount' => 'DESC'])[0] ?? null);
+
         return $this->render('@SurvosFolioBundle/folio/map.html.twig', [
             'provider' => $provider,
             'dataset' => $dataset,
@@ -301,6 +308,11 @@ final class FolioController extends AbstractController
                 'provider' => $provider,
                 'dataset' => $dataset,
                 'localId' => '__LOCAL_ID__',
+            ]),
+            'slideshowBaseUrl' => $defaultCore === null ? null : $this->generateUrl('survos_folio_slideshow', [
+                'provider' => $provider,
+                'dataset' => $dataset,
+                'coreCode' => $defaultCore->code,
             ]),
         ]);
     }
@@ -342,6 +354,7 @@ final class FolioController extends AbstractController
                     MIN(d.local_id) AS id,
                     MIN(d.label) AS label,
                     MIN(json_extract(d.dto_data, '\$.city')) AS city,
+                    COUNT(DISTINCT json_extract(d.dto_data, '\$.city')) AS cityCount,
                     MIN(coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl'))) AS thumbnailUrl,
                     MIN(json_extract(d.dto_data, '\$.year')) AS year
                  FROM item d WHERE %s
@@ -360,8 +373,11 @@ final class FolioController extends AbstractController
                 'properties' => (int) $row['n'] > 1
                     // bucketLat/bucketLng let the client ask mapClusterItems() for exactly this
                     // bucket's rows (a mini-slideshow on click) -- the averaged lat/lng above isn't
-                    // reproducible from the client side, but the rounded bucket key is.
-                    ? ['cluster' => true, 'point_count' => (int) $row['n'], 'bucketLat' => (float) $row['bucketLat'], 'bucketLng' => (float) $row['bucketLng']]
+                    // reproducible from the client side, but the rounded bucket key is. city is only
+                    // included when every row in the bucket shares it (cityCount === 1) -- a "View all
+                    // in <city>" link is only honest when the whole cluster really is that one place,
+                    // not a coincidental rounding overlap of otherwise-unrelated points.
+                    ? ['cluster' => true, 'point_count' => (int) $row['n'], 'bucketLat' => (float) $row['bucketLat'], 'bucketLng' => (float) $row['bucketLng'], 'city' => (int) $row['cityCount'] === 1 ? $row['city'] : null]
                     : ['cluster' => false, 'id' => $row['id'], 'label' => $row['label'], 'city' => $row['city'], 'thumbnailUrl' => $this->mapThumbnailUrl($row['thumbnailUrl']), 'year' => $row['year']],
             ], $rows),
         ]);
