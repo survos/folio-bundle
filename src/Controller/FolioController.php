@@ -1332,6 +1332,7 @@ final class FolioController extends AbstractController
             'termFields' => $termFields,
             'extras' => $extras,
             'adjacent' => $adjacent,
+            'hasUxMap' => class_exists(\Symfony\UX\Map\Map::class),
         ]);
     }
 

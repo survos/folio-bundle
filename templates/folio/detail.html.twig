@@ -50,6 +50,13 @@
 {# The source's own caption ONLY — never the AI-filled description/denseSummary, which is shown as the summary above. #}
 {% set sourceCaption = attribute(row.dtoData, 'sourceCaption')|default(attribute(row.extras, 'sourceCaption')|default(null)) %}
 
+{# geoPrecision is only set when GeocodeRowListener filled the coordinate in FROM a city/country match
+   (see md's GeocodeRowListener) — its mere presence means "this is a place centroid, not a point", so
+   the mini-map below only renders for rows WITHOUT it (native per-photo GPS). #}
+{% set tombstoneLatitude = attribute(row.dtoData, 'latitude')|default(null) %}
+{% set tombstoneLongitude = attribute(row.dtoData, 'longitude')|default(null) %}
+{% set tombstoneIsPreciseLocation = tombstoneLatitude is not null and tombstoneLongitude is not null and attribute(row.extras, 'geoPrecision')|default(null) is null %}
+
 {% block body_class %}folio-layout folio-object-page{% endblock %}
 
 {% block page_pretitle %}{% endblock %}
@@ -760,6 +767,26 @@
                                 {# Verbatim source caption only. flush + trim: with pre-wrap, template indentation
                                    would otherwise render as literal whitespace. #}
                                 <div style="max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">{{ sourceCaption|trim }}</div>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if hasUxMap and tombstoneIsPreciseLocation %}
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h2 class="card-title mb-0">Location</h2>
+                            </div>
+
+                            <div class="card-body p-0">
+                                {# City/country-level fallbacks (geoPrecision set) are deliberately excluded here --
+                                   a centroid pin reads as "the photo was taken exactly here", which is misleading
+                                   at that resolution. Only rows with real per-photo GPS get a mini-map. #}
+                                {{ ux_map(
+                                    center: [tombstoneLatitude, tombstoneLongitude],
+                                    zoom: 15,
+                                    markers: [{ position: [tombstoneLatitude, tombstoneLongitude] }],
+                                    attributes: { style: 'height: 220px; width: 100%;' }
+                                ) }}
                             </div>
                         </div>
                     {% endif %}
