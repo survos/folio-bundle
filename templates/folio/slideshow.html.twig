@@ -22,16 +22,9 @@
 {% block title %}Slideshow · {{ ctx.folioCode }} · {{ core.code }}{% endblock %}
 
 {% block body %}
-    <div class="d-flex flex-wrap gap-2 mb-3">
-        <a class="btn btn-outline-secondary" href="{{ path('survos_folio_show', {provider: provider, dataset: dataset}) }}">
-            {% guard function ux_icon %}{{ ux_icon('tabler:layout-dashboard', {class: 'icon me-1'}) }}{% endguard %}
-            Overview
-        </a>
-        <a class="btn btn-outline-secondary" href="{{ path('survos_folio_core', {provider: provider, dataset: dataset, coreCode: core.code}) }}">
-            {% guard function ux_icon %}{{ ux_icon('tabler:list', {class: 'icon me-1'}) }}{% endguard %}
-            Core list
-        </a>
-    </div>
+    {# Overview/Core-list buttons removed here too (see map.html.twig's own history) -- dead
+       navigation from before openfoto had a real navbar; it now covers getting back to the
+       folio's main view, so this stuck-out-of-place row of buttons could just go. #}
 
     {% if slides is empty %}
         <div class="alert alert-info">No slideshow images found for this filter.</div>
