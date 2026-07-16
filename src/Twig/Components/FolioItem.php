@@ -41,6 +41,15 @@ final class FolioItem
     /** Placeholder-token URL template for prev/next — same tokens as PhotoGrid::$rowUrlTemplate. */
     public string $rowUrlTemplate = '';
 
+    /**
+     * OpenSeadragon (via iiif-bundle's <twig:iiif:viewer>) vs. a plain <img> with simple
+     * click-to-zoom. Defaults to true (unchanged behavior for existing host apps) -- OPAN's own
+     * "Fortepan Method" ethic is deliberately anti-"traditional archive" chrome/bling (per
+     * partner direction, 2026-07-16), so openfoto passes false here; a host app closer to a
+     * traditional archive UX can keep the full IIIF viewer.
+     */
+    public bool $useIiifViewer = true;
+
     private ?Row $resolvedRow = null;
     private bool $rowResolved = false;
     private ?array $adjacent = null;
@@ -59,11 +68,13 @@ final class FolioItem
         string $coreCode = '',
         string $localId = '',
         ?string $rowUrlTemplate = null,
+        bool $useIiifViewer = true,
     ): void {
         $this->provider = $provider;
         $this->dataset = $dataset;
         $this->coreCode = $coreCode;
         $this->localId = $localId;
+        $this->useIiifViewer = $useIiifViewer;
         $this->rowUrlTemplate = $rowUrlTemplate ?? $this->urlGenerator->generate('survos_folio_row_show', [
             'provider' => '__PROVIDER__',
             'dataset' => '__DATASET__',

@@ -54,6 +54,12 @@
         "enabled": true,
         "fetch": "lazy",
         "autoimport": []
+      },
+      "simple-zoom": {
+        "main": "controllers/simple_zoom_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
       }
     }
   },

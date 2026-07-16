@@ -53,7 +53,7 @@
 
     <div class="folio-row">
         <div class="folio-row__image">
-            {% if pages|length > 0 %}
+            {% if pages|length > 0 and useIiifViewer %}
                 <twig:iiif:viewer
                     :images="viewerImages"
                     :hiresImages="viewerHires"
@@ -63,7 +63,16 @@
                     :showLinks="false"
                 />
             {% elseif imageSource %}
-                <img src="{{ imageSource|imgproxy('archive') }}" alt="{{ tombstoneTitle }}" loading="eager">
+                {# Click-to-zoom disabled for now -- client dislikes OSD/IIIF viewer "bling" but
+                   hasn't confirmed what (if any) zoom interaction they actually want, so just show
+                   the plain image until that's clarified. simple_zoom_controller.js/CSS are left in
+                   place in the bundle, just not wired up here.
+
+                   'display', not 'archive': 'archive' is unbounded (0x0 = original resolution),
+                   sized that way specifically for OSD's deep-zoom -- without a viewer, that was
+                   downloading the full-res source into a plain <img> and made the page feel slow.
+                   'display' is small for now on purpose; revisit sizing once zoom comes back. #}
+                <img src="{{ imageSource|imgproxy('display') }}" alt="{{ tombstoneTitle }}" loading="eager">
             {% endif %}
         </div>
 
@@ -197,6 +206,29 @@
         height: auto;
         border-radius: 0.5rem;
         display: block;
+    }
+    /* Simplest possible zoom: click fills the viewport with the photo (dimmed backdrop),
+       click again or Escape to close -- see simple_zoom_controller.js. */
+    .folio-row__zoom {
+        cursor: zoom-in;
+    }
+    .folio-row__zoom.is-zoomed {
+        position: fixed;
+        inset: 0;
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.9);
+        cursor: zoom-out;
+    }
+    .folio-row__zoom.is-zoomed img {
+        width: auto;
+        height: auto;
+        max-width: 96vw;
+        max-height: 96vh;
+        object-fit: contain;
+        border-radius: 0;
     }
     .folio-row__details {
         flex: 1 1 35%;
