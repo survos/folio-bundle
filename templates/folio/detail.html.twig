@@ -1168,9 +1168,10 @@
                         linear-gradient(135deg, #fff8e8 0%, #fff 46%, #f5f0e8 100%);
                 }
 
-                .navbar {
-                    display: none;
-                }
+                /* Do NOT hide the host app's navbar here. The detail page inherits the
+                   calling application's chrome (folio_base_template()) by contract; the
+                   designer's immersive mockup hid it (.navbar{display:none}, 9c52db36) and
+                   every host app silently lost its header until zm noticed (2026-07-17). */
 
                 .folio-detail-shell {
                     max-width: 1320px;
