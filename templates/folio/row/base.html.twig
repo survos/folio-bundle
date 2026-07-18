@@ -1,0 +1,10 @@
+{# Base for every folio page scoped to a single Row/document: detail, item_chat, page_chat, ai
+   (OCR/handwriting). Wires the `row` menu option ONCE so a PAGE_ACTIONS listener (Bookmark, Edit,
+   OCR, Ask document, ...) can render consistently across all of them, instead of each page's hero
+   re-implementing its own action buttons — see App\Menu\FolioMenu in the host app for the listener.
+
+   `provider`/`dataset` are always passed in by FolioController's row-scoped actions; `row` is the
+   Row entity these actions are always rendering. #}
+{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+
+{% do tabler_menu_options({row: row, provider: provider, dataset: dataset}, _self) %}

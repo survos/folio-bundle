@@ -1,4 +1,4 @@
-{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+{% extends '@SurvosFolioBundle/folio/row/base.html.twig' %}
 
 {% block title %}AI · {{ row.label ?: row.localId }}{% endblock %}
 
