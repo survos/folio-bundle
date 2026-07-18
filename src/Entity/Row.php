@@ -16,6 +16,7 @@ use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Survos\DataContracts\Vocabulary\ItemField;
 use Survos\FieldBundle\Attribute\EntityMeta;
+use Survos\FieldBundle\Entity\RouteParametersInterface;
 use Survos\FolioBundle\Repository\RowRepository;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\IiifBundle\Service\IiifUrl;
@@ -57,7 +58,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
     shortName: 'FolioRow',
 )]
 #[ApiFilter(SearchFilter::class, properties: ['dtoType' => 'exact', 'label' => 'partial'])]
-class Row
+class Row implements RouteParametersInterface
 {
     public const API_ROWS = 'folio_rows';
 
@@ -174,21 +175,32 @@ class Row
         return self::$countryCodesByName[$country] ?? null;
     }
 
+    /** @return array{provider: string, dataset: string, coreCode: string, dtoType: string, localId: string} */
+    public function getUniqueIdentifiers(): array
+    {
+        return $this->getRp();
+    }
+
     /**
-     * Route parameters consumed by api-grid link columns.
+     * Route parameters consumed by api-grid link columns and survos_folio_row_show.
      *
-     * @return array{provider: string, dataset: string, coreCode: string, dtoType: string, localId: string}
+     * @return array<string, mixed>
      */
     #[Groups(['row:read'])]
-    public function getRp(): array
+    public function getRp(?array $addlParams = []): array
     {
-        return [
+        return array_merge([
             'provider' => $this->getProvider(),
             'dataset' => $this->getDataset(),
             'coreCode' => $this->getCoreCode(),
             'dtoType' => $this->dtoType ?: 'row',
             'localId' => $this->localId,
-        ];
+        ], $addlParams ?? []);
+    }
+
+    public static function getClassnamePrefix(?string $class = null): string
+    {
+        return 'row';
     }
 
     private function canonicalDtoValue(string $property): ?string
