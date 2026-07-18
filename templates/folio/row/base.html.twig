@@ -1,10 +1,11 @@
 {# Base for every folio page scoped to a single Row/document: detail, item_chat, page_chat, ai
    (OCR/handwriting). Wires the `row` menu option ONCE so a PAGE_ACTIONS listener (Bookmark, Edit,
    OCR, Ask document, ...) can render consistently across all of them, instead of each page's hero
-   re-implementing its own action buttons — see App\Menu\FolioMenu in the host app for the listener.
+   re-implementing its own action buttons — see Survos\FolioBundle\Menu\RowMenu.
 
-   `provider`/`dataset` are always passed in by FolioController's row-scoped actions; `row` is the
-   Row entity these actions are always rendering. #}
+   Just `row` — Row::getRp() already derives provider/dataset/coreCode/dtoType/localId from the
+   row itself, so there's no need to separately pass (or require every calling template to have)
+   provider/dataset in scope. provider is dataset metadata, not part of a row's identity. #}
 {% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
 
-{% do tabler_menu_options({row: row, provider: provider, dataset: dataset}, _self) %}
+{% do tabler_menu_options({row: row}, _self) %}

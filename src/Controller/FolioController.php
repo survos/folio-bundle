@@ -318,6 +318,40 @@ final class FolioController extends AbstractController
     }
 
     /**
+     * Masonry photo browser (twig:folio:photo-grid). {coreCode} is optional — omit it for a
+     * single one-click "Gallery" link (folio-level menus) that falls back to the same "obj
+     * first, else largest core" default map() uses; pass it explicitly from a per-core context
+     * (e.g. show.html.twig's core cards, alongside Grid/List/Slideshow) to browse that core
+     * specifically. Leaves rowUrlTemplate at PhotoGrid's own default (survos_folio_row_show)
+     * rather than overriding it the way openfoto's tenant/gallery.html.twig does for its own
+     * chrome-preserving modal — this is the plain full-page browse-then-click-through view.
+     *
+     * priority: 10 on the shorter route for the same reason map() has it (see that method's
+     * comment): an optional {coreCode} with no distinguishing requirement makes the compiler
+     * collapse both routes into one, keeping only _core's name for matching — /gallery would
+     * resolve as survos_folio_gallery_core with a null coreCode instead of survos_folio_gallery.
+     */
+    #[Route('/{provider}/{dataset}/gallery/{coreCode}', name: 'survos_folio_gallery_core', options: ['expose' => true])]
+    #[Route('/{provider}/{dataset}/gallery', name: 'survos_folio_gallery', options: ['expose' => true], priority: 10)]
+    public function gallery(string $provider, string $dataset, ?string $coreCode = null): Response
+    {
+        $folioCode = "$provider/$dataset";
+        $em = $this->folios->context($folioCode)->em;
+
+        $core = $coreCode !== null
+            ? ($em->find(Core::class, Core::id($folioCode, $coreCode)) ?? throw $this->createNotFoundException($coreCode))
+            : ($em->find(Core::class, Core::id($folioCode, 'obj'))
+                ?? ($em->getRepository(Core::class)->findBy([], ['rowCount' => 'DESC'])[0] ?? null)
+                ?? throw $this->createNotFoundException('No core to browse.'));
+
+        return $this->render('@SurvosFolioBundle/folio/gallery.html.twig', [
+            'provider' => $provider,
+            'dataset' => $dataset,
+            'coreCode' => $core->code,
+        ]);
+    }
+
+    /**
      * GeoJSON marker/cluster feed backing the map view. SQLite has no spatial extension here (no
      * mod_spatialite, no R-Tree), and doesn't need one: a bounding box is a plain BETWEEN, and
      * "cluster nearby points" only needs a coarse grid, not real GIS. We round lat/lng to `precision`
@@ -1317,7 +1351,7 @@ final class FolioController extends AbstractController
             unset($extras[$shownElsewhere]);
         }
 
-        return $this->render('@SurvosFolioBundle/folio/detail.html.twig', [
+        return $this->render('@SurvosFolioBundle/folio/row/show.html.twig', [
             'ctx' => $ctx,
             'core' => $core,
             'row' => $row,

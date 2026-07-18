@@ -220,6 +220,16 @@
                                 {% guard function ux_icon %}{{ ux_icon('tabler:slideshow', {class: 'icon me-1'}) }}{% endguard %}
                                 Slideshow
                             </a>
+
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="{{ path('survos_folio_gallery_core', {
+                                   provider: provider,
+                                   dataset: dataset,
+                                   coreCode: core.code
+                               }) }}">
+                                {% guard function ux_icon %}{{ ux_icon('tabler:photo', {class: 'icon me-1'}) }}{% endguard %}
+                                Gallery
+                            </a>
                         </div>
 
                         {% set dtoTypes = summary.dtoChoices|filter(dto => dto.type) %}

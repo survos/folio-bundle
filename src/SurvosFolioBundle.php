@@ -10,6 +10,7 @@ use Survos\FolioBundle\Bookmark\Service\BookmarkManager;
 use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand,FolioTranslateCommand};
 use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioContextListener,FolioFtsIndexListener,FolioRouteAttributeListener};
 use Survos\FolioBundle\Menu\FolioMenu;
+use Survos\FolioBundle\Menu\RowMenu;
 use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
@@ -198,6 +199,15 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 '$folioServer' => $config['folio_server'],
                 '$routePrefix' => $config['route_prefix'],
             ]);
+        }
+        // Unconditional (unlike the ADMIN_NAVBAR_MENU FolioMenu above) — PAGE_ACTIONS on the
+        // public row-scoped pages, not admin-gated. MenuBuilderTrait::add()'s checkRouteExists
+        // makes app-specific items (Edit, Bookmark) safely absent in apps that don't define
+        // those routes, so every folio-bundle app gets this by default with no config needed.
+        // (trait_exists(), not class_exists() — MenuBuilderTrait is a trait; class_exists()
+        // always returns false for it and silently drops this registration.)
+        if (trait_exists(\Survos\TablerBundle\Menu\MenuBuilderTrait::class)) {
+            $services->set(RowMenu::class)->autowire()->autoconfigure()->public();
         }
         // Same "null if the optional collaborator isn't configured" pattern as FolioRegistry
         // above — a host app that hasn't set bookmark_class/folder_class simply doesn't get
