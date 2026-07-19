@@ -13,17 +13,9 @@
 {% block folio_narrative %}
     {{ parent() }}
 
-    {# Two different cards can hold the transcription, depending on the row's shape (see
-       row/show.html.twig): the per-page "Extracted text" panel (#doc-ocr-card, only when
-       hasOcr/hasLayout/hasHtr AND not a single image) or the flat "Transcription" card
-       (#doc-transcription-card, whenever dto.ocrText is set). Pick whichever one will actually
-       exist on the page — a stale anchor is worse than no link at all. #}
-    {% set transcriptionAnchor = (hasOcr or hasLayout or hasHtr) and not isSingleImage
-        ? '#doc-ocr-card'
-        : (ocrText ? '#doc-transcription-card' : null) %}
-    {% if transcriptionAnchor %}
+    {% if hasOcr or ocrText %}
         <p class="mt-2 mb-0">
-            <a href="{{ transcriptionAnchor }}" class="text-decoration-none">
+            <a href="#doc-ocr-card" class="text-decoration-none">
                 {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}{{ 'narrative.read_transcription'|trans }}
             </a>
         </p>
