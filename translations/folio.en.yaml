@@ -7,3 +7,16 @@ download: Download
 share: Share
 source: Source
 donor: Donor
+narrative.by: "By"
+narrative.dated: "Dated"
+narrative.in_place: "in"
+narrative.held_by: "Held by"
+narrative.part_of: "Part of"
+narrative.credit: "Credit"
+narrative.provenance: "Provenance"
+narrative.rights: "Rights"
+narrative.details: "Details"
+narrative.read_transcription: "Read the transcription"
+narrative.published_by: "Published by"
+narrative.postmarked: "Postmarked"
+narrative.addressed_to: "Addressed to"

@@ -174,8 +174,7 @@
     <div class="container-xl py-4 py-lg-5">
         <div class="mb-3">
             <a class="text-decoration-none text-secondary" data-turbo="false" href="{{ path('survos_folio_row_show', {
-                provider: provider,
-                dataset: dataset,
+                folioCode: row.folioCode,
                 coreCode: core.code,
                 dtoType: row.dtoType ?: 'row',
                 localId: row.localId,
@@ -252,14 +251,12 @@
 
                     <div class="card-footer bg-white">
                         <form method="post" data-turbo="false" data-folio-chat-form data-folio-chat-stream-action="{{ path('survos_folio_item_chat_stream', {
-                            provider: provider,
-                            dataset: dataset,
+                            folioCode: row.folioCode,
                             coreCode: core.code,
                             dtoType: row.dtoType ?: 'row',
                             localId: row.localId,
                         }) }}" action="{{ path('survos_folio_item_chat', {
-                            provider: provider,
-                            dataset: dataset,
+                            folioCode: row.folioCode,
                             coreCode: core.code,
                             dtoType: row.dtoType ?: 'row',
                             localId: row.localId,
@@ -419,8 +416,7 @@
                             <div class="list-group list-group-flush">
                                 {% for page in pages %}
                                     <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" data-turbo="false" href="{{ path('survos_folio_page_chat', {
-                                        provider: provider,
-                                        dataset: dataset,
+                                        folioCode: row.folioCode,
                                         coreCode: core.code,
                                         dtoType: row.dtoType ?: 'row',
                                         localId: row.localId,

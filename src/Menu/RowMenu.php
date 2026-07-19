@@ -13,7 +13,7 @@ use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Routing\RouterInterface;
 
 /**
- * Document-level action menu for the row-scoped folio pages (detail, item_chat, page_chat,
+ * Document-level action menu for the row-scoped folio pages (row/show, item_chat, page_chat,
  * ai) — populated whenever row/base.html.twig sets the `row` menu option. On by default for
  * every app using folio-bundle; a host app overrides it by defining its own PAGE_ACTIONS
  * listener at a higher priority and stopping propagation, or by not extending row/base.html.twig
@@ -22,10 +22,14 @@ use Symfony\Component\Routing\RouterInterface;
  * Edit/Bookmark point at app-defined route names (app_folio_row_edit, app_bookmark_row) that
  * this bundle doesn't itself provide — MenuBuilderTrait::add()'s checkRouteExists (on by
  * default) silently drops the item in any app that doesn't define them, rather than erroring.
- * Detail.html.twig's own folio_detail_actions block still renders its own hardcoded Bookmark
- * widget/Ask document/OCR/Handwriting by default (unchanged, so no visual change for apps not
- * opting in) — a host app opts into this menu there too by overriding that block to render
- * `{{ component('tabler:menu', {type: PAGE_ACTIONS, caller: _self}) }}` instead.
+ *
+ * Rendered ONLY via base.html.twig's own automatic PAGE_ACTIONS-in-page-header mechanism — the
+ * same one every other page uses. row/show.html.twig does NOT render its own competing action
+ * bar (it used to, both a bundle-default hardcoded one and a per-app opt-in override; both were
+ * removed because that split mechanism kept silently drifting out of sync with this one — see
+ * git history around 2026-07-18). Don't reintroduce a `folio_detail_actions`-style block; if a
+ * host app needs this menu to look different, style PAGE_ACTIONS itself (component('tabler:menu',
+ * {type: PAGE_ACTIONS, ...}) is what base.html.twig calls) rather than rendering a parallel copy.
  */
 final class RowMenu
 {
@@ -50,7 +54,7 @@ final class RowMenu
         $rp = $row->getRp();
         $menu = $event->getMenu();
 
-        $this->add($menu, 'survos_folio_row_show', $rp, 'Show', icon: 'tabler:eye');
+        $this->add($menu, 'survos_folio_row_show', $row, 'Show', icon: 'tabler:eye');
         $this->add($menu, 'app_folio_row_edit', $rp, 'Edit', icon: 'tabler:pencil');
 
         // Opens the per-row "which folder?" page (app_bookmark_row) rather than toggling a bare
@@ -74,9 +78,11 @@ final class RowMenu
                 );
             }
 
+            // survos_folio_ai's route has no {dtoType} segment, unlike $rp -- extra params not
+            // in a route's pattern get appended as a query string instead of silently dropped,
+            // so this stays an explicit subset rather than just reusing $rp directly.
             $aiParams = [
-                'provider' => $rp['provider'],
-                'dataset' => $rp['dataset'],
+                'folioCode' => $rp['folioCode'],
                 'coreCode' => $rp['coreCode'],
                 'localId' => $rp['localId'],
             ];

@@ -1,4 +1,5 @@
 import { Controller } from '@hotwired/stimulus';
+import { path } from '@survos/js-twig/generated/fos_routes.js';
 import {
     listFolders,
     createFolderRequest,
@@ -764,7 +765,7 @@ export default class extends Controller {
 
         const title = document.createElement('a');
         title.className = 'fw-semibold text-decoration-none text-truncate d-block';
-        title.href = this.rowUrl(bookmark.rowRouteParams);
+        title.href = this.rowUrl(bookmark);
         title.textContent = bookmark.label || bookmark.localId;
 
         const meta = document.createElement('div');
@@ -854,19 +855,28 @@ export default class extends Controller {
         return this.folders.find((folder) => resourceIri(folder) === folderIri)?.name || 'Folder';
     }
 
-    rowUrl(params) {
-        if (!params || !this.hasRowUrlTemplateValue) {
+    rowUrl(bookmark) {
+        if (!bookmark) {
             return '#';
         }
 
+        // No override (the common case): bookmark.rowRouteParams is exactly
+        // survos_folio_row_show's param shape (BookmarkBase::$rowRouteParams), so the
+        // generated client-side path() needs no placeholder templating at all.
+        if (!this.hasRowUrlTemplateValue || !this.rowUrlTemplateValue) {
+            return path('survos_folio_row_show', bookmark.rowRouteParams);
+        }
+
+        // Host override (e.g. openfoto's tenant_photo_show) — its own route rarely matches
+        // rowRouteParams' shape, so fall back to bookmark's own top-level fields.
         const enc = (value) => encodeURIComponent(value ?? '');
 
         return this.rowUrlTemplateValue
-            .replace('__PROVIDER__', enc(params.provider))
-            .replace('__DATASET__', enc(params.dataset))
-            .replace('__CORE_CODE__', enc(params.coreCode))
-            .replace('__DTO_TYPE__', enc(params.dtoType || 'row'))
-            .replace('__LOCAL_ID__', enc(params.localId));
+            .replace('__PROVIDER__', enc(bookmark.provider))
+            .replace('__DATASET__', enc(bookmark.dataset))
+            .replace('__CORE_CODE__', enc(bookmark.coreCode))
+            .replace('__DTO_TYPE__', enc(bookmark.dtoType || 'row'))
+            .replace('__LOCAL_ID__', enc(bookmark.localId));
     }
 
     searchBookmarks(event) {

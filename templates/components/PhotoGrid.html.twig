@@ -38,13 +38,17 @@
                 ? rawPlace|replace({(', ' ~ item.dtoData.country): ''})
                 : rawPlace %}
             {% set year = item.dtoData.year|default(null) %}
-            <a href="{{ rowUrlTemplate|replace({
-                    '__PROVIDER__': item.rp.provider|default(''),
-                    '__DATASET__': item.rp.dataset|default(''),
-                    '__CORE_CODE__': item.rp.coreCode|default(''),
-                    '__DTO_TYPE__': item.rp.dtoType|default(''),
-                    '__LOCAL_ID__': item.rp.localId|default(''),
-                }) }}"
+            {# No override (the common case): item.rp is exactly survos_folio_row_show's param
+               shape (Row::getRp()) — path() needs no placeholder templating at all. A host
+               override still uses the placeholder tokens, since its own route rarely matches
+               rp's shape (see PhotoGrid.php::$rowUrlTemplate). #}
+            <a href="{{ rowUrlTemplate is empty
+                    ? path('survos_folio_row_show', item.rp)
+                    : rowUrlTemplate|replace({
+                        '__CORE_CODE__': item.rp.coreCode|default(''),
+                        '__DTO_TYPE__': item.rp.dtoType|default(''),
+                        '__LOCAL_ID__': item.rp.localId|default(''),
+                    }) }}"
                class="folio-photo-grid__item"
                title="{{ item.label }}"
                {% if year %}data-year="{{ year }}"{% endif %}>

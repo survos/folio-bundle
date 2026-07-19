@@ -7,3 +7,16 @@ download: Scarica
 share: Condividi
 source: Fonte
 donor: Donatore
+narrative.by: "Di"
+narrative.dated: "Datato"
+narrative.in_place: "a"
+narrative.held_by: "Conservato presso"
+narrative.part_of: "Parte di"
+narrative.credit: "Credito"
+narrative.provenance: "Provenienza"
+narrative.rights: "Diritti"
+narrative.details: "Dettagli"
+narrative.read_transcription: "Leggi la trascrizione"
+narrative.published_by: "Pubblicato da"
+narrative.postmarked: "Timbro postale"
+narrative.addressed_to: "Indirizzato a"

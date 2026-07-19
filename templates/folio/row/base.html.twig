@@ -8,4 +8,7 @@
    provider/dataset in scope. provider is dataset metadata, not part of a row's identity. #}
 {% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
 
-{% do tabler_menu_options({row: row}, _self) %}
+{% do tabler_menu_options({
+    core: row.core,
+    folio: row.core.folio,
+    row: row}, _self) %}

@@ -1,11 +1,13 @@
-{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+{% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
-{% set parts = ctx.folioCode|split('/') %}
+{# folio_rows (Row::API_ROWS) is still {provider}/{dataset}/{coreCode} — its own separate,
+   not-yet-done migration (see PhotoGrid's docblock) — so this is the one place in this
+   template that still needs the split, purely to feed that API endpoint. #}
+{% set parts = folio.code|split('/') %}
 {% set provider = parts[0] %}
 {% set dataset = parts[1] %}
 {% set apiUrl = path('folio_rows', {
-    provider: provider,
-    dataset: dataset,
+    folioCode: folio.code,
     coreCode: core.code
 }) %}
 
@@ -108,8 +110,7 @@
                         <a
                             class="dropdown-item d-flex justify-content-between align-items-center {{ not selectedDto ? 'active' }}"
                             href="{{ path('survos_folio_core', {
-                                provider: provider,
-                                dataset: dataset,
+                                folioCode: folio.code,
                                 coreCode: core.code
                             }) }}"
                         >
@@ -123,8 +124,7 @@
                             <a
                                 class="dropdown-item d-flex justify-content-between align-items-center {{ selectedDto == dto.type ? 'active' }}"
                                 href="{{ path('survos_folio_core_dto', {
-                                    provider: provider,
-                                    dataset: dataset,
+                                    folioCode: folio.code,
                                     coreCode: core.code,
                                     dtoType: dto.type
                                 }) }}"
@@ -144,8 +144,7 @@
                         <a
                             class="nav-link d-inline-flex align-items-center gap-2 {{ not selectedDto ? 'active' }}"
                             href="{{ path('survos_folio_core', {
-                                provider: provider,
-                                dataset: dataset,
+                                folioCode: folio.code,
                                 coreCode: core.code
                             }) }}"
                         >
@@ -161,8 +160,7 @@
                             <a
                                 class="nav-link d-inline-flex align-items-center gap-2 {{ selectedDto == dto.type ? 'active' }}"
                                 href="{{ path('survos_folio_core_dto', {
-                                    provider: provider,
-                                    dataset: dataset,
+                                    folioCode: folio.code,
                                     coreCode: core.code,
                                     dtoType: dto.type
                                 }) }}"

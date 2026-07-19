@@ -1,12 +1,19 @@
-{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+{% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
 {# Same reasoning as map.html.twig: the page-header banner predates the navbar and just
    repeats what it already shows, while pushing the grid itself further down the page. #}
 {% set _ = page({ showPageHeader: false }) %}
 
+{# PhotoGrid's underlying API route (Row::API_ROWS) is still {provider}/{dataset}/{coreCode} —
+   its own separate, not-yet-done migration (see PhotoGrid's docblock) — so this is the one
+   place in a folio-level template that still needs the split, purely to feed that component. #}
+{% set parts = folio.code|split('/') %}
+{% set provider = parts[0] %}
+{% set dataset = parts[1] %}
+
 {% block body_class %}folio-layout{% endblock %}
 
-{% block title %}Gallery · {{ provider }}/{{ dataset }}{% endblock %}
+{% block title %}Gallery · {{ folio.code }}{% endblock %}
 
 {% block body %}
     <div class="container-xl py-4">

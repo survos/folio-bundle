@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Controller;
 
 use Doctrine\DBAL\Connection;
-use Survos\FolioBundle\Attribute\FolioContext;
+use Survos\DataContracts\Dto\Item\BaseItemDto;
 use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Page,Row,Term,TermSet};
 use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService,RowTermsResolver};
 use Survos\DataContracts\Vocabulary\RelationBinding;
@@ -24,10 +24,21 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Twig\Environment;
 
-#[Route('')]
-#[FolioContext]
+#[Route('/{folioCode}', requirements: ['folioCode' => self::FOLIO_CODE_PATTERN])]
 final class FolioController extends AbstractController
 {
+    /**
+     * A folioCode is either a bare public slug (one segment, e.g. "larco") or a real
+     * "provider/dataset" code (exactly two segments, e.g. "mus/fpus") — never more than one
+     * embedded "/". FolioRouteAttributeListener resolves the slug form before any controller
+     * runs, so by the time an action executes {folioCode} is always the real code. A locale
+     * suffix (".en") is allowed on either shape and is stripped by the same listener.
+     *
+     * Public so other folio-scoped controllers (e.g. FolioSearchController) share the exact
+     * same requirement instead of re-declaring it.
+     */
+    public const string FOLIO_CODE_PATTERN = '[^/]+(?:/[^/]+)?';
+
     private const MAX_MAP_FEATURES = 2000;
     private const MAX_CLUSTER_ITEMS = 50;
 
@@ -53,15 +64,14 @@ final class FolioController extends AbstractController
     ) {}
 
 
-    #[Route('/{provider}/{dataset}', name: 'survos_folio_show')]
-    // Public slug alias (survos-sites/scanseum#12) — {slug} is resolved to provider+dataset
-    // by FolioSlugRouteListener before this method's arguments are bound, so $provider/$dataset
-    // arrive populated either way. 404s if no FolioSlugResolverInterface is configured or the
-    // slug is unknown. The /{provider}/{dataset} route above keeps working unchanged.
-    #[Route('/{slug}', name: 'survos_folio_show_slug', requirements: ['slug' => '[^/]+'])]
-    public function show(string $provider, string $dataset): Response
+    // The bare-slug form (survos-sites/scanseum#12) travels through the same {folioCode}
+    // param as a real "provider/dataset" code — FolioRouteAttributeListener resolves it to
+    // the real code (404ing on an unknown slug) before this action runs, and the generic
+    // RouteIdentityValueResolver resolves $folio from the now-real {folioCode}.
+    #[Route('', name: 'survos_folio_show')]
+    public function show(Folio $folio): Response
     {
-        $ctx = $this->folios->context("$provider/$dataset");
+        $ctx = $this->folios->context($folio->code);
         $conn = $ctx->em->getConnection();
         $cores = $ctx->em->getRepository(Core::class)->findBy([], ['rowCount' => 'DESC', 'code' => 'ASC']);
 
@@ -85,7 +95,6 @@ final class FolioController extends AbstractController
         $views = $conn->executeQuery(
             "SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'dto_%' ORDER BY name"
         )->fetchFirstColumn();
-        $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
 
         // The overview page's hero timeline: the primary (largest) core's year spread, if it has
         // one. Capped to a sample for the preview strip — the full unfiltered set is one click
@@ -102,13 +111,14 @@ final class FolioController extends AbstractController
 
         return $this->render('@SurvosFolioBundle/folio/show.html.twig', [
             'ctx'           => $ctx,
+            'folio'         => $folio,
             'cores'         => $cores,
             'coreSummaries' => $coreSummaries,
             'totalRows'     => array_reduce($cores, static fn (int $sum, Core $core): int => $sum + $core->rowCount, 0),
             'docs'          => $ctx->em->getRepository(Doc::class)->findBy([], ['position' => 'ASC']),
             'schemaTables'  => $schemaTables,
             'views'         => $views,
-            'linkTypes'     => $folio?->linkTypes ?? [],
+            'linkTypes'     => $folio->linkTypes,
             'timeline'      => $timeline,
         ]);
     }
@@ -174,33 +184,31 @@ final class FolioController extends AbstractController
         ];
     }
 
-    #[Route('/{provider}/{dataset}/download', name: 'survos_folio_download')]
-    public function download(string $provider, string $dataset): BinaryFileResponse
+    #[Route('/download', name: 'survos_folio_download')]
+    public function download(Folio $folio): BinaryFileResponse
     {
-        $folioCode = "$provider/$dataset";
-        $archivePath = $this->folios->archivePath($folioCode);
+        $archivePath = $this->folios->archivePath($folio->code);
         if (!is_file($archivePath)) {
-            throw $this->createNotFoundException(sprintf('Folio archive not found: %s', $folioCode));
+            throw $this->createNotFoundException(sprintf('Folio archive not found: %s', $folio->code));
         }
 
         $response = new BinaryFileResponse($archivePath);
         $response->headers->set('Content-Type', 'application/gzip');
         $response->setContentDisposition(
             ResponseHeaderBag::DISPOSITION_ATTACHMENT,
-            sprintf('%s_%s.folio.gz', $provider, $dataset),
+            sprintf('%s.folio.gz', str_replace('/', '_', $folio->code)),
         );
 
         return $response;
     }
 
 
-    #[Route('/{provider}/{dataset}/slideshow/{coreCode}/{filter}', name: 'survos_folio_slideshow_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
-    #[Route('/{provider}/{dataset}/slideshow/{coreCode}', name: 'survos_folio_slideshow', options: ['expose' => true])]
-    public function slideshow(string $provider, string $dataset, string $coreCode, Request $request, ?string $filter = null): Response
+    #[Route('/slideshow/{coreCode}/{filter}', name: 'survos_folio_slideshow_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
+    #[Route('/slideshow/{coreCode}', name: 'survos_folio_slideshow', options: ['expose' => true])]
+    public function slideshow(Folio $folio, string $coreCode, Request $request, ?string $filter = null): Response
     {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
 
         $conn = $ctx->em->getConnection();
@@ -271,6 +279,7 @@ final class FolioController extends AbstractController
 
         return $this->render('@SurvosFolioBundle/folio/slideshow.html.twig', [
             'ctx' => $ctx,
+            'folio' => $folio,
             'core' => $core,
             'dtoType' => $dtoType,
             'slides' => $slides,
@@ -281,37 +290,34 @@ final class FolioController extends AbstractController
 
     // Explicit priority: $filter's default (?string $filter = null) makes Symfony infer it as an
     // OPTIONAL trailing segment on survos_folio_map_filtered too, so its compiled regex matches
-    // bare /{provider}/{dataset}/map URLs just as well as ...+/{filter} ones. With equal (default)
+    // bare /{folioCode}/map URLs just as well as ...+/{filter} ones. With equal (default)
     // priority, declaration order decides ties — survos_folio_map would never actually match
     // anything, shadowed entirely by its own "_filtered" sibling (and TenantMenu's "Map" link
     // would never show as active, since the resolved route name never equals what it links to).
-    #[Route('/{provider}/{dataset}/map/{filter}', name: 'survos_folio_map_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
-    #[Route('/{provider}/{dataset}/map', name: 'survos_folio_map', options: ['expose' => true], priority: 10)]
-    public function map(string $provider, string $dataset, ?string $filter = null): Response
+    #[Route('/map/{filter}', name: 'survos_folio_map_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
+    #[Route('/map', name: 'survos_folio_map', options: ['expose' => true], priority: 10)]
+    public function map(Folio $folio, ?string $filter = null): Response
     {
-        $em = $this->folios->context("$provider/$dataset")->em;
+        $em = $this->folios->context($folio->code)->em;
         // Same "obj first, else largest core" default the tenant/gallery pages already use --
         // city-level clusters never separate by zooming further (see map_controller.js), so their
         // popup instead offers a "View all in <city>" link into this core's slideshow/grid.
-        $defaultCore = $em->find(Core::class, Core::id("$provider/$dataset", 'obj'))
+        $defaultCore = $em->find(Core::class, Core::id($folio->code, 'obj'))
             ?? ($em->getRepository(Core::class)->findBy([], ['rowCount' => 'DESC'])[0] ?? null);
 
         return $this->render('@SurvosFolioBundle/folio/map.html.twig', [
-            'provider' => $provider,
-            'dataset' => $dataset,
+            'folio' => $folio,
             'filter' => $filter,
             'hasUxMap' => class_exists(\Symfony\UX\Map\Map::class),
             // Same placeholder-token convention as PhotoGrid's rowUrlTemplate: defaults to the
             // chrome-free generic detail page (redirects to survos_folio_row_show), but a host app
             // can override map.html.twig to pass its own branded photo-page template instead.
             'rowUrlTemplate' => $this->generateUrl('survos_folio_row_shortcut', [
-                'provider' => $provider,
-                'dataset' => $dataset,
+                'folioCode' => $folio->code,
                 'localId' => '__LOCAL_ID__',
             ]),
             'slideshowBaseUrl' => $defaultCore === null ? null : $this->generateUrl('survos_folio_slideshow', [
-                'provider' => $provider,
-                'dataset' => $dataset,
+                'folioCode' => $folio->code,
                 'coreCode' => $defaultCore->code,
             ]),
         ]);
@@ -331,22 +337,20 @@ final class FolioController extends AbstractController
      * collapse both routes into one, keeping only _core's name for matching — /gallery would
      * resolve as survos_folio_gallery_core with a null coreCode instead of survos_folio_gallery.
      */
-    #[Route('/{provider}/{dataset}/gallery/{coreCode}', name: 'survos_folio_gallery_core', options: ['expose' => true])]
-    #[Route('/{provider}/{dataset}/gallery', name: 'survos_folio_gallery', options: ['expose' => true], priority: 10)]
-    public function gallery(string $provider, string $dataset, ?string $coreCode = null): Response
+    #[Route('/gallery/{coreCode}', name: 'survos_folio_gallery_core', options: ['expose' => true])]
+    #[Route('/gallery', name: 'survos_folio_gallery', options: ['expose' => true], priority: 10)]
+    public function gallery(Folio $folio, ?string $coreCode = null): Response
     {
-        $folioCode = "$provider/$dataset";
-        $em = $this->folios->context($folioCode)->em;
+        $em = $this->folios->context($folio->code)->em;
 
         $core = $coreCode !== null
-            ? ($em->find(Core::class, Core::id($folioCode, $coreCode)) ?? throw $this->createNotFoundException($coreCode))
-            : ($em->find(Core::class, Core::id($folioCode, 'obj'))
+            ? ($em->find(Core::class, Core::id($folio->code, $coreCode)) ?? throw $this->createNotFoundException($coreCode))
+            : ($em->find(Core::class, Core::id($folio->code, 'obj'))
                 ?? ($em->getRepository(Core::class)->findBy([], ['rowCount' => 'DESC'])[0] ?? null)
                 ?? throw $this->createNotFoundException('No core to browse.'));
 
         return $this->render('@SurvosFolioBundle/folio/gallery.html.twig', [
-            'provider' => $provider,
-            'dataset' => $dataset,
+            'folio' => $folio,
             'coreCode' => $core->code,
         ]);
     }
@@ -368,11 +372,11 @@ final class FolioController extends AbstractController
      * appending `/{zoom}` to a server-computed base (see map_controller.js) rather than juggling query
      * strings alongside a base64 path segment.
      */
-    #[Route('/{provider}/{dataset}/map.geojson/{filter}/{zoom}', name: 'survos_folio_map_geojson_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+', 'zoom' => '\d+'], options: ['expose' => true])]
-    #[Route('/{provider}/{dataset}/map.geojson/{zoom}', name: 'survos_folio_map_geojson', requirements: ['zoom' => '\d+'], options: ['expose' => true])]
-    public function mapGeoJson(string $provider, string $dataset, int $zoom, Request $request, ?string $filter = null): JsonResponse
+    #[Route('/map.geojson/{filter}/{zoom}', name: 'survos_folio_map_geojson_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+', 'zoom' => '\d+'], options: ['expose' => true])]
+    #[Route('/map.geojson/{zoom}', name: 'survos_folio_map_geojson', requirements: ['zoom' => '\d+'], options: ['expose' => true])]
+    public function mapGeoJson(Folio $folio, int $zoom, Request $request, ?string $filter = null): JsonResponse
     {
-        $conn = $this->folios->context("$provider/$dataset")->em->getConnection();
+        $conn = $this->folios->context($folio->code)->em->getConnection();
         [$where, $params] = $this->mapWhereAndParams($conn, $request, $filter);
 
         $precision = self::ZOOM_PRECISION[$zoom] ?? self::MAX_MAP_PRECISION;
@@ -422,11 +426,11 @@ final class FolioController extends AbstractController
      * cluster feature carries), for the mini-slideshow popup on cluster click -- plain JSON list, not
      * GeoJSON, since these aren't independently plottable (they share one map position by definition).
      */
-    #[Route('/{provider}/{dataset}/map.geojson/{filter}/{zoom}/at/{bucketLat}/{bucketLng}', name: 'survos_folio_map_cluster_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+', 'zoom' => '\d+', 'bucketLat' => '-?\d+(\.\d+)?', 'bucketLng' => '-?\d+(\.\d+)?'], options: ['expose' => true])]
-    #[Route('/{provider}/{dataset}/map.geojson/{zoom}/at/{bucketLat}/{bucketLng}', name: 'survos_folio_map_cluster', requirements: ['zoom' => '\d+', 'bucketLat' => '-?\d+(\.\d+)?', 'bucketLng' => '-?\d+(\.\d+)?'], options: ['expose' => true])]
-    public function mapClusterItems(string $provider, string $dataset, int $zoom, string $bucketLat, string $bucketLng, Request $request, ?string $filter = null): JsonResponse
+    #[Route('/map.geojson/{filter}/{zoom}/at/{bucketLat}/{bucketLng}', name: 'survos_folio_map_cluster_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+', 'zoom' => '\d+', 'bucketLat' => '-?\d+(\.\d+)?', 'bucketLng' => '-?\d+(\.\d+)?'], options: ['expose' => true])]
+    #[Route('/map.geojson/{zoom}/at/{bucketLat}/{bucketLng}', name: 'survos_folio_map_cluster', requirements: ['zoom' => '\d+', 'bucketLat' => '-?\d+(\.\d+)?', 'bucketLng' => '-?\d+(\.\d+)?'], options: ['expose' => true])]
+    public function mapClusterItems(Folio $folio, int $zoom, string $bucketLat, string $bucketLng, Request $request, ?string $filter = null): JsonResponse
     {
-        $conn = $this->folios->context("$provider/$dataset")->em->getConnection();
+        $conn = $this->folios->context($folio->code)->em->getConnection();
         [$where, $params] = $this->mapWhereAndParams($conn, $request, $filter);
 
         $precision = self::ZOOM_PRECISION[$zoom] ?? self::MAX_MAP_PRECISION;
@@ -673,10 +677,10 @@ final class FolioController extends AbstractController
         ];
     }
 
-    #[Route('/{provider}/{dataset}/schema', name: 'survos_folio_schema')]
-    public function schema(string $provider, string $dataset): Response
+    #[Route('/schema', name: 'survos_folio_schema')]
+    public function schema(Folio $folio): Response
     {
-        $ctx = $this->folios->context("$provider/$dataset");
+        $ctx = $this->folios->context($folio->code);
         $conn = $ctx->em->getConnection();
         $sm = $conn->createSchemaManager();
 
@@ -720,16 +724,17 @@ final class FolioController extends AbstractController
 
         return $this->render('@SurvosFolioBundle/folio/schema.html.twig', [
             'ctx' => $ctx,
+            'folio' => $folio,
             'tables' => $tables,
             'ddl' => $ddl,
             'views' => $views,
         ]);
     }
 
-    #[Route('/{provider}/{dataset}/chat', name: 'survos_folio_chat')]
-    public function chat(string $provider, string $dataset, Request $request): Response
+    #[Route('/chat', name: 'survos_folio_chat')]
+    public function chat(Folio $folio, Request $request): Response
     {
-        $ctx = $this->folios->context("$provider/$dataset");
+        $ctx = $this->folios->context($folio->code);
         $question = trim($request->request->getString('q', $request->query->getString('q')));
         $coreCode = $request->request->getString('core', $request->query->getString('core')) ?: null;
         $dtoType = $request->request->getString('dtoType', $request->query->getString('dtoType')) ?: null;
@@ -760,6 +765,7 @@ final class FolioController extends AbstractController
 
         return $this->render('@SurvosFolioBundle/folio/chat.html.twig', [
             'ctx' => $ctx,
+            'folio' => $folio,
             'cores' => $cores,
             'dtoChoices' => $dtoChoices,
             'question' => $question,
@@ -774,17 +780,16 @@ final class FolioController extends AbstractController
         ]);
     }
 
-    #[Route('/{provider}/{dataset}/row/{localId}', name: 'survos_folio_row_shortcut')]
-    public function rowShortcut(string $provider, string $dataset, string $localId): Response
+    #[Route('/row/{localId}', name: 'survos_folio_row_shortcut')]
+    public function rowShortcut(Folio $folio, string $localId): Response
     {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
+        $ctx = $this->folios->context($folio->code);
         $rows = $ctx->em->getRepository(Row::class)
             ->createQueryBuilder('r')
             ->join('r.core', 'c')
             ->where('c.id LIKE :folioPrefix')
             ->andWhere('r.localId = :localId')
-            ->setParameter('folioPrefix', "$folioCode:%")
+            ->setParameter('folioPrefix', "$folio->code:%")
             ->setParameter('localId', $localId)
             ->setMaxResults(2)
             ->getQuery()
@@ -794,8 +799,7 @@ final class FolioController extends AbstractController
         \assert($row instanceof Row);
 
         return $this->redirectToRoute('survos_folio_row_show', [
-            'provider' => $provider,
-            'dataset' => $dataset,
+            'folioCode' => $folio->code,
             'coreCode' => $row->getCoreCode(),
             'dtoType' => $row->dtoType ?: 'row',
             'localId' => $row->localId,
@@ -808,11 +812,10 @@ final class FolioController extends AbstractController
      * produced, served from the folio's local `claim_run` table (ingested from the shared store by
      * claims:fetch → folio build). Linked from each claim's runId on the detail page.
      */
-    #[Route('/{provider}/{dataset}/run/{runId}', name: 'survos_folio_run', options: ['expose' => true])]
-    public function run(string $provider, string $dataset, string $runId): Response
+    #[Route('/run/{runId}', name: 'survos_folio_run', options: ['expose' => true])]
+    public function run(Folio $folio, string $runId): Response
     {
-        $folioCode = "$provider/$dataset";
-        $conn = $this->folios->context($folioCode)->em->getConnection();
+        $conn = $this->folios->context($folio->code)->em->getConnection();
 
         try {
             $run = $conn->fetchAssociative('SELECT * FROM claim_run WHERE id = :id', ['id' => $runId]);
@@ -820,7 +823,7 @@ final class FolioController extends AbstractController
             $run = false; // no claim_run table in this folio (rebuild after claims:fetch to populate)
         }
         if (!$run) {
-            throw $this->createNotFoundException(sprintf('No claim run %s in %s', $runId, $folioCode));
+            throw $this->createNotFoundException(sprintf('No claim run %s in %s', $runId, $folio->code));
         }
 
         $claims = $conn->fetchAllAssociative(
@@ -829,28 +832,25 @@ final class FolioController extends AbstractController
         );
 
         return $this->render('@SurvosFolioBundle/folio/run.html.twig', [
-            'provider' => $provider,
-            'dataset' => $dataset,
-            'folioCode' => $folioCode,
+            'folio' => $folio,
+            'folioCode' => $folio->code,
             'run' => $run,
             'claims' => $claims,
         ]);
     }
 
-    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/chat', name: 'survos_folio_item_chat', options: ['expose' => true])]
-    public function itemChat(Request $request, string $provider, string $dataset, string $coreCode, string $dtoType, string $localId): Response
+    #[Route('/{coreCode}/{dtoType}/{localId}/chat', name: 'survos_folio_item_chat', options: ['expose' => true])]
+    public function itemChat(Request $request, Folio $folio, string $coreCode, string $dtoType, string $localId): Response
     {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
         $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
             ?? throw $this->createNotFoundException($localId);
 
         if ($row->dtoType && $dtoType !== $row->dtoType) {
             return $this->redirectToRoute('survos_folio_item_chat', [
-                'provider' => $provider,
-                'dataset' => $dataset,
+                'folioCode' => $folio->code,
                 'coreCode' => $coreCode,
                 'dtoType' => $row->dtoType,
                 'localId' => $localId,
@@ -876,6 +876,7 @@ final class FolioController extends AbstractController
 
         return $this->render('@SurvosFolioBundle/folio/item_chat.html.twig', [
             'ctx' => $ctx,
+            'folio' => $folio,
             'core' => $core,
             'row' => $row,
             'pages' => $pages,
@@ -887,20 +888,18 @@ final class FolioController extends AbstractController
         ]);
     }
 
-    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/page/{seq}/chat', name: 'survos_folio_page_chat', requirements: ['seq' => '\d+'], options: ['expose' => true])]
-    public function pageChat(Request $request, string $provider, string $dataset, string $coreCode, string $dtoType, string $localId, int $seq): Response
+    #[Route('/{coreCode}/{dtoType}/{localId}/page/{seq}/chat', name: 'survos_folio_page_chat', requirements: ['seq' => '\d+'], options: ['expose' => true])]
+    public function pageChat(Request $request, Folio $folio, string $coreCode, string $dtoType, string $localId, int $seq): Response
     {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
         $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
             ?? throw $this->createNotFoundException($localId);
 
         if ($row->dtoType && $dtoType !== $row->dtoType) {
             return $this->redirectToRoute('survos_folio_page_chat', [
-                'provider' => $provider,
-                'dataset' => $dataset,
+                'folioCode' => $folio->code,
                 'coreCode' => $coreCode,
                 'dtoType' => $row->dtoType,
                 'localId' => $localId,
@@ -939,6 +938,7 @@ final class FolioController extends AbstractController
 
         return $this->render('@SurvosFolioBundle/folio/page_chat.html.twig', [
             'ctx' => $ctx,
+            'folio' => $folio,
             'core' => $core,
             'row' => $row,
             'page' => $page,
@@ -957,12 +957,11 @@ final class FolioController extends AbstractController
      * forces a download on direct/iframe navigation to the origin URL — proxying through here (like
      * imgproxy already does for images) lets us control the response headers instead.
      */
-    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/page/{seq}/raw', name: 'survos_folio_page_raw', requirements: ['seq' => '\d+'], options: ['expose' => true])]
-    public function pageRaw(string $provider, string $dataset, string $coreCode, string $dtoType, string $localId, int $seq): Response
+    #[Route('/{coreCode}/{dtoType}/{localId}/page/{seq}/raw', name: 'survos_folio_page_raw', requirements: ['seq' => '\d+'], options: ['expose' => true])]
+    public function pageRaw(Folio $folio, string $coreCode, string $dtoType, string $localId, int $seq): Response
     {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
         $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
             ?? throw $this->createNotFoundException($localId);
@@ -985,12 +984,11 @@ final class FolioController extends AbstractController
         ]);
     }
 
-    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/chat/stream', name: 'survos_folio_item_chat_stream', methods: ['POST'], options: ['expose' => true])]
-    public function itemChatStream(Request $request, string $provider, string $dataset, string $coreCode, string $dtoType, string $localId): StreamedResponse
+    #[Route('/{coreCode}/{dtoType}/{localId}/chat/stream', name: 'survos_folio_item_chat_stream', methods: ['POST'], options: ['expose' => true])]
+    public function itemChatStream(Request $request, Folio $folio, string $coreCode, string $dtoType, string $localId): StreamedResponse
     {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
         $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
             ?? throw $this->createNotFoundException($localId);
@@ -1021,12 +1019,11 @@ final class FolioController extends AbstractController
         );
     }
 
-    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}/page/{seq}/chat/stream', name: 'survos_folio_page_chat_stream', requirements: ['seq' => '\d+'], methods: ['POST'], options: ['expose' => true])]
-    public function pageChatStream(Request $request, string $provider, string $dataset, string $coreCode, string $dtoType, string $localId, int $seq): StreamedResponse
+    #[Route('/{coreCode}/{dtoType}/{localId}/page/{seq}/chat/stream', name: 'survos_folio_page_chat_stream', requirements: ['seq' => '\d+'], methods: ['POST'], options: ['expose' => true])]
+    public function pageChatStream(Request $request, Folio $folio, string $coreCode, string $dtoType, string $localId, int $seq): StreamedResponse
     {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
         $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
             ?? throw $this->createNotFoundException($localId);
@@ -1282,33 +1279,32 @@ final class FolioController extends AbstractController
         return $clean;
     }
 
-    #[Route('/{provider}/{dataset}/term/{setCode}/{termCode}', name: 'survos_folio_term_show')]
-    public function termShow(string $provider, string $dataset, string $setCode, string $termCode): Response
+    #[Route('/term/{setCode}/{termCode}', name: 'survos_folio_term_show')]
+    public function termShow(Folio $folio, string $setCode, string $termCode): Response
     {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
-        $termSet = $ctx->em->find(TermSet::class, "$folioCode:$setCode")
+        $ctx = $this->folios->context($folio->code);
+        $termSet = $ctx->em->find(TermSet::class, "$folio->code:$setCode")
             ?? throw $this->createNotFoundException($setCode);
         $term = $ctx->em->find(Term::class, $termSet->id . ':' . $termCode)
             ?? throw $this->createNotFoundException($termCode);
 
         return $this->render('@SurvosFolioBundle/folio/term.html.twig', [
             'ctx' => $ctx,
+            'folio' => $folio,
             'termSet' => $termSet,
             'term' => $term,
         ]);
     }
 
-    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}/{localId}', name: 'survos_folio_row_show', options: ['expose' => true])]
-    public function rowShow(string $provider, string $dataset, string $coreCode, string $dtoType, string $localId, Request $request): Response
+    #[Route('/{coreCode}/{dtoType}/{localId}', name: 'survos_folio_row_show', options: ['expose' => true])]
+    public function rowShow(Folio $folio, string $coreCode, string $dtoType, string $localId, Request $request): Response
     {
-        $folioCode = "$provider/$dataset";
-        // Content locale (e.g. dataset="jarc.en") is already stripped and applied by
+        // Content locale (e.g. folioCode="jarc.en") is already stripped and applied by
         // FolioRouteAttributeListener before this method runs — context() picks it up via
         // FolioService::$requestContentLocale, no need to read the request here.
         // See FolioBuildCommand's --locale build, survos-sites/scanseum#18.
-        $ctx = $this->folios->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
         $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
             ?? throw $this->createNotFoundException($localId);
@@ -1317,8 +1313,7 @@ final class FolioController extends AbstractController
             $contentLocale = $request->attributes->get('content_locale');
 
             return $this->redirectToRoute('survos_folio_row_show', array_filter([
-                'provider' => $provider,
-                'dataset' => $contentLocale ? "$dataset.$contentLocale" : $dataset,
+                'folioCode' => $contentLocale ? "$folio->code.$contentLocale" : $folio->code,
                 'coreCode' => $coreCode,
                 'dtoType' => $row->dtoType,
                 'localId' => $localId,
@@ -1327,12 +1322,20 @@ final class FolioController extends AbstractController
 
         $schemaTable = $this->schemaTable($ctx->em->getConnection(), $coreCode, $row->dtoType);
         $dtoClass = is_array($schemaTable) && is_string($schemaTable['dto_class'] ?? null) ? $schemaTable['dto_class'] : $this->dtoTypeResolver->classForType($row->dtoType);
-        $columns = $schemaTable ? $this->schemaColumns($ctx->em->getConnection(), (string) $schemaTable['id']) : ($dtoClass ? $this->dtoColumns($dtoClass) : []);
+
+        // Row::$dtoData is already the flattened output of FolioIngestService::splitDtoData()'s
+        // $dtoClass::fromNormalized() + toMeili() round-trip done at ingest time — i.e. canonical,
+        // alias-resolved field names, NOT raw source data. Re-hydrating it here gives the template a
+        // typed object (dto.title, dto.creators, …) instead of attribute(row.dtoData, 'x')|default(...)
+        // soup, and is the seam for per-content-type rendering later.
+        $dto = $dtoClass !== null && is_a($dtoClass, BaseItemDto::class, true)
+            ? $dtoClass::fromNormalized($row->dtoData ?? [])
+            : null;
         $pageTableExists = $this->tableExists($ctx->em->getConnection(), 'page');
         $claims = $this->rowClaims($ctx->em->getConnection(), $row->id);
         $aiTaskRuns = $this->aiTaskRuns($claims);
-        $links = $this->rowLinks($ctx->em, $folioCode, $coreCode, $localId);
-        $terms = $this->rowTermsResolver->resolve($ctx->em, $folioCode, $row->dtoData ?? [], $row->extras ?? []);
+        $links = $this->rowLinks($ctx->em, $folio->code, $coreCode, $localId);
+        $terms = $this->rowTermsResolver->resolve($ctx->em, $folio->code, $row->dtoData ?? [], $row->extras ?? []);
         $adjacent = $this->adjacentRows($ctx->em->getConnection(), $core->id, $localId);
 
         // Fields shown elsewhere (as Terms, or as relation links) are excluded from the DTO Data
@@ -1351,13 +1354,23 @@ final class FolioController extends AbstractController
             unset($extras[$shownElsewhere]);
         }
 
-        return $this->render('@SurvosFolioBundle/folio/row/show.html.twig', [
+        // row/{dtoType}.html.twig if the content type has its own template (e.g. row/postcard.html.twig,
+        // which extends row/document.html.twig), else row/document.html.twig for text-bearing types,
+        // else row/show.html.twig — which always exists, so resolveTemplate() never falls through empty.
+        // Twig\Environment::resolveTemplate() (not $this->render()) is what lets us pass an ordered
+        // list and skip the ones that don't exist, instead of hand-rolling a loader->exists() loop.
+        $templateNames = array_map(
+            static fn (string $name): string => "@SurvosFolioBundle/folio/row/{$name}.html.twig",
+            $this->dtoTypeResolver->templateCandidates($row->dtoType),
+        );
+
+        return new Response($this->twig->resolveTemplate($templateNames)->render([
             'ctx' => $ctx,
+            'folio' => $folio,
             'core' => $core,
             'row' => $row,
+            'dto' => $dto,
             'dtoClass' => $dtoClass,
-            'columns' => $columns,
-            'schemaTable' => $schemaTable,
             'pageTableExists' => $pageTableExists,
             'claims' => $claims,
             'aiTaskRuns' => $aiTaskRuns,
@@ -1367,7 +1380,7 @@ final class FolioController extends AbstractController
             'extras' => $extras,
             'adjacent' => $adjacent,
             'hasUxMap' => class_exists(\Symfony\UX\Map\Map::class),
-        ]);
+        ]));
     }
 
     /**
@@ -1376,17 +1389,16 @@ final class FolioController extends AbstractController
      * than {@see rowShow()} so `…/{localId}/manifest.json` isn't swallowed by the
      * generic `…/{dtoType}/{localId}` row route.
      */
-    #[Route('/{provider}/{dataset}/{coreCode}/{localId}/manifest.json', name: 'survos_folio_iiif_manifest', priority: 10)]
-    public function iiifManifest(string $provider, string $dataset, string $coreCode, string $localId): Response
+    #[Route('/{coreCode}/{localId}/manifest.json', name: 'survos_folio_iiif_manifest', priority: 10)]
+    public function iiifManifest(Folio $folio, string $coreCode, string $localId): Response
     {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode)) ?? throw $this->createNotFoundException($coreCode);
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode)) ?? throw $this->createNotFoundException($coreCode);
         $row = $ctx->em->find(Row::class, Row::id($core->id, $localId)) ?? throw $this->createNotFoundException($localId);
 
         $manifestUrl = $this->generateUrl(
             'survos_folio_iiif_manifest',
-            compact('provider', 'dataset', 'coreCode', 'localId'),
+            ['folioCode' => $folio->code, 'coreCode' => $coreCode, 'localId' => $localId],
             UrlGeneratorInterface::ABSOLUTE_URL,
         );
 
@@ -1521,13 +1533,12 @@ final class FolioController extends AbstractController
         return $links;
     }
 
-    #[Route('/{provider}/{dataset}/{coreCode}', name: 'survos_folio_core')]
-    #[Route('/{provider}/{dataset}/{coreCode}/{dtoType}', name: 'survos_folio_core_dto', options: ['expose' => true])]
-    public function core(string $provider, string $dataset, string $coreCode, Request $request, ?string $dtoType = null): Response
+    #[Route('/{coreCode}', name: 'survos_folio_core')]
+    #[Route('/{coreCode}/{dtoType}', name: 'survos_folio_core_dto', options: ['expose' => true])]
+    public function core(Folio $folio, string $coreCode, Request $request, ?string $dtoType = null): Response
     {
-        $folioCode = "$provider/$dataset";
-        $ctx       = $this->folios->context($folioCode);
-        $core      = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+        $ctx       = $this->folios->context($folio->code);
+        $core      = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
 
         $dtoChoices = $this->dtoChoices($ctx->em->getConnection()->executeQuery(
@@ -1550,6 +1561,7 @@ final class FolioController extends AbstractController
 
         return $this->render('@SurvosFolioBundle/folio/core.html.twig', [
             'ctx'         => $ctx,
+            'folio'       => $folio,
             'core'        => $core,
             'dtoStats'    => $dtoChoices,
             'dtoChoices'   => $dtoChoices,

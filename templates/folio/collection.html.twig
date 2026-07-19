@@ -34,10 +34,9 @@
             >
                 {% block dataset %}
                     {% set datasetKey = row.dataset.datasetKey %}
-                    {% set parts = datasetKey|split('/') %}
 
                     <div class="fw-semibold">
-                        <a href="{{ path('survos_folio_show', { provider: parts[0], dataset: parts[1] }) }}">
+                        <a href="{{ path('survos_folio_show', { folioCode: datasetKey }) }}">
                             {{ row.dataset.label ?: datasetKey }}
                         </a>
                         {% if row.dataset.hasArchive %}
@@ -93,25 +92,23 @@
                 {% endblock %}
 
                 {% block actions %}
-                    {% set parts = row.dataset.datasetKey|split('/') %}
-
                     <div class="btn-list flex-nowrap">
                         <a
-                            href="{{ path('survos_folio_show', { provider: parts[0], dataset: parts[1] }) }}"
+                            href="{{ path('survos_folio_show', { folioCode: row.dataset.datasetKey }) }}"
                             class="btn btn-sm btn-primary"
                         >
                             Browse
                         </a>
 
                         <a
-                            href="{{ path('survos_folio_search', { provider: parts[0], dataset: parts[1] }) }}"
+                            href="{{ path('survos_folio_search', { folioCode: row.dataset.datasetKey }) }}"
                             class="btn btn-sm btn-outline-secondary"
                         >
                             Grid
                         </a>
 
                         <a
-                            href="{{ path('survos_folio_schema', { provider: parts[0], dataset: parts[1] }) }}"
+                            href="{{ path('survos_folio_schema', { folioCode: row.dataset.datasetKey }) }}"
                             class="btn btn-sm btn-outline-secondary"
                         >
                             Schema

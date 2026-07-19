@@ -50,10 +50,16 @@ final class PhotoGrid
     public ?string $endpoint = null;
 
     /**
-     * Placeholder-token URL template, substituted per-item both server-side (Twig `replace`
-     * filter) and client-side (JS can't call path()). Defaults to survos_folio_row_show (the
-     * chrome-free detail page) but a host app can override it — e.g. openfoto passes its own
-     * tenant_photo_show template so grid items link to its chrome-preserving photo page instead.
+     * Optional override, only needed when a host app wants grid items to link somewhere other
+     * than survos_folio_row_show (the chrome-free detail page) — e.g. openfoto passes its own
+     * tenant_photo_show placeholder template so grid items link to its chrome-preserving photo
+     * page instead. Placeholder tokens (__CORE_CODE__/__DTO_TYPE__/__LOCAL_ID__), substituted by
+     * photo_grid_controller.js, since a host app's own route rarely matches Row::getRp()'s shape.
+     *
+     * Left empty (the default) means "no override" — photo_grid_controller.js instead calls the
+     * generated client-side path() directly with each item's own `rp` (Row::getRp(), already
+     * serialized per-item by the API — exactly survos_folio_row_show's param shape), no
+     * placeholder templating needed at all.
      */
     public string $rowUrlTemplate = '';
 
@@ -103,13 +109,7 @@ final class PhotoGrid
             'dataset' => $dataset,
             'coreCode' => $coreCode,
         ], UrlGeneratorInterface::ABSOLUTE_URL);
-        $this->rowUrlTemplate = $rowUrlTemplate ?? $this->urlGenerator->generate('survos_folio_row_show', [
-            'provider' => '__PROVIDER__',
-            'dataset' => '__DATASET__',
-            'coreCode' => '__CORE_CODE__',
-            'dtoType' => '__DTO_TYPE__',
-            'localId' => '__LOCAL_ID__',
-        ]);
+        $this->rowUrlTemplate = $rowUrlTemplate ?? '';
     }
 
     /**

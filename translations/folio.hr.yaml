@@ -7,3 +7,16 @@ download: Preuzmi
 share: Podijeli
 source: Izvor
 donor: Donator
+narrative.by: "Autor"
+narrative.dated: "Datirano"
+narrative.in_place: "u"
+narrative.held_by: "Čuva se u"
+narrative.part_of: "Dio zbirke"
+narrative.credit: "Zasluga"
+narrative.provenance: "Podrijetlo"
+narrative.rights: "Prava"
+narrative.details: "Detalji"
+narrative.read_transcription: "Pročitajte prijepis"
+narrative.published_by: "Izdao"
+narrative.postmarked: "Poštanski žig"
+narrative.addressed_to: "Naslovljeno na"

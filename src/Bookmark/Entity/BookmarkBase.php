@@ -76,8 +76,7 @@ abstract class BookmarkBase
     #[Groups(['bookmark:read'])]
     public array $rowRouteParams {
         get => [
-            'provider' => $this->provider,
-            'dataset' => $this->dataset,
+            'folioCode' => $this->folioCode,
             'coreCode' => $this->coreCode,
             'dtoType' => $this->dtoType ?? 'item',
             'localId' => $this->localId,

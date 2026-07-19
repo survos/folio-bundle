@@ -1,0 +1,78 @@
+{# templates/components/FolioNarrative.html.twig
+   Flowing prose about ONE item (Cooper Hewitt object-page style), not a field/value datasheet.
+   See src/Twig/Components/FolioNarrative.php for how mainText/location/detailFacts are derived.
+   Usage: <twig:folio:narrative dto="{{ dto }}" /> #}
+{% trans_default_domain 'folio' %}
+{% if dto is not null %}
+    <div class="folio-narrative">
+        {% if mainText %}
+            <div class="folio-narrative__lede">
+                {% if isMainTextMarkdown %}
+                    {{ mainText|markdown }}
+                {% else %}
+                    <p>{{ mainText }}</p>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% if sourceCaption %}
+            <p class="folio-narrative__caption text-secondary fst-italic">{{ sourceCaption }}</p>
+        {% endif %}
+
+        <ul class="folio-narrative__facts list-unstyled mb-0">
+            {% if dto.creators %}
+                <li>{{ 'narrative.by'|trans }} {{ dto.creators|join(', ') }}</li>
+            {% endif %}
+            {% if dto.date or location %}
+                <li>
+                    {% if dto.date %}{{ 'narrative.dated'|trans }} {{ dto.date }}{% endif %}
+                    {% if dto.date and location %}, {% endif %}
+                    {% if location %}{{ 'narrative.in_place'|trans }} {{ location }}{% endif %}
+                </li>
+            {% endif %}
+            {% if dto.institution %}
+                <li>{{ 'narrative.held_by'|trans }} {{ dto.institution }}</li>
+            {% endif %}
+            {% if dto.collections %}
+                <li>{{ 'narrative.part_of'|trans }} {{ dto.collections|join(', ') }}</li>
+            {% endif %}
+            {% if dto.credit %}
+                <li>{{ 'narrative.credit'|trans }}: {{ dto.credit }}</li>
+            {% endif %}
+            {% if dto.provenance %}
+                <li>{{ 'narrative.provenance'|trans }}: {{ dto.provenance }}</li>
+            {% endif %}
+            {% if dto.physicalDescription %}
+                <li>{{ dto.physicalDescription }}</li>
+            {% endif %}
+            {% if dto.rights or dto.rightsUri %}
+                <li>{{ 'narrative.rights'|trans }}: {{ dto.rights ?: dto.rightsUri }}</li>
+            {% endif %}
+        </ul>
+
+        {% if detailFacts is not empty %}
+            <details class="folio-narrative__details mt-3">
+                <summary class="text-muted small" style="cursor: pointer">{{ 'narrative.details'|trans }}</summary>
+
+                {% for group, facts in detailFacts %}
+                    <div class="mt-2">
+                        {% if group %}<div class="text-muted small text-uppercase mb-1">{{ group }}</div>{% endif %}
+                        <table class="table table-sm card-table mb-0">
+                            <tbody>
+                                {% for fact in facts %}
+                                    {% set label = fact.label|trans({}, fact.domain) %}
+                                    <tr>
+                                        <th class="w-25 text-muted small">{{ label == fact.label ? fact.fallbackLabel : label }}</th>
+                                        <td class="small text-break">
+                                            {{ fact.value is iterable ? fact.value|join(', ') : fact.value }}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endfor %}
+            </details>
+        {% endif %}
+    </div>
+{% endif %}

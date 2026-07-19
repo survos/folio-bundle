@@ -1,4 +1,5 @@
 import { Controller } from '@hotwired/stimulus';
+import { path } from '@survos/js-twig/generated/fos_routes.js';
 
 /*
  * Infinite-scroll photo grid. The server renders page 1 (see PhotoGrid.php's
@@ -189,15 +190,20 @@ export default class extends Controller {
     }
 
     rowUrl(rp) {
-        if (!rp || !this.hasRowUrlTemplateValue) {
+        if (!rp) {
             return '#';
+        }
+
+        // No override template (the common case) — rp is exactly survos_folio_row_show's
+        // param shape (Row::getRp()), so the generated client-side path() needs no
+        // placeholder templating at all.
+        if (!this.hasRowUrlTemplateValue || !this.rowUrlTemplateValue) {
+            return path('survos_folio_row_show', rp);
         }
 
         const enc = (value) => encodeURIComponent(value ?? '');
 
         return this.rowUrlTemplateValue
-            .replace('__PROVIDER__', enc(rp.provider))
-            .replace('__DATASET__', enc(rp.dataset))
             .replace('__CORE_CODE__', enc(rp.coreCode))
             .replace('__DTO_TYPE__', enc(rp.dtoType))
             .replace('__LOCAL_ID__', enc(rp.localId));

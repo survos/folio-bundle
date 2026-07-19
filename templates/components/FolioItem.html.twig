@@ -58,7 +58,7 @@
                     :images="viewerImages"
                     :hiresImages="viewerHires"
                     :infoUrls="viewerInfoUrls"
-                    :manifestUrl="path('survos_folio_iiif_manifest', {provider: provider, dataset: dataset, coreCode: coreCode, localId: row.localId})"
+                    :manifestUrl="path('survos_folio_iiif_manifest', {folioCode: row.folioCode, coreCode: coreCode, localId: row.localId})"
                     :height="500"
                     :showLinks="false"
                 />
@@ -111,7 +111,7 @@
                             {% if value.term %}
                                 <a
                                     class="badge text-bg-light border me-1 mb-1 text-decoration-none"
-                                    href="{{ path('survos_folio_term_show', {provider: provider, dataset: dataset, setCode: set, termCode: value.code}) }}"
+                                    href="{{ path('survos_folio_term_show', {folioCode: row.folioCode, setCode: set, termCode: value.code}) }}"
                                 >
                                     {{ value.label }}
                                 </a>
@@ -126,8 +126,7 @@
             <div class="folio-row__actions d-flex flex-wrap gap-2 mt-3">
                 {% if folio_bookmarks_enabled() %}
                     {{ include('@SurvosFolioBundle/bookmark/_widget.html.twig', {
-                        provider: provider,
-                        dataset: dataset,
+                        folioCode: row.folioCode,
                         coreCode: coreCode,
                         localId: row.localId,
                         dtoType: row.dtoType ?: 'row',

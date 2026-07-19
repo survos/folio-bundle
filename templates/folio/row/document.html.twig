@@ -1,0 +1,23 @@
+{% extends '@SurvosFolioBundle/folio/row/show.html.twig' %}
+
+{# trans_default_domain is per-template-file, not inherited through {% extends %} — every child
+   template that uses a bare |trans filter needs its own declaration, or it silently falls back
+   to the default 'messages' domain and prints the raw key. #}
+{% trans_default_domain 'folio' %}
+
+{# Text-bearing content types (book, newspaper, correspondence, manuscript, ephemera, postcard, …
+   — see FolioDtoTypeResolver::DOCUMENT_TYPES) read as transcribed text first, image second. The
+   viewer/OCR-panel apparatus is unchanged (still in row/show.html.twig); this just adds a nudge
+   toward the transcription right under the narrative, instead of requiring a scroll to the
+   sidebar OCR panel. A specific type (see row/postcard.html.twig) extends this, not row/show. #}
+{% block folio_narrative %}
+    {{ parent() }}
+
+    {% if hasOcr or ocrText %}
+        <p class="mt-2 mb-0">
+            <a href="#doc-ocr-card" class="text-decoration-none">
+                {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}{{ 'narrative.read_transcription'|trans }}
+            </a>
+        </p>
+    {% endif %}
+{% endblock %}

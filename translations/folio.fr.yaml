@@ -7,3 +7,16 @@ download: Télécharger
 share: Partager
 source: Source
 donor: Donateur
+narrative.by: "Par"
+narrative.dated: "Daté de"
+narrative.in_place: "à"
+narrative.held_by: "Conservé par"
+narrative.part_of: "Fait partie de"
+narrative.credit: "Crédit"
+narrative.provenance: "Provenance"
+narrative.rights: "Droits"
+narrative.details: "Détails"
+narrative.read_transcription: "Lire la transcription"
+narrative.published_by: "Publié par"
+narrative.postmarked: "Cachet de la poste"
+narrative.addressed_to: "Adressé à"

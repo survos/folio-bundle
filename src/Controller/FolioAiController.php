@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Controller;
 
 use Survos\FolioBundle\Entity\Core;
+use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
@@ -23,7 +24,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * the {@see \Survos\FolioBundle\Entity\Page}, and shows it. The durable claims are re-imported on the
  * next folio build.
  *
- * Keyed by folio identifiers (provider/dataset/coreCode/localId + page), NOT a bare URL — so it can
+ * Keyed by folio identifiers (folioCode/coreCode/localId + page), NOT a bare URL — so it can
  * target the right page of a multi-page doc, include the row's existing metadata, and update the
  * right entity.
  */
@@ -43,17 +44,15 @@ final class FolioAiController extends AbstractController
     ) {
     }
 
-    #[Route('/{provider}/{dataset}/ai/{coreCode}/{localId}', name: 'survos_folio_ai', options: ['expose' => true])]
+    #[Route('/{folioCode}/ai/{coreCode}/{localId}', name: 'survos_folio_ai', requirements: ['folioCode' => FolioController::FOLIO_CODE_PATTERN], options: ['expose' => true])]
     public function run(
         Request $request,
-        string $provider,
-        string $dataset,
+        Folio $folio,
         string $coreCode,
         string $localId,
     ): Response {
-        $folioCode = "$provider/$dataset";
-        $ctx = $this->folios->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode))
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
         $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
             ?? throw $this->createNotFoundException($localId);
@@ -107,8 +106,7 @@ final class FolioAiController extends AbstractController
 
         return $this->render('@SurvosFolioBundle/folio/ai.html.twig', [
             'ctx' => $ctx,
-            'provider' => $provider,
-            'dataset' => $dataset,
+            'folio' => $folio,
             'core' => $core,
             'row' => $row,
             'page' => $page,

@@ -1,6 +1,6 @@
-{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+{% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
-{% set folioLabel = app.request.attributes.get('current_folio_title', ctx.folioCode) %}
+{% set folioLabel = folio.label ?: folio.code %}
 {% set chatController = 'survos--folio-bundle--chat' %}
 
 {% block body_class %}folio-layout folio-chat-page{% endblock %}

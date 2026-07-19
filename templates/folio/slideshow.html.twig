@@ -1,8 +1,5 @@
-{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+{% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
-{% set parts = ctx.folioCode|split('/') %}
-{% set provider = parts[0] %}
-{% set dataset = parts[1] %}
 {% set controllerName = 'survos--folio-bundle--slideshow' %}
 
 {% block body_class %}folio-layout{% endblock %}

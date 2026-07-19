@@ -1,9 +1,6 @@
-{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+{% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
-{% set parts = ctx.folioCode|split('/') %}
-{% set provider = parts[0] %}
-{% set dataset = parts[1] %}
-{% set folioLabel = app.request.attributes.get('current_folio_title', ctx.folioCode) %}
+{% set folioLabel = folio.label ?: folio.code %}
 
 {% block body_class %}folio-layout{% endblock %}
 
@@ -65,7 +62,7 @@
                         </div>
                         <div class="card-footer">
                             <a class="btn btn-sm btn-primary w-100"
-                               href="{{ path('survos_folio_slideshow', {provider: provider, dataset: dataset, coreCode: timeline.core.code}) }}">
+                               href="{{ path('survos_folio_slideshow', {folioCode: folio.code, coreCode: timeline.core.code}) }}">
                                 View full timeline
                             </a>
                         </div>
@@ -195,8 +192,7 @@
                         <div class="btn-list mt-3">
                             <a class="btn btn-sm btn-primary"
                                href="{{ path('survos_folio_core_search', {
-                                   provider: provider,
-                                   dataset: dataset,
+                                   folioCode: folio.code,
                                    coreCode: core.code
                                }) }}">
                                 Grid
@@ -204,8 +200,7 @@
 
                             <a class="btn btn-sm btn-outline-secondary"
                                href="{{ path('survos_folio_core', {
-                                   provider: provider,
-                                   dataset: dataset,
+                                   folioCode: folio.code,
                                    coreCode: core.code
                                }) }}">
                                 List
@@ -213,8 +208,7 @@
 
                             <a class="btn btn-sm btn-outline-secondary"
                                href="{{ path('survos_folio_slideshow', {
-                                   provider: provider,
-                                   dataset: dataset,
+                                   folioCode: folio.code,
                                    coreCode: core.code
                                }) }}">
                                 {% guard function ux_icon %}{{ ux_icon('tabler:slideshow', {class: 'icon me-1'}) }}{% endguard %}
@@ -223,8 +217,7 @@
 
                             <a class="btn btn-sm btn-outline-secondary"
                                href="{{ path('survos_folio_gallery_core', {
-                                   provider: provider,
-                                   dataset: dataset,
+                                   folioCode: folio.code,
                                    coreCode: core.code
                                }) }}">
                                 {% guard function ux_icon %}{{ ux_icon('tabler:photo', {class: 'icon me-1'}) }}{% endguard %}
@@ -240,8 +233,7 @@
                                     <span class="badge bg-blue-lt d-inline-flex align-items-center gap-1">
                                         <a class="text-decoration-none text-reset"
                                            href="{{ path('survos_folio_core_dto', {
-                                               provider: provider,
-                                               dataset: dataset,
+                                               folioCode: folio.code,
                                                coreCode: core.code,
                                                dtoType: dto.type
                                            }) }}">
@@ -249,8 +241,7 @@
                                         </a>
                                         <a class="text-decoration-none text-reset ms-1"
                                            href="{{ path('survos_folio_slideshow_filtered', {
-                                               provider: provider,
-                                               dataset: dataset,
+                                               folioCode: folio.code,
                                                coreCode: core.code,
                                                filter: slideshow_filter({dtoType: dto.type})
                                            }) }}"

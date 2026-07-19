@@ -1,0 +1,13 @@
+{# Base for every folio-level page (show, gallery, map, chat, schema, search, slideshow, term,
+   core) — wires the `folio` menu option ONCE so a NAVBAR_MENU_END listener (Overview, Search,
+   Schema, Chat, Gallery, ...) can render consistently across all of them, instead of each page
+   re-deriving provider/dataset from ctx.folioCode and reading request attributes. See
+   Survos\FolioBundle\Menu\RowMenu / folio/row/base.html.twig for the same pattern one level
+   down (row-scoped pages).
+
+   Just `folio` — Folio::getRp() already derives {folioCode} from the entity itself, so there's
+   no need to separately pass (or require every calling template to have) provider/dataset in
+   scope. provider is dataset metadata, not part of a folio's identity. #}
+{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+
+{% do tabler_menu_options({folio: folio}, _self) %}

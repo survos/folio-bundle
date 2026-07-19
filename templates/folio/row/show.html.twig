@@ -1,5 +1,1142 @@
 {% extends '@SurvosFolioBundle/folio/row/base.html.twig' %}
 
-{% block body %}
-    {{ dump(row) }}
+{% trans_default_domain 'folio' %}
+
+{% set parts = ctx.folioCode|split('/') %}
+{% set provider = parts[0] %}
+{% set dataset = parts[1] %}
+
+{# dto is BaseItemDto::fromNormalized($row->dtoData), hydrated by FolioController::rowShow() —
+   null only for legacy rows ingested without a dtoType at all (classForType() otherwise always
+   resolves, falling back to GenericItemDto). The `else` branch below is that fallback only. #}
+{% set tombstoneTitle = row.label ?: row.localId %}
+{% set tombstoneYear = null %}
+{% set tombstoneCredit = null %}
+{% set citationUrl = row.citationUrl %}
+{% set tombstoneSourceImage = null %}
+{% set tombstoneLatitude = null %}
+{% set tombstoneLongitude = null %}
+{% if dto %}
+    {% set tombstoneTitle = dto.title ?: tombstoneTitle %}
+    {% set tombstoneYear = dto.year ?: dto.date %}
+    {% set tombstoneCredit = dto.credit %}
+    {% set citationUrl = citationUrl ?: dto.citationUrl %}
+    {% set tombstoneSourceImage = dto.largeImageUrl ?: dto.iiifBase %}
+    {% set tombstoneLatitude = dto.latitude %}
+    {% set tombstoneLongitude = dto.longitude %}
+{% else %}
+    {% set tombstoneTitle = attribute(row.dtoData, 'title')|default(attribute(row.extras, 'dcterms:title')|default(tombstoneTitle)) %}
+    {% set tombstoneYear = attribute(row.dtoData, 'year')|default(attribute(row.dtoData, 'date')|default(null)) %}
+    {% set tombstoneCredit = attribute(row.dtoData, 'citation')|default(null) %}
+    {% set citationUrl = citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
+    {% set tombstoneSourceImage = attribute(row.dtoData, 'largeImageUrl')|default(attribute(row.dtoData, 'iiifBase')|default(null)) %}
+    {% set tombstoneLatitude = attribute(row.dtoData, 'latitude')|default(null) %}
+    {% set tombstoneLongitude = attribute(row.dtoData, 'longitude')|default(null) %}
+{% endif %}
+{# Strip a wrapping-quote data artifact (e.g. SMK titles arrive fully quoted); only when the WHOLE
+   value is quoted, so legitimate internal quotes are preserved. Deeper cleanup belongs at normalize. #}
+{% if tombstoneTitle starts with '"' and tombstoneTitle ends with '"' %}
+    {% set tombstoneTitle = tombstoneTitle|trim('"') %}
+{% endif %}
+
+{# Structured dimensions (dimensions-bundle) never round-trip through BaseItemDto -- $dto->dimensions
+   is a plain ?string, so a source emitting a structured {value,unit} dict gets rejected by
+   assignTolerant() and lands in $row->extras instead of on the DTO. Read those two straight off the
+   row, dto or not. #}
+{% set tombstoneDimensions = attribute(row.dtoData, 'dimensions')|default(attribute(row.extras, 'dimensions')|default(null)) %}
+{% set tombstoneDimensionsRaw = attribute(row.dtoData, 'dimensionsRaw')|default(null) %}
+
+{# geoPrecision is only set when GeocodeRowListener filled the coordinate in FROM a city/country match
+   (see md's GeocodeRowListener) — its mere presence means "this is a place centroid, not a point", so
+   the mini-map below only renders for rows WITHOUT it (native per-photo GPS). #}
+{% set tombstoneIsPreciseLocation = tombstoneLatitude is not null and tombstoneLongitude is not null and attribute(row.extras, 'geoPrecision')|default(null) is null %}
+
+{# Title the kicker/card with the (translatable) DTO class name, e.g. "Photograph", not the
+   developer phrase "DTO Data". dto.<Name> lives in the 'system' domain (built by trans:system);
+   fall back to the bare short name. #}
+{% set dtoLabel = dtoClass ? dtoClass|split('\\')|last|replace({'Dto': ''}) : (row.dtoType ?: 'Record') %}
+{% set dtoKey = 'dto.' ~ dtoLabel %}
+{% set dtoTrans = dtoKey|trans({}, 'system') %}
+
+{% block body_class %}folio-layout folio-object-page{% endblock %}
+
+{% block page_pretitle %}{% endblock %}
+{% block page_title %}{% endblock %}
+{% block page_subtitle %}{% endblock %}
+
+{% block title %}
+    {{ tombstoneTitle }} · {{ ctx.folioCode }}
 {% endblock %}
+
+{% block body %}
+    {% set pages = pageTableExists ? row.pages : [] %}
+    {# Plain-text digital objects (e.g. NARA "ASCII Text" manifests) aren't an image/IIIF canvas —
+       piping them through imgproxy/OpenSeadragon just breaks the viewer. Pull them out of the
+       image page-set and render their content directly below instead. #}
+    {% set textFilePages = pages|filter(p => p.url matches '/\\.txt($|\\?)/i') %}
+    {% set pages = pages|filter(p => not (p.url matches '/\\.txt($|\\?)/i')) %}
+    {% set pageTexts = pages|map(p => p.text|default('')) %}
+    {# Mistral structured layout per page (typed blocks + bboxes). When present the viewer renders the
+       pretty, layout-aware version; otherwise it falls back to the flat OCR text (pageTexts). #}
+    {% set pageLayouts = pages|map(p => p.layout|default(null)) %}
+    {% set hasLayout = pages|filter(p => p.layout is not empty)|length > 0 %}
+    {# Handwriting-annotated transcription (htr_annotate): <hw> wraps handwritten entries on a printed
+       form. Preferred over layout/text when present — the viewer renders handwriting in italics. #}
+    {% set pageHtr = pages|map(p => p.htr|default(null)) %}
+    {% set hasHtr = pages|filter(p => p.htr is not empty)|length > 0 %}
+    {% set pageAskUrls = [] %}
+    {% for page in pages %}
+        {% set pageAskUrls = pageAskUrls|merge([path('survos_folio_page_chat', {folioCode: row.folioCode, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: page.seq})]) %}
+    {% endfor %}
+    {% set hasOcr = pageTexts|filter(t => t|trim is not empty)|length > 0 %}
+    {% set isSingleImage = pages|length == 1 and not (dto ? dto.pdfUrl : attribute(row.dtoData, 'pdfUrl')|default(null)) %}
+    {% set pdfUrl = dto ? dto.pdfUrl : attribute(row.dtoData, 'pdfUrl')|default(null) %}
+    {% set docPageCount = dto ? (dto.pageCount ?: 0) : attribute(row.dtoData, 'pageCount')|default(0) %}
+    {% set videoPages = pages|filter(p => p.url matches '/\\.(mp4|mpe?g|mov|avi|wmv|m4v|webm)($|\\?)/i') %}
+    {% set ocrText = dto ? dto.ocrText : attribute(row.dtoData, 'ocrText')|default(null) %}
+    {% set ocrPageCount = dto ? dto.pageCount : attribute(row.dtoData, 'pageCount')|default(null) %}
+    {% set aiTasks = dto ? dto.aiTasks : attribute(row.dtoData, 'aiTasks')|default(null) %}
+
+    <div class="container-xl py-4 py-lg-5">
+        <div class="folio-detail-shell">
+
+            {# Show/Edit/Bookmark/Ask document/OCR/Handwriting/Share is Survos\FolioBundle\Menu\RowMenu,
+               a normal PAGE_ACTIONS menu — it renders automatically in base.html.twig's own
+               .page-header, exactly like every other page (e.g. the Edit page). This hero does NOT
+               render its own action bar; don't add one back here or in a host-app override. #}
+            {% block folio_hero %}
+            <div class="folio-detail-hero">
+                <div class="row g-2 align-items-center">
+                    <div class="col-12">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
+                            <nav class="d-flex flex-wrap align-items-center gap-2 small text-muted">
+                                {{ ux_icon('tabler:home', { class: 'icon icon-sm' }) }}
+
+                                {% set providerUrl = folio_provider_url(provider) %}
+                                {% if providerUrl %}
+                                    <a href="{{ providerUrl }}" class="text-reset text-decoration-none">{{ provider }}</a>
+                                {% else %}
+                                    <span>{{ provider }}</span>
+                                {% endif %}
+
+                                <span>/</span>
+                                <a href="{{ path('survos_folio_show', { folioCode: row.folioCode }) }}"
+                                   class="text-reset text-decoration-none">{{ dataset }}</a>
+
+                                <span>/</span>
+                                <a href="{{ path('survos_folio_core_search', { folioCode: row.folioCode, coreCode: core.code }) }}"
+                                   class="text-reset text-decoration-none">{{ ('core.' ~ core.code)|trans }}</a>
+
+                                {% if row.dtoType %}
+                                    <span>/</span>
+                                    <a href="{{ path('survos_folio_core_type_search', { folioCode: row.folioCode, coreCode: core.code, dtoType: row.dtoType }) }}"
+                                       class="text-reset text-decoration-none">{{ row.dtoType }}</a>
+                                {% endif %}
+                            </nav>
+
+                            {# Prev/next document within this core (build order) — keyset nav (LAG/LEAD). #}
+                            {% set adjacent = adjacent|default(null) %}
+                            {% if adjacent and (adjacent.prev or adjacent.next) %}
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Document navigation">
+                                    <a class="btn btn-outline-secondary {{ adjacent.prev ? '' : 'disabled' }}" rel="prev"
+                                       {% if adjacent.prev %}href="{{ path('survos_folio_row_show', {folioCode: row.folioCode, coreCode: core.code, dtoType: adjacent.prev.dtoType, localId: adjacent.prev.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+                                        {{ ux_icon('tabler:chevron-left', { class: 'icon' }) }} {{ 'prev'|trans({}, 'folio') }}
+                                    </a>
+                                    <a class="btn btn-outline-secondary {{ adjacent.next ? '' : 'disabled' }}" rel="next"
+                                       {% if adjacent.next %}href="{{ path('survos_folio_row_show', {folioCode: row.folioCode, coreCode: core.code, dtoType: adjacent.next.dtoType, localId: adjacent.next.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+                                        {{ 'next'|trans({}, 'folio') }} {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
+                                    </a>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        {% if dtoTrans != dtoKey %}
+                            <div class="text-muted small text-uppercase mb-1">{{ dtoTrans }}</div>
+                        {% endif %}
+
+                        <h1 class="folio-detail-title mb-2">{{ tombstoneTitle }}</h1>
+
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                            {% if tombstoneYear %}
+                                <span class="badge rounded-pill bg-warning-lt px-3">
+                                    {{ ux_icon('tabler:calendar', { class: 'icon me-1' }) }}
+                                    {{ tombstoneYear }}
+                                </span>
+                            {% endif %}
+
+                            {% if tombstoneDimensions is iterable and tombstoneDimensions is not empty %}
+                                {# Structured dimensions → dimensions-bundle renderer (icons + units, raw fallback) #}
+                                {{ dim_render(tombstoneDimensions, attribute(row.dtoData, 'weight')|default([]), tombstoneDimensionsRaw) }}
+                            {% elseif tombstoneDimensions or tombstoneDimensionsRaw %}
+                                <span class="badge rounded-pill bg-white text-muted border px-3">
+                                    {{ ux_icon('tabler:ruler-measure', { class: 'icon me-1' }) }}
+                                    {{ tombstoneDimensions ?: tombstoneDimensionsRaw }}
+                                </span>
+                            {% endif %}
+
+                            {% if citationUrl %}
+                                <a href="{{ citationUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
+                                    {{ 'source'|trans }} {{ ux_icon('tabler:external-link', { class: 'icon ms-1' }) }}
+                                </a>
+                            {% endif %}
+
+                            {% if tombstoneSourceImage %}
+                                <a href="{{ tombstoneSourceImage }}" target="_blank" rel="noopener" class="text-decoration-none">
+                                    Source image {{ ux_icon('tabler:photo', { class: 'icon ms-1' }) }}
+                                </a>
+                            {% endif %}
+
+                            {% if tombstoneCredit %}
+                                <span class="text-muted">&middot; {{ tombstoneCredit }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endblock %}
+
+            {% if pages|length > 0 and (hasOcr or hasLayout or hasHtr) and not isSingleImage and videoPages|length == 0 %}
+                <div class="folio-viewer-toolbar-card">
+                    <div class="card-header d-flex flex-column flex-md-row align-items-md-center justify-content-end gap-3">
+                        <div class="btn-group folio-view-mode-control" role="group" aria-label="Document viewer mode">
+                            <input type="radio"
+                                   class="btn-check js-folio-view-mode"
+                                   name="folio-view-mode"
+                                   id="folio-view-mode-osd"
+                                   value="osd"
+                                   autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="folio-view-mode-osd">
+                                {{ ux_icon('tabler:photo', { class: 'icon me-1' }) }}
+                                OSD Viewer
+                            </label>
+
+                            <input type="radio"
+                                   class="btn-check js-folio-view-mode"
+                                   name="folio-view-mode"
+                                   id="folio-view-mode-text"
+                                   value="text"
+                                   autocomplete="off">
+                            <label class="btn btn-outline-secondary" for="folio-view-mode-text">
+                                {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}
+                                OCR Text
+                            </label>
+
+                            <input type="radio"
+                                   class="btn-check js-folio-view-mode"
+                                   name="folio-view-mode"
+                                   id="folio-view-mode-side-by-side"
+                                   value="side-by-side"
+                                   autocomplete="off"
+                                   checked>
+                            <label class="btn btn-outline-secondary" for="folio-view-mode-side-by-side">
+                                {{ ux_icon('tabler:layout-columns', { class: 'icon me-1' }) }}
+                                Split View
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="row row-cards folio-viewer-grid" id="folio-viewer-grid" data-viewer-mode="side-by-side">
+                <div class="col-lg-8" id="doc-main-col">
+                    {% block folio_main_column %}
+                    {% if videoPages|length > 0 %}
+                        <div id="doc-viewer" class="card mb-3">
+                            <div class="card-body">
+                                {% for page in videoPages %}
+                                    <video controls preload="metadata" class="w-100 mb-2 bg-dark rounded" style="max-height: 70vh;">
+                                        <source src="{{ page.url }}">
+                                        Your browser can't play this video — <a href="{{ page.url }}">download it</a>.
+                                    </video>
+                                {% endfor %}
+                            </div>
+                            <div class="card-footer py-2 small text-muted">
+                                {{ videoPages|length }} video file{{ videoPages|length > 1 ? 's' : '' }}
+                            </div>
+                        </div>
+
+                    {% elseif pdfUrl %}
+                        <div id="doc-viewer" class="card mb-3">
+                            <div class="card-body p-0">
+                                <twig:iiif:pdf
+                                    :url="pdfUrl"
+                                    :pageCount="docPageCount"
+                                    :height="600"
+                                    :showLinks="true"
+                                />
+                            </div>
+
+                            <div id="doc-page-status" class="card-footer py-2 small text-muted">
+                                {{ docPageCount ? 'PDF · ' ~ docPageCount ~ ' pages' : 'PDF' }}{{ hasOcr ? '' : ' — no extracted text' }}
+                            </div>
+                        </div>
+
+                    {% elseif pages|length > 0 %}
+                        {% set rowManifestUrl = url('survos_folio_iiif_manifest', {folioCode: row.folioCode, coreCode: core.code, localId: row.localId}) %}
+                        {% set viewerImages = [] %}
+                        {% set viewerHires = [] %}
+                        {% set viewerInfoUrls = [] %}
+
+                        {% for page in pages %}
+                            {% set pageImg = page.url %}
+                            {% set pageHires = page.url %}
+                            {% set pageInfoUrl = null %}
+                            {% guard filter imgproxy %}
+                                {% set pageImg = page.url|imgproxy('thumb') %}
+                                {% set pageHires = page.url|imgproxy('archive') %}
+                                {% set pageInfoUrl = path('survos_imgproxy_info', {url: page.url}) %}
+                            {% endguard %}
+                            {% set viewerImages = viewerImages|merge([pageImg]) %}
+                            {% set viewerHires = viewerHires|merge([pageHires]) %}
+                            {% set viewerInfoUrls = viewerInfoUrls|merge([pageInfoUrl]) %}
+                        {% endfor %}
+
+                        <div id="doc-viewer" class="card mb-3">
+                            <div class="card-body p-0">
+                                <twig:iiif:viewer
+                                    :images="viewerImages"
+                                    :hiresImages="viewerHires"
+                                    :infoUrls="viewerInfoUrls"
+                                    :manifestUrl="rowManifestUrl"
+                                    :height="600"
+                                    :showLinks="false"
+                                />
+                            </div>
+
+                            {# Multi-image only: the page counter + OCR-status footer is meaningful when
+                               there's more than one page. For a single image (e.g. a photograph) it was
+                               just "Page 1 of 1 — no extracted text" noise; the OCR panel below already
+                               reports text presence. JS updates this element only on page-change events. #}
+                            {% if viewerImages|length > 1 %}
+                                <div id="doc-page-status" class="card-footer py-2 small text-muted d-flex justify-content-center align-items-center gap-2">
+                                    <button type="button"
+                                            class="btn btn-action rounded-pill border-0 js-folio-page-prev"
+                                            style="min-width: 1.25rem; min-height: 1rem;"
+                                            data-page-count="{{ viewerImages|length }}"
+                                            aria-label="Previous page"
+                                            title="Previous page"
+                                            disabled>
+                                        {{ ux_icon('tabler:chevron-left', { class: 'icon' }) }}
+                                    </button>
+                                    <span id="doc-page-status-text">
+                                        Page 1 of {{ viewerImages|length }}{{ pageTexts|first|trim ? '' : ' — no extracted text' }}
+                                    </span>
+                                    <button type="button"
+                                            class="btn btn-action rounded-pill border-0 js-folio-page-next"
+                                            style="min-width: 1.25rem; min-height: 1rem;"
+                                            data-page-count="{{ viewerImages|length }}"
+                                            aria-label="Next page"
+                                            title="Next page">
+                                        {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
+                                    </button>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                    {% for textPage in textFilePages %}
+                        {# survos_folio_page_raw fetches the source file server-side and strips origin
+                           headers (NARA serves these with Content-Disposition: attachment, which would
+                           force a download). Loaded into a <pre> via same-origin fetch rather than an
+                           <iframe>, so it inherits page styling/theme instead of its own blank frame. #}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span>{{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}Text file</span>
+                                <a href="{{ textPage.url }}" target="_blank" rel="noopener" class="small">Open raw</a>
+                            </div>
+                            <pre class="card-body mb-0 folio-text-page" style="max-height: 50vh; overflow: auto; white-space: pre-wrap;"
+                                 data-url="{{ path('survos_folio_page_raw', {folioCode: row.folioCode, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: textPage.seq}) }}">Loading…</pre>
+                        </div>
+                    {% endfor %}
+                    {% if textFilePages|length > 0 %}
+                        <script>
+                            document.querySelectorAll('.folio-text-page').forEach(function (el) {
+                                fetch(el.dataset.url)
+                                    .then(function (r) { return r.text(); })
+                                    .then(function (t) { el.textContent = t; })
+                                    .catch(function () { el.textContent = 'Unable to load text file.'; });
+                            });
+                        </script>
+                    {% endif %}
+
+                    {% if pdfUrl or pages|length > 0 %}
+                        <script>
+                            (function () {
+                                var texts = null, layouts = null, htrs = null;
+                                function dataArr(attr) {
+                                    var el = document.getElementById('doc-ocr-text');
+                                    try { return el ? JSON.parse(el.dataset[attr] || '[]') : []; } catch (err) { return []; }
+                                }
+                                function pageTexts() { if (texts === null) texts = dataArr('pageTexts'); return texts; }
+                                function pageLayouts() { if (layouts === null) layouts = dataArr('pageLayouts'); return layouts; }
+                                function pageHtr() { if (htrs === null) htrs = dataArr('pageHtr'); return htrs; }
+                                function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+                                // Mistral block type → bootstrap styling, so the layout reads like a document, not a dump.
+                                var BLOCK_CLASS = { headline: 'fw-bold fs-5 mb-2', subheadline: 'fw-semibold mb-2', caption: 'fst-italic text-muted small mb-2', byline: 'fst-italic small text-muted mb-2', column: 'mb-2', paragraph: 'mb-2', other: 'mb-2' };
+                                // Minimal inline markdown: **bold** / *italic* over already-escaped text.
+                                function inlineMd(s) {
+                                    return esc(s)
+                                        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                                        .replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>');
+                                }
+                                function isTableRow(t) { return /^\s*\|.*\|\s*$/.test(t) && (t.match(/\|/g) || []).length >= 2; }
+                                function isSepRow(t) { return isTableRow(t) && /^[\s|:-]+$/.test(t) && t.indexOf('-') !== -1; }
+                                function rowCells(t) { return t.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) { return c.trim(); }); }
+                                // "markdown+": render block types as a document, and fold runs of markdown
+                                // table rows (Mistral emits register/grid data as one |a|b| row per block) into
+                                // a real HTML table instead of pipe-soup.
+                                function renderLayout(blocks) {
+                                    var out = [], tbl = null;
+                                    function flush() {
+                                        if (tbl && tbl.length) {
+                                            out.push('<table class="table table-sm table-bordered align-middle mb-3" style="width:auto; font-size:0.8rem;"><tbody>'
+                                                + tbl.map(function (r) { return '<tr>' + r.map(function (c) { return '<td class="px-2 py-1 text-nowrap">' + inlineMd(c) + '</td>'; }).join('') + '</tr>'; }).join('')
+                                                + '</tbody></table>');
+                                        }
+                                        tbl = null;
+                                    }
+                                    blocks.forEach(function (b) {
+                                        var t = (b && b.text || '').trim();
+                                        if (!t || b.type === 'image' || b.type === 'advertisement') return;
+                                        if (isTableRow(t)) { if (!isSepRow(t)) { (tbl || (tbl = [])).push(rowCells(t)); } return; }
+                                        flush();
+                                        var hm = t.match(/^(#{1,6})\s+([\s\S]*)$/);
+                                        if (hm) { out.push('<div class="fw-bold fs-5 mb-2">' + inlineMd(hm[2].trim()) + '</div>'); return; }
+                                        out.push('<div class="ocr-block ' + (BLOCK_CLASS[b.type] || 'mb-2') + '" data-block-type="' + esc(b.type || '') + '" style="white-space: pre-wrap;">' + inlineMd(t) + '</div>');
+                                    });
+                                    flush();
+                                    return out.join('');
+                                }
+                                // htr_annotate: <hw>handwritten</hw> on a printed form. Render handwriting in
+                                // italics, flag uncertain reads (<?>), preserve line structure.
+                                function renderHtr(s) {
+                                    // Some htr claims arrive JSON-encoded (a quoted string with \n, \/, \uXXXX);
+                                    // decode so <hw> tags and line breaks are real before we mark up.
+                                    if (s && s.charAt(0) === '"') { try { s = JSON.parse(s); } catch (e) {} }
+                                    return esc(s)
+                                        .replace(/&lt;hw&gt;([\s\S]*?)&lt;\/hw&gt;/g, '<em class="hw-fill" style="color:#1d4ed8;">$1</em>')
+                                        .replace(/&lt;\?&gt;/g, '<sup class="text-danger" title="uncertain reading">?</sup>')
+                                        .replace(/\n/g, '<br>');
+                                }
+                                function renderPage(i, total) {
+                                    var ocrEl = document.getElementById('doc-ocr-text');
+                                    if (!ocrEl) return;
+                                    var htr = pageHtr()[i], layout = pageLayouts()[i], badge = document.getElementById('doc-ocr-badge');
+                                    if (htr && htr.trim()) {
+                                        ocrEl.innerHTML = '<div style="line-height:1.7;">' + renderHtr(htr) + '</div>';
+                                        if (badge) { badge.textContent = 'Handwriting'; badge.className = 'badge bg-green-lt'; }
+                                    } else if (layout && layout.length) {
+                                        ocrEl.innerHTML = renderLayout(layout) || '<span class="text-muted">(no text on this page)</span>';
+                                        if (badge) { badge.textContent = 'Layout'; badge.className = 'badge bg-purple-lt'; }
+                                    } else {
+                                        ocrEl.textContent = (pageTexts()[i] || '').trim() || '(no extracted text for this page)';
+                                        if (badge) { badge.textContent = 'OCR'; badge.className = 'badge bg-blue-lt'; }
+                                    }
+                                    var ocrPage = document.getElementById('doc-ocr-page');
+                                    if (ocrPage && total) ocrPage.textContent = 'page ' + (i + 1) + ' of ' + total;
+                                }
+                                // Render page 1 once the panel exists (this script runs before it in the DOM).
+                                document.addEventListener('DOMContentLoaded', function () {
+                                    renderPage(0, Math.max(pageTexts().length, pageLayouts().length, pageHtr().length));
+                                });
+                                document.addEventListener('iiif-viewer:page', function (e) {
+                                    var i = e.detail.index, total = e.detail.total;
+                                    renderPage(i, total);
+                                    var hasText = ((pageTexts()[i] || '').trim()) || ((pageLayouts()[i] || []).length);
+                                    var status = document.getElementById('doc-page-status');
+                                    var statusText = document.getElementById('doc-page-status-text');
+                                    if (statusText) {
+                                        statusText.textContent = 'Page ' + (i + 1) + ' of ' + total + (hasText ? '' : ' — no extracted text');
+                                    } else if (status) {
+                                        status.textContent = 'Page ' + (i + 1) + ' of ' + total + (hasText ? '' : ' — no extracted text');
+                                    }
+                                });
+                            })();
+                        </script>
+                    {% endif %}
+
+                    {% if pages|length > 1 and videoPages|length == 0 %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h2 class="card-title mb-0">Images <span class="text-muted">({{ pages|length }})</span></h2>
+                            </div>
+
+                            <div class="card-body">
+                                <div class="row g-2">
+                                    {% for page in pages|slice(0, 60) %}
+                                        {% set src = page.url %}
+                                        {% set thumb = src %}
+                                        {% guard filter imgproxy %}
+                                            {% set thumb = src|imgproxy('thumb') %}
+                                        {% endguard %}
+
+                                        <div class="col-4 col-md-3 col-lg-2">
+                                            <a href="#" class="js-osd-page" data-page-index="{{ loop.index0 }}" title="p. {{ page.seq }}">
+                                                <img
+                                                    src="{{ thumb }}"
+                                                    alt="p. {{ page.seq }}"
+                                                    class="img-fluid rounded border"
+                                                    style="aspect-ratio: 1; object-fit: cover"
+                                                    loading="lazy"
+                                                >
+                                            </a>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+
+                                {% if pages|length > 60 %}
+                                    <div class="text-muted small mt-2">
+                                        Showing first 60 of {{ pages|length }} pages.
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if claims|default([]) is not empty %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h2 class="card-title mb-0">Claims <span class="text-muted">({{ claims|length }})</span></h2>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-vcenter card-table">
+                                    <tbody>
+                                        {# Multi-valued predicates (dcterms:subject above all -- a photo can assert a
+                                           dozen of these) would otherwise repeat their own name once per value. Claims
+                                           are ordered by (source, predicate) -- not predicate alone -- so the same
+                                           predicate can appear in more than one place if multiple sources assert it;
+                                           a real group-by (not just a consecutive/adjacent check) handles that
+                                           correctly. Twig has no built-in group-by filter yet, hence the manual
+                                           seen-predicates check -- revisit if a future Twig version adds one. #}
+                                        {% set seenPredicates = [] %}
+                                        {% for claim in claims %}
+                                            {% if claim.predicate not in seenPredicates %}
+                                                {% set seenPredicates = seenPredicates|merge([claim.predicate]) %}
+                                                <tr>
+                                                    <th class="w-25 align-top font-monospace text-muted">
+                                                        {{ claim.predicate }}
+                                                    </th>
+                                                    <td>
+                                                        {% for c in claims|filter(c => c.predicate == claim.predicate) %}
+                                                            <div style="white-space: pre-wrap; word-break: break-word;">{{ c.value }}</div>
+                                                            <div class="text-muted small {{ loop.last ? 'mt-1' : 'mb-2 pb-2 border-bottom' }}">
+                                                                <span class="badge text-bg-light border">{{ c.source }}</span>
+                                                                {% if c.confidence is not null %}
+                                                                    <span title="confidence">{{ (c.confidence * 100)|round }}%</span>
+                                                                {% endif %}
+                                                                {% if c.agent %}
+                                                                    <span class="mx-1">&middot;</span><span class="font-monospace">{{ c.agent }}</span>
+                                                                {% endif %}
+                                                            </div>
+                                                        {% endfor %}
+                                                    </td>
+                                                </tr>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    {% endif %}
+                    {% endblock %}
+                </div>
+
+                <div class="col-lg-4" id="doc-side-col">
+                    {% block folio_side_column %}
+                    {# The narrative: flowing prose built from the typed DTO (title/date/credit
+                       already shown in the hero, so the component starts with the descriptive
+                       paragraph) — see Survos\FolioBundle\Twig\Components\FolioNarrative. Lives
+                       beside the viewer, not stacked full-width above it — the image is the main
+                       event on a row page, not something a reader scrolls past to find. Override
+                       this block (e.g. folio/row/postcard.html.twig) to add content-type-specific
+                       facts alongside <twig:folio:narrative>. #}
+                    {% block folio_narrative %}
+                    <div class="card mb-3 folio-detail-narrative">
+                        <div class="card-body">
+                            <twig:folio:narrative :dto="dto" />
+                        </div>
+                    </div>
+                    {% endblock %}
+
+                    {% if (hasOcr or hasLayout or hasHtr) and not isSingleImage %}
+                        <div class="card mb-3" id="doc-ocr-card">
+                            <div class="card-header d-flex align-items-center gap-2">
+                                <h2 class="card-title mb-0">Extracted text</h2>
+                                {# Badge: Handwriting (htr_annotate) > Layout (Mistral blocks) > OCR (flat). JS keeps it per-page. #}
+                                <span id="doc-ocr-badge" class="badge {{ hasHtr ? 'bg-green-lt' : (hasLayout ? 'bg-purple-lt' : 'bg-blue-lt') }}">{{ hasHtr ? 'Handwriting' : (hasLayout ? 'Layout' : 'OCR') }}</span>
+                                <span class="ms-auto d-inline-flex align-items-center gap-1">
+                                    {% if pages|length > 1 %}
+                                        <button type="button"
+                                                class="btn btn-action rounded-pill border-0 js-folio-page-prev js-ocr-page-prev"
+                                                style="min-width: 1.25rem; min-height: 1rem;"
+                                                data-page-count="{{ pages|length }}"
+                                                aria-label="Previous page"
+                                                title="Previous page"
+                                                disabled>
+                                            {{ ux_icon('tabler:chevron-left', { class: 'icon' }) }}
+                                        </button>
+                                    {% endif %}
+                                    <span id="doc-ocr-page" class="text-muted small">Page 1 of {{ pages|length }}</span>
+                                    {% if pages|length > 1 %}
+                                        <button type="button"
+                                                class="btn btn-action rounded-pill border-0 js-folio-page-next js-ocr-page-next"
+                                                style="min-width: 1.25rem; min-height: 1rem;"
+                                                data-page-count="{{ pages|length }}"
+                                                aria-label="Next page"
+                                                title="Next page">
+                                            {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
+                                        </button>
+                                    {% endif %}
+                                </span>
+                            </div>
+                            <div class="card-body">
+                                <div id="doc-ocr-text"
+                                     data-page-texts="{{ pageTexts|json_encode|e('html_attr') }}"
+                                     data-page-layouts="{{ pageLayouts|json_encode|e('html_attr') }}"
+                                     data-page-htr="{{ pageHtr|json_encode|e('html_attr') }}"
+                                     style="white-space: pre-wrap; word-break: break-word; max-height: 600px; overflow-y: auto; font-size: 0.875rem; line-height: 1.45;">{{ pageTexts|first|trim ?: '(no extracted text for this page)' }}</div>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if hasUxMap and tombstoneIsPreciseLocation %}
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h2 class="card-title mb-0">Location</h2>
+                            </div>
+
+                            <div class="card-body p-0">
+                                {# City/country-level fallbacks (geoPrecision set) are deliberately excluded here --
+                                   a centroid pin reads as "the photo was taken exactly here", which is misleading
+                                   at that resolution. Only rows with real per-photo GPS get a mini-map. #}
+                                {{ ux_map(
+                                    center: [tombstoneLatitude, tombstoneLongitude],
+                                    zoom: 15,
+                                    markers: [{ position: [tombstoneLatitude, tombstoneLongitude] }],
+                                    attributes: { style: 'height: 220px; width: 100%;' }
+                                ) }}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if ocrText %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h2 class="card-title mb-0">Transcription</h2>
+
+                                {% if ocrPageCount %}
+                                    <span class="text-muted small">{{ ocrPageCount }} pages</span>
+                                {% endif %}
+                            </div>
+
+                            <div class="card-body">
+                                <div style="max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;">{{ ocrText|trim }}</div>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if terms %}
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h2 class="card-title mb-0">Terms</h2>
+                            </div>
+
+                            <div class="list-group list-group-flush">
+                                {% for set, values in terms %}
+                                    <div class="list-group-item bg-transparent">
+                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ ('term.' ~ set)|trans }}</div>
+
+                                        {% for value in values %}
+                                            {% if value.term %}
+                                                <a
+                                                    class="badge text-bg-light border me-1 text-decoration-none"
+                                                    href="{{ path('survos_folio_term_show', {
+                                                        folioCode: row.folioCode,
+                                                        setCode: set,
+                                                        termCode: value.code
+                                                    }) }}"
+                                                >
+                                                    {{ value.label }}
+                                                </a>
+                                            {% else %}
+                                                <span class="badge text-bg-light border me-1">
+                                                    {{ value.label }}
+                                                </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% set otherLinks = links|default([])|filter(l => l.core != 'image') %}
+
+                    {% if otherLinks %}
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h2 class="card-title mb-0">Relations</h2>
+                            </div>
+
+                            <div class="list-group list-group-flush">
+                                {% for link in otherLinks %}
+                                    {% set target = link.row %}
+
+                                    <div class="list-group-item bg-transparent">
+                                        <div class="text-muted small font-monospace">{{ link.code }}</div>
+
+                                        <div>
+                                            {{ ux_icon(link.core, {class: 'icon me-1'}) }}{# predicate shown once above; here show the linked record #}
+                                            {% if target %}
+                                                <a href="{{ path('survos_folio_row_show', {
+                                                    folioCode: row.folioCode,
+                                                    coreCode: link.core,
+                                                    dtoType: target.dtoType ?: 'row',
+                                                    localId: target.localId
+                                                }) }}">
+                                                    {{ target.label ?: target.localId }}
+                                                </a>
+                                            {% else %}
+                                                <span class="font-monospace">
+                                                    {{ link.core }}/{{ link.localId }}
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {% if aiTasks %}
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h2 class="card-title mb-0">AI processing</h2>
+                            </div>
+
+                            <div class="card-body d-flex flex-wrap gap-1">
+                                {% for task in aiTasks %}
+                                    {% set runId = aiTaskRuns[task] ?? null %}
+                                    {% if runId %}
+                                        <a class="badge text-bg-primary text-decoration-none" href="{{ path('survos_folio_run', {folioCode: row.folioCode, runId: runId}) }}" title="Open AI task run details">{{ task }}</a>
+                                    {% else %}
+                                        <span class="badge text-bg-light border">{{ task }}</span>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    {# Extras is the raw unmapped blob — developer noise. Show only in debug; hidden in production. #}
+                    {% if extras and app.debug %}
+                        <div class="card mb-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h2 class="card-title mb-0">Extras <span class="badge bg-secondary-lt ms-1">dev</span></h2>
+
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-secondary"
+                                    onclick="navigator.clipboard.writeText(this.closest('.card').querySelector('pre').innerText).then(() => { const t = this.innerText; this.innerText = 'Copied!'; setTimeout(() => this.innerText = t, 1200); })"
+                                >
+                                    Copy
+                                </button>
+                            </div>
+
+                            <div class="card-body">
+                                <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word; user-select: all;">{{ extras|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
+                            </div>
+                        </div>
+                    {% endif %}
+                    {% endblock %}
+                </div>
+            </div>
+
+            {% set firstPage = pages|first %}
+            {% if firstPage and firstPage.url %}
+                {% set aspectProbe = firstPage.url %}
+                {% guard filter imgproxy %}{% set aspectProbe = aspectProbe|imgproxy('thumb') %}{% endguard %}
+                <script>
+                    (function () {
+                        var probe = {{ aspectProbe|json_encode|raw }};
+                        var img = new Image();
+                        img.onload = function () {
+                            if (img.naturalWidth && img.naturalHeight > img.naturalWidth * 1.15) {
+                                var main = document.getElementById('doc-main-col');
+                                var side = document.getElementById('doc-side-col');
+                                if (main) {
+                                    main.dataset.folioSplitClass = 'col-lg-6';
+                                    main.classList.replace('col-lg-8', 'col-lg-6');
+                                }
+                                if (side) {
+                                    side.dataset.folioSplitClass = 'col-lg-6';
+                                    side.classList.replace('col-lg-4', 'col-lg-6');
+                                }
+                            }
+                        };
+                        img.src = probe;
+                    })();
+                </script>
+            {% endif %}
+
+            <script>
+                function updateFolioAiLink(pageIndex) {
+                    const link = document.getElementById('folio-ai-page-link');
+
+                    if (!link) {
+                        return;
+                    }
+
+                    let images = [];
+
+                    try {
+                        images = JSON.parse(link.dataset.aiImages || '[]');
+                    } catch (e) {
+                        images = [];
+                    }
+
+                    const index = Number(pageIndex);
+                    const imageUrl = Number.isInteger(index) ? images[index] : null;
+                    const template = link.dataset.aiUrlTemplate || '';
+
+                    if (!imageUrl || !template) {
+                        return;
+                    }
+
+                    link.href = template.replace('__URL__', encodeURIComponent(imageUrl));
+                }
+
+                function getPageFromUrl() {
+                    const params = new URLSearchParams(window.location.search);
+                    const page = Number(params.get('page'));
+
+                    // URL is human-friendly: ?page=1 means first page
+                    if (!Number.isInteger(page) || page < 1) {
+                        return 0;
+                    }
+
+                    return page - 1;
+                }
+
+                function setPageInUrl(pageIndex) {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('page', pageIndex + 1);
+                    window.history.replaceState({}, '', url);
+                }
+
+                function setActiveThumb(pageIndex) {
+                    document.querySelectorAll('.js-osd-page img').forEach((img) => {
+                        img.classList.remove('border-primary');
+                    });
+
+                    const activeThumb = document.querySelector(`.js-osd-page[data-page-index="${pageIndex}"] img`);
+
+                    if (activeThumb) {
+                        activeThumb.classList.add('border-primary');
+                    }
+                }
+
+                function updateFolioPageNavButtons(pageIndex, total = 0) {
+                    const previousButtons = document.querySelectorAll('.js-folio-page-prev');
+                    const nextButtons = document.querySelectorAll('.js-folio-page-next');
+                    const pageCount = Number(previousButtons[0]?.dataset.pageCount || nextButtons[0]?.dataset.pageCount || total || 0);
+
+                    previousButtons.forEach((previousButton) => {
+                        previousButton.disabled = pageIndex <= 0;
+                    });
+
+                    nextButtons.forEach((nextButton) => {
+                        nextButton.disabled = !pageCount || pageIndex >= pageCount - 1;
+                    });
+                }
+
+                function setColumnClass(element, columnClass) {
+                    if (!element || !columnClass) {
+                        return;
+                    }
+
+                    ['col-lg-4', 'col-lg-6', 'col-lg-8', 'col-lg-12'].forEach((className) => {
+                        element.classList.remove(className);
+                    });
+
+                    element.classList.add(columnClass);
+                }
+
+                function resizeFolioViewer() {
+                    const viewerEl = document.querySelector(
+                        '[data-controller="survos--iiif-bundle--iiif-viewer"]'
+                    );
+
+                    if (viewerEl && viewerEl.viewer && typeof viewerEl.viewer.forceRedraw === 'function') {
+                        viewerEl.viewer.forceRedraw();
+                    }
+
+                    window.dispatchEvent(new Event('resize'));
+                }
+
+                function applyFolioViewerMode(mode) {
+                    const grid = document.getElementById('folio-viewer-grid');
+                    const main = document.getElementById('doc-main-col');
+                    const side = document.getElementById('doc-side-col');
+                    const textCard = document.getElementById('doc-ocr-card');
+
+                    if (!grid || !main || !side || !textCard) {
+                        return;
+                    }
+
+                    const normalizedMode = ['osd', 'side-by-side', 'text'].includes(mode) ? mode : 'side-by-side';
+                    const splitMainClass = main.dataset.folioSplitClass || 'col-lg-8';
+                    const splitSideClass = side.dataset.folioSplitClass || 'col-lg-4';
+
+                    grid.dataset.viewerMode = normalizedMode;
+
+                    main.classList.remove('d-none');
+                    side.classList.remove('d-none');
+
+                    if (normalizedMode === 'osd') {
+                        setColumnClass(main, 'col-lg-12');
+                        side.classList.add('d-none');
+                    } else if (normalizedMode === 'text') {
+                        main.classList.add('d-none');
+                        setColumnClass(side, 'col-lg-12');
+                    } else {
+                        setColumnClass(main, splitMainClass);
+                        setColumnClass(side, splitSideClass);
+                    }
+
+                    document.querySelectorAll('.js-folio-view-mode').forEach((input) => {
+                        input.checked = input.value === normalizedMode;
+                    });
+
+                    setTimeout(resizeFolioViewer, 80);
+                }
+
+                function initFolioViewerModeControl() {
+                    const controls = document.querySelectorAll('.js-folio-view-mode');
+
+                    if (!controls.length) {
+                        return;
+                    }
+
+                    controls.forEach((control) => {
+                        control.onchange = () => applyFolioViewerMode(control.value);
+                    });
+
+                    applyFolioViewerMode('side-by-side');
+                }
+
+                function initFolioDetailViewerControls() {
+                    const viewerEl = document.querySelector(
+                        '[data-controller="survos--iiif-bundle--iiif-viewer"]'
+                    );
+
+                    if (!viewerEl) {
+                        return;
+                    }
+
+                    const initialPageIndex = getPageFromUrl();
+                    const previousButtons = document.querySelectorAll('.js-folio-page-prev');
+                    const nextButtons = document.querySelectorAll('.js-folio-page-next');
+                    const pageCount = Number(previousButtons[0]?.dataset.pageCount || nextButtons[0]?.dataset.pageCount || 0);
+
+                    const goToPage = (pageIndex, updateUrl = true) => {
+                        if (!viewerEl.viewer || !Number.isInteger(pageIndex)) {
+                            return;
+                        }
+
+                        if (pageCount && (pageIndex < 0 || pageIndex >= pageCount)) {
+                            return;
+                        }
+
+                        viewerEl.viewer.goToPage(pageIndex);
+                        updateFolioAiLink(pageIndex);
+                        setActiveThumb(pageIndex);
+                        updateFolioPageNavButtons(pageIndex, pageCount);
+
+                        if (updateUrl) {
+                            setPageInUrl(pageIndex);
+                        }
+                    };
+
+                    document.querySelectorAll('.js-osd-page').forEach((thumb) => {
+                        thumb.onclick = (event) => {
+                            event.preventDefault();
+
+                            const pageIndex = Number(thumb.dataset.pageIndex);
+                            goToPage(pageIndex);
+                        };
+                    });
+
+                    previousButtons.forEach((previousButton) => {
+                        previousButton.onclick = () => {
+                            goToPage(getPageFromUrl() - 1);
+                        };
+                    });
+
+                    nextButtons.forEach((nextButton) => {
+                        nextButton.onclick = () => {
+                            goToPage(getPageFromUrl() + 1);
+                        };
+                    });
+
+                    // Wait a tick so the IIIF viewer has time to initialize.
+                    setTimeout(() => {
+                        goToPage(initialPageIndex, false);
+                    }, 100);
+                }
+
+                document.addEventListener('iiif-viewer:page', (e) => {
+                    updateFolioAiLink(e.detail.index);
+                    setActiveThumb(e.detail.index);
+                    setPageInUrl(e.detail.index);
+                    updateFolioPageNavButtons(e.detail.index, e.detail.total);
+                });
+
+                document.addEventListener('turbo:load', initFolioViewerModeControl);
+                document.addEventListener('DOMContentLoaded', initFolioViewerModeControl);
+                document.addEventListener('turbo:load', initFolioDetailViewerControls);
+                document.addEventListener('DOMContentLoaded', initFolioDetailViewerControls);
+            </script>
+
+            <style>
+                .page {
+                    background:
+                        radial-gradient(circle at top left, rgba(255, 238, 198, .9), transparent 34%),
+                        radial-gradient(circle at top right, rgba(232, 218, 255, .9), transparent 32%),
+                        linear-gradient(135deg, #fff8e8 0%, #fff 46%, #f5f0e8 100%);
+                }
+
+                /* Do NOT hide the host app's navbar here. The detail page inherits the
+                   calling application's chrome (folio_base_template()) by contract; the
+                   designer's immersive mockup hid it (.navbar{display:none}, 9c52db36) and
+                   every host app silently lost its header until zm noticed (2026-07-17). */
+
+                .folio-detail-shell {
+                    max-width: none;
+                    padding: 0;
+                    border-radius: 0;
+                    background: none;
+                    border: none;
+                    box-shadow: none;
+                    backdrop-filter: none;
+                }
+
+                {# Kept intentionally compact — this is a working viewer page, not a landing/article
+                   page. The photo/document is the main event; the hero should identify the item
+                   in one glance and get out of the way, not push the viewer below the fold. #}
+                .folio-detail-hero {
+                    padding: 1rem 1.25rem;
+                    margin-bottom: 1rem;
+                    border-radius: 1rem;
+                    background:
+                        radial-gradient(circle at top left, rgba(255,244,220,.85), transparent 34%),
+                        radial-gradient(circle at top right, rgba(235,222,255,.75), transparent 32%),
+                        rgba(255,255,255,.72);
+                    border: 1px solid rgba(120,100,70,.12);
+                }
+
+                .folio-detail-title,
+                .folio-detail-section-title,
+                .folio-detail-shell .card-title {
+                    font-family: Georgia, serif;
+                    letter-spacing: -.025em;
+                    color: #283142;
+                }
+
+                .folio-detail-title {
+                    font-size: clamp(1.5rem, 2.75vw, 2.25rem);
+                    line-height: 1.1;
+                    letter-spacing: -.03em;
+                }
+
+                .folio-detail-shell .card {
+                    background: rgba(255,255,255,.72);
+                    border: 1px solid rgba(120,100,70,.12);
+                    border-radius: 1.25rem;
+                    box-shadow: 0 12px 34px rgba(33,37,41,.055);
+                    backdrop-filter: blur(14px);
+                    overflow: hidden;
+                }
+
+                .folio-detail-shell .card-header {
+                    background: transparent;
+                    border-bottom-color: rgba(120,100,70,.10);
+                }
+
+                .folio-detail-shell pre {
+                    background: #111827;
+                    color: #fff;
+                    border-radius: 1rem;
+                    padding: 1rem;
+                }
+
+                .folio-detail-narrative {
+                    font-size: 0.95rem;
+                    line-height: 1.55;
+                }
+
+                .folio-detail-narrative .folio-narrative__facts {
+                    color: #283142;
+                }
+
+                .folio-viewer-toolbar-card .card-header {
+                    min-height: 4rem;
+                }
+
+                .folio-view-mode-control {
+                    display: flex;
+                    gap: 0.25rem;
+                    padding: .25rem;
+                    border: 1px solid rgba(120, 100, 70, .14);
+                    border-radius: .75rem;
+                    background: rgba(255, 255, 255, .78);
+                    box-shadow: 0 .5rem 1.5rem rgba(33, 37, 41, .045);
+                }
+
+                .folio-view-mode-control .btn {
+                    border: 0;
+                    border-radius: .55rem !important;
+                    color: #4b5563;
+                    font-weight: 600;
+                    box-shadow: none !important;
+                }
+
+                .folio-view-mode-control .btn-check:checked + .btn {
+                    color: #5b21b6;
+                    background: rgba(124, 58, 237, .10);
+                    box-shadow: inset 0 0 0 1px rgba(124, 58, 237, .24) !important;
+                }
+
+                .folio-viewer-grid[data-viewer-mode="osd"] #doc-viewer,
+                .folio-viewer-grid[data-viewer-mode="text"] #doc-ocr-card {
+                    min-height: 680px;
+                }
+
+                .folio-viewer-grid[data-viewer-mode="text"] #doc-ocr-text {
+                    max-height: 70vh !important;
+                }
+
+                @media (max-width: 767.98px) {
+                    .folio-view-mode-control {
+                        width: 100%;
+                        overflow-x: auto;
+                    }
+
+                    .folio-view-mode-control .btn {
+                        flex: 1 0 auto;
+                        white-space: nowrap;
+                    }
+                }
+
+                /* .page-header is intentionally left visible (not hidden) — that's where
+                   base.html.twig's own PAGE_ACTIONS rendering shows RowMenu's Show/Edit/Bookmark/
+                   Ask document/OCR/Handwriting/Share, the SAME standard mechanism every other
+                   row-scoped page uses (Edit, item_chat, ...). This hero only supplies its own
+                   title/breadcrumb/badges below it — no bespoke action bar here or in a host-app
+                   override; see git history (9c52db36, and the churn since) for what happens when
+                   a page tries to duplicate that menu instead of just letting it render normally. */
+            </style>
+        </div>
+    </div>
+{% endblock %}
+

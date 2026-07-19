@@ -86,7 +86,7 @@
     {% set hasHtr = pages|filter(p => p.htr is not empty)|length > 0 %}
     {% set pageAskUrls = [] %}
     {% for page in pages %}
-        {% set pageAskUrls = pageAskUrls|merge([path('survos_folio_page_chat', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: page.seq})]) %}
+        {% set pageAskUrls = pageAskUrls|merge([path('survos_folio_page_chat', {folioCode: row.folioCode, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: page.seq})]) %}
     {% endfor %}
     {% set hasOcr = pageTexts|filter(t => t|trim is not empty)|length > 0 %}
     {% set isSingleImage = pages|length == 1 and not attribute(row.dtoData, 'pdfUrl')|default(null) %}
@@ -112,16 +112,16 @@
                             {% endif %}
 
                             <span>/</span>
-                            <a href="{{ path('survos_folio_show', { provider: provider, dataset: dataset }) }}"
+                            <a href="{{ path('survos_folio_show', { folioCode: row.folioCode }) }}"
                                class="text-reset text-decoration-none">{{ dataset }}</a>
 
                             <span>/</span>
-                            <a href="{{ path('survos_folio_core_search', { provider: provider, dataset: dataset, coreCode: core.code }) }}"
+                            <a href="{{ path('survos_folio_core_search', { folioCode: row.folioCode, coreCode: core.code }) }}"
                                class="text-reset text-decoration-none">{{ ('core.' ~ core.code)|trans }}</a>
 
                             {% if row.dtoType %}
                                 <span>/</span>
-                                <a href="{{ path('survos_folio_core_type_search', { provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType }) }}"
+                                <a href="{{ path('survos_folio_core_type_search', { folioCode: row.folioCode, coreCode: core.code, dtoType: row.dtoType }) }}"
                                    class="text-reset text-decoration-none">{{ row.dtoType }}</a>
                             {% endif %}
                         </nav>
@@ -131,11 +131,11 @@
                         {% if adjacent and (adjacent.prev or adjacent.next) %}
                             <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Document navigation">
                                 <a class="btn btn-outline-secondary {{ adjacent.prev ? '' : 'disabled' }}" rel="prev"
-                                   {% if adjacent.prev %}href="{{ path('survos_folio_row_show', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: adjacent.prev.dtoType, localId: adjacent.prev.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+                                   {% if adjacent.prev %}href="{{ path('survos_folio_row_show', {folioCode: row.folioCode, coreCode: core.code, dtoType: adjacent.prev.dtoType, localId: adjacent.prev.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
                                     {{ ux_icon('tabler:chevron-left', { class: 'icon' }) }} {{ 'prev'|trans({}, 'folio') }}
                                 </a>
                                 <a class="btn btn-outline-secondary {{ adjacent.next ? '' : 'disabled' }}" rel="next"
-                                   {% if adjacent.next %}href="{{ path('survos_folio_row_show', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: adjacent.next.dtoType, localId: adjacent.next.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+                                   {% if adjacent.next %}href="{{ path('survos_folio_row_show', {folioCode: row.folioCode, coreCode: core.code, dtoType: adjacent.next.dtoType, localId: adjacent.next.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
                                     {{ 'next'|trans({}, 'folio') }} {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
                                 </a>
                             </div>
@@ -273,7 +273,7 @@
                         </div>
 
                     {% elseif pages|length > 0 %}
-                        {% set rowManifestUrl = url('survos_folio_iiif_manifest', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId}) %}
+                        {% set rowManifestUrl = url('survos_folio_iiif_manifest', {folioCode: row.folioCode, coreCode: core.code, localId: row.localId}) %}
                         {% set viewerImages = [] %}
                         {% set viewerHires = [] %}
                         {% set viewerInfoUrls = [] %}
@@ -346,7 +346,7 @@
                                 <a href="{{ textPage.url }}" target="_blank" rel="noopener" class="small">Open raw</a>
                             </div>
                             <pre class="card-body mb-0 folio-text-page" style="max-height: 50vh; overflow: auto; white-space: pre-wrap;"
-                                 data-url="{{ path('survos_folio_page_raw', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: textPage.seq}) }}">Loading…</pre>
+                                 data-url="{{ path('survos_folio_page_raw', {folioCode: row.folioCode, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: textPage.seq}) }}">Loading…</pre>
                         </div>
                     {% endfor %}
                     {% if textFilePages|length > 0 %}
@@ -538,7 +538,7 @@
                                                             {% for task in value %}
                                                                 {% set runId = aiTaskRuns[task] ?? null %}
                                                                 {% if runId %}
-                                                                    <a class="badge text-bg-primary text-decoration-none" href="{{ path('survos_folio_run', {provider: provider, dataset: dataset, runId: runId}) }}" title="Open AI task run details">{{ task }}</a>
+                                                                    <a class="badge text-bg-primary text-decoration-none" href="{{ path('survos_folio_run', {folioCode: row.folioCode, runId: runId}) }}" title="Open AI task run details">{{ task }}</a>
                                                                 {% else %}
                                                                     <span class="badge text-bg-light border">{{ task }}</span>
                                                                 {% endif %}
@@ -563,7 +563,7 @@
                                                                 {% for task in value %}
                                                                     {% set runId = aiTaskRuns[task] ?? null %}
                                                                     {% if runId %}
-                                                                        <a class="badge text-bg-primary text-decoration-none" href="{{ path('survos_folio_run', {provider: provider, dataset: dataset, runId: runId}) }}" title="Open AI task run details">{{ task }}</a>
+                                                                        <a class="badge text-bg-primary text-decoration-none" href="{{ path('survos_folio_run', {folioCode: row.folioCode, runId: runId}) }}" title="Open AI task run details">{{ task }}</a>
                                                                     {% else %}
                                                                         <span class="badge text-bg-light border">{{ task }}</span>
                                                                     {% endif %}
@@ -782,8 +782,7 @@
                                                 <a
                                                     class="badge text-bg-light border me-1 text-decoration-none"
                                                     href="{{ path('survos_folio_term_show', {
-                                                        provider: provider,
-                                                        dataset: dataset,
+                                                        folioCode: row.folioCode,
                                                         setCode: set,
                                                         termCode: value.code
                                                     }) }}"
@@ -821,8 +820,7 @@
                                             {{ ux_icon(link.core, {class: 'icon me-1'}) }}{# predicate shown once above; here show the linked record #}
                                             {% if target %}
                                                 <a href="{{ path('survos_folio_row_show', {
-                                                    provider: provider,
-                                                    dataset: dataset,
+                                                    folioCode: row.folioCode,
                                                     coreCode: link.core,
                                                     dtoType: target.dtoType ?: 'row',
                                                     localId: target.localId
@@ -1281,8 +1279,7 @@
 {% block folio_detail_actions %}
     {% if folio_bookmarks_enabled() %}
         {{ include('@SurvosFolioBundle/bookmark/_widget.html.twig', {
-            provider: provider,
-            dataset: dataset,
+            folioCode: row.folioCode,
             coreCode: core.code,
             localId: row.localId,
             dtoType: row.dtoType ?: 'row',
@@ -1291,7 +1288,7 @@
     {% endif %}
 
     {% if pageAiUrls|length > 0 or th %}
-        <a href="{{ path('survos_folio_item_chat', {provider: provider, dataset: dataset, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId}) }}"
+        <a href="{{ path('survos_folio_item_chat', {folioCode: row.folioCode, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId}) }}"
            data-turbo="false"
            class="btn text-white border-0 shadow-sm rounded-pill px-4"
            style="background: linear-gradient(135deg, #2b0b4f, #5b2aa0);">
@@ -1315,16 +1312,16 @@
            persists the result onto the right Page. hrefs follow the viewer's
            page (see the iiif-viewer:page listener below). #}
         {% if pages|length > 0 %}
-            {% set aiBase = path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId}) %}
+            {% set aiBase = path('survos_folio_ai', {folioCode: row.folioCode, coreCode: core.code, localId: row.localId}) %}
             <a class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill js-folio-ai-btn"
                data-ai-base="{{ aiBase }}" data-ai-task="ocr_mistral"
-               href="{{ path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, task: 'ocr_mistral', run: 1, page: 0}) }}">
+               href="{{ path('survos_folio_ai', {folioCode: row.folioCode, coreCode: core.code, localId: row.localId, task: 'ocr_mistral', run: 1, page: 0}) }}">
                 {{ ux_icon('tabler:file-text', { class: 'icon me-1' }) }}
                 OCR
             </a>
             <a class="btn bg-white bg-opacity-75 border shadow-sm rounded-pill js-folio-ai-btn"
                data-ai-base="{{ aiBase }}" data-ai-task="handwriting"
-               href="{{ path('survos_folio_ai', {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, task: 'handwriting', run: 1, page: 0}) }}">
+               href="{{ path('survos_folio_ai', {folioCode: row.folioCode, coreCode: core.code, localId: row.localId, task: 'handwriting', run: 1, page: 0}) }}">
                 {{ ux_icon('tabler:writing', { class: 'icon me-1' }) }}
                 Handwriting
             </a>

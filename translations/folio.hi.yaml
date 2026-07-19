@@ -7,3 +7,16 @@ download: डाउनलोड करें
 share: साझा करें
 source: स्रोत
 donor: दानदाता
+narrative.by: "द्वारा"
+narrative.dated: "दिनांक"
+narrative.in_place: "में"
+narrative.held_by: "संग्रहकर्ता"
+narrative.part_of: "इसका हिस्सा"
+narrative.credit: "श्रेय"
+narrative.provenance: "उद्भव"
+narrative.rights: "अधिकार"
+narrative.details: "विवरण"
+narrative.read_transcription: "प्रतिलेखन पढ़ें"
+narrative.published_by: "प्रकाशक"
+narrative.postmarked: "डाक मुहर"
+narrative.addressed_to: "प्रति"

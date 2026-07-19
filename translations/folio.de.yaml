@@ -7,3 +7,16 @@ download: Herunterladen
 share: Teilen
 source: Quelle
 donor: Spender
+narrative.by: "Von"
+narrative.dated: "Datiert"
+narrative.in_place: "in"
+narrative.held_by: "Aufbewahrt bei"
+narrative.part_of: "Teil von"
+narrative.credit: "Credit"
+narrative.provenance: "Provenienz"
+narrative.rights: "Rechte"
+narrative.details: "Details"
+narrative.read_transcription: "Transkription lesen"
+narrative.published_by: "Herausgegeben von"
+narrative.postmarked: "Poststempel"
+narrative.addressed_to: "Adressiert an"

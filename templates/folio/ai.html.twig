@@ -7,7 +7,7 @@
         <div class="mb-3">
             <a class="text-decoration-none text-secondary"
                href="{{ path('survos_folio_row_show', {
-                   provider: provider, dataset: dataset, coreCode: core.code,
+                   folioCode: row.folioCode, coreCode: core.code,
                    dtoType: row.dtoType ?: 'row', localId: row.localId,
                }) }}">
                 {{ ux_icon('tabler:arrow-left') }} {{ row.label ?: row.localId }}
@@ -25,7 +25,7 @@
             </div>
 
             <div class="col-lg-7">
-                {% set base = {provider: provider, dataset: dataset, coreCode: core.code, localId: row.localId, page: pageIndex} %}
+                {% set base = {folioCode: row.folioCode, coreCode: core.code, localId: row.localId, page: pageIndex} %}
                 <div class="btn-list mb-3">
                     {# OCR (typeset text). ocr_mistral works today; a free tesseract task is the next mediary lever. #}
                     <a class="btn {{ task == 'ocr_mistral' ? 'btn-primary' : 'btn-outline-primary' }} js-ai-task"

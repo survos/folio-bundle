@@ -116,10 +116,17 @@ class Row implements RouteParametersInterface
 
     public static function id(string $coreId, string $localId): string { return "$coreId:$localId"; }
 
-    // Core ID format: "provider/dataset:coreCode" e.g. "dc/4168b346w:obj"
-    public function getProvider(): string  { return explode('/', explode(':', $this->core->id, 2)[0], 2)[0]; }
-    public function getDataset(): string   { return explode('/', explode(':', $this->core->id, 2)[0], 2)[1]; }
+    // Core ID format: "folioCode:coreCode" e.g. "dc/4168b346w:obj" -- folioCode itself is
+    // "provider/dataset" ("dc/4168b346w"), but provider/dataset are never used separately for
+    // routing (route params collapsed to one {folioCode} segment; see class docblock).
+    public function getFolioCode(): string { return explode(':', $this->core->id, 2)[0]; }
     public function getCoreCode(): string  { return explode(':', $this->core->id, 2)[1]; }
+
+    // Kept ONLY for the #[ApiResource] Link(identifiers: ['provider'/'dataset']) above -- that
+    // API is its own separate, not-yet-done migration to a single folioCode segment (see
+    // PhotoGrid's docblock), so IriConverter still needs these two split out by name.
+    public function getProvider(): string { return explode('/', $this->getFolioCode(), 2)[0]; }
+    public function getDataset(): string  { return explode('/', $this->getFolioCode(), 2)[1]; }
 
     #[Groups(['row:read'])]
     public function getCitationUrl(): ?string
@@ -175,7 +182,7 @@ class Row implements RouteParametersInterface
         return self::$countryCodesByName[$country] ?? null;
     }
 
-    /** @return array{provider: string, dataset: string, coreCode: string, dtoType: string, localId: string} */
+    /** @return array{folioCode: string, coreCode: string, dtoType: string, localId: string} */
     public function getUniqueIdentifiers(): array
     {
         return $this->getRp();
@@ -190,8 +197,7 @@ class Row implements RouteParametersInterface
     public function getRp(?array $addlParams = []): array
     {
         return array_merge([
-            'provider' => $this->getProvider(),
-            'dataset' => $this->getDataset(),
+            'folioCode' => $this->getFolioCode(),
             'coreCode' => $this->getCoreCode(),
             'dtoType' => $this->dtoType ?: 'row',
             'localId' => $this->localId,

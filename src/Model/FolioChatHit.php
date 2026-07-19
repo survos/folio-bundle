@@ -28,13 +28,12 @@ final readonly class FolioChatHit
     ) {}
 
     /**
-     * @return array{provider: string, dataset: string, coreCode: string, dtoType: string, localId: string}
+     * @return array{folioCode: string, coreCode: string, dtoType: string, localId: string}
      */
     public function routeParams(): array
     {
         return [
-            'provider' => $this->provider,
-            'dataset' => $this->dataset,
+            'folioCode' => "$this->provider/$this->dataset",
             'coreCode' => $this->coreCode,
             'dtoType' => $this->dtoType ?: 'row',
             'localId' => $this->localId,

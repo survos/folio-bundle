@@ -449,7 +449,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
     private function browseLink(string $datasetKey): string
     {
         [$provider, $dataset] = array_pad(explode('/', $datasetKey, 2), 2, $datasetKey);
-        $params = ['provider' => $provider, 'dataset' => $dataset];
+        $params = ['folioCode' => $datasetKey];
 
         try {
             if ($this->folioServer !== null && $this->folioServer !== '') {
@@ -469,7 +469,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
     private function coreLink(string $datasetKey, string $coreCode): string
     {
         [$provider, $dataset] = array_pad(explode('/', $datasetKey, 2), 2, $datasetKey);
-        $params = ['provider' => $provider, 'dataset' => $dataset, 'coreCode' => $coreCode];
+        $params = ['folioCode' => $datasetKey, 'coreCode' => $coreCode];
 
         try {
             if ($this->folioServer !== null && $this->folioServer !== '') {

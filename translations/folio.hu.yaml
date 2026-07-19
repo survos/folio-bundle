@@ -7,3 +7,16 @@ download: Letöltés
 share: Megosztás
 source: Forrás
 donor: Adományozó
+narrative.by: "Készítette"
+narrative.dated: "Datálva"
+narrative.in_place: "itt:"
+narrative.held_by: "Őrzi"
+narrative.part_of: "Része ennek"
+narrative.credit: "Köszönet"
+narrative.provenance: "Eredet"
+narrative.rights: "Jogok"
+narrative.details: "Részletek"
+narrative.read_transcription: "Átirat elolvasása"
+narrative.published_by: "Kiadta"
+narrative.postmarked: "Postabélyegző"
+narrative.addressed_to: "Címzett"

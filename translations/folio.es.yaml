@@ -7,3 +7,16 @@ download: Descargar
 share: Compartir
 source: Fuente
 donor: Donante
+narrative.by: "Por"
+narrative.dated: "Fechado en"
+narrative.in_place: "en"
+narrative.held_by: "Conservado por"
+narrative.part_of: "Parte de"
+narrative.credit: "Crédito"
+narrative.provenance: "Procedencia"
+narrative.rights: "Derechos"
+narrative.details: "Detalles"
+narrative.read_transcription: "Leer la transcripción"
+narrative.published_by: "Publicado por"
+narrative.postmarked: "Matasellado"
+narrative.addressed_to: "Dirigido a"

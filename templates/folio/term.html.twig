@@ -1,8 +1,4 @@
-{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
-
-{% set parts = ctx.folioCode|split('/') %}
-{% set provider = parts[0] %}
-{% set dataset = parts[1] %}
+{% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
 {% block body_class %}folio-layout{% endblock %}
 

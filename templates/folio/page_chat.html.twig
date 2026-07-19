@@ -102,8 +102,7 @@
     <div class="container-xl py-4 py-lg-5">
         <div class="mb-3">
             <a class="text-decoration-none text-secondary" data-turbo="false" href="{{ path('survos_folio_row_show', {
-                provider: provider,
-                dataset: dataset,
+                folioCode: row.folioCode,
                 coreCode: core.code,
                 dtoType: row.dtoType ?: 'row',
                 localId: row.localId,
@@ -168,15 +167,13 @@
                         </div>
 
                         <form method="post" data-turbo="false" data-folio-chat-form data-folio-chat-stream-action="{{ path('survos_folio_page_chat_stream', {
-                            provider: provider,
-                            dataset: dataset,
+                            folioCode: row.folioCode,
                             coreCode: core.code,
                             dtoType: row.dtoType ?: 'row',
                             localId: row.localId,
                             seq: page.seq,
                         }) }}" action="{{ path('survos_folio_page_chat', {
-                            provider: provider,
-                            dataset: dataset,
+                            folioCode: row.folioCode,
                             coreCode: core.code,
                             dtoType: row.dtoType ?: 'row',
                             localId: row.localId,

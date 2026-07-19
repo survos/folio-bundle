@@ -8,7 +8,7 @@ use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
 use Survos\FolioBundle\Bookmark\Service\BookmarkManager;
 use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand,FolioTranslateCommand};
-use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioContextListener,FolioFtsIndexListener,FolioRouteAttributeListener};
+use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioFtsIndexListener,FolioRouteAttributeListener};
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Menu\RowMenu;
 use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
@@ -168,14 +168,14 @@ final class SurvosFolioBundle extends AbstractUxBundle
             '$datasets' => service(\Survos\DatasetBundle\Repository\DatasetInfoRepository::class)->ignoreOnInvalid(),
             '$dataPaths' => service(\Survos\DatasetBundle\Service\DataPaths::class)->ignoreOnInvalid(),
         ]);
-        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioContextListener::class, FolioDtoTypeResolver::class] as $class) {
+        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
         $services->set(BuildFolioRequestedListener::class)->autowire()->autoconfigure()->public()
             ->arg('$buildArchive', $config['build_archive']);
         // No implementation required — a bare app without a slug registry just gets slug
-        // routes that 404 (see FolioRouteAttributeListener), and its provider/dataset routes
-        // keep working unchanged.
+        // routes that 404 (see FolioRouteAttributeListener), and its direct {folioCode}
+        // routes keep working unchanged.
         $services->set(FolioRouteAttributeListener::class)->autowire()->autoconfigure()->public()
             ->arg('$slugResolver', service(FolioSlugResolverInterface::class)->ignoreOnInvalid());
         $services->set(\Survos\FolioBundle\Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public()

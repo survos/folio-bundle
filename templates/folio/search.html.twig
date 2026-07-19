@@ -1,10 +1,7 @@
-{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+{% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
-{% set parts = ctx.folioCode|split('/') %}
-{% set provider = parts[0] %}
-{% set dataset = parts[1] %}
-{% set folioLabel = folio and folio.label ? folio.label : ctx.folioCode %}
-{% set hitOptions = { folioCode: ctx.folioCode, hitTemplate: 'search/hits/folio_row.html.twig' } %}
+{% set folioLabel = folio.label ?: folio.code %}
+{% set hitOptions = { folioCode: folio.code, hitTemplate: 'search/hits/folio_row.html.twig' } %}
 {% if selectedCore|default(null) %}
     {% set hitOptions = hitOptions|merge({coreCode: selectedCore}) %}
 {% endif %}
@@ -33,9 +30,9 @@
 
    The `@!` keeps inheriting THIS template, so `folio_search_core` (the actual ux-search
    call) stays shared and can never drift between apps. Available in the header block:
-   provider, dataset (slug), folio (entity), folioLabel, cores, selectedCore,
-   selectedDtoType, ctx — plus {{ block('folio_search_slideshow_button') }}, a ready-wired
-   button you can drop into your own layout.
+   folio (entity), folioLabel, cores, selectedCore, selectedDtoType, ctx — plus
+   {{ block('folio_search_slideshow_button') }}, a ready-wired button you can drop into
+   your own layout.
    ──────────────────────────────────────────────────────────────────────────────────── #}
 
 {% block title %}{{ folioLabel }} Search{% endblock %}
@@ -58,8 +55,7 @@
                                 {% set coreLabel = coreKey|trans({}, 'system') %}
                                 <a class="btn btn-sm {{ selectedCore|default(null) == core.code ? 'btn-primary' : 'btn-outline-secondary' }}"
                                 href="{{ path('survos_folio_core_search', {
-                                    provider: provider,
-                                    dataset: dataset,
+                                    folioCode: folio.code,
                                     coreCode: core.code
                                 }) }}">
                                     {{ coreLabel == coreKey ? core.code : coreLabel }}
@@ -177,9 +173,9 @@
         {# base = the unfiltered slideshow for this core; the controller appends a /{token} path segment.
            A pinned dtoType isn't a grid query param, so seed the initial href with it and hand it to the
            controller as a fixed filter to fold into every token it builds. #}
-        {% set slideshowBase = path('survos_folio_slideshow', {provider: provider, dataset: dataset, coreCode: selectedCore}) %}
+        {% set slideshowBase = path('survos_folio_slideshow', {folioCode: folio.code, coreCode: selectedCore}) %}
         {% set initialUrl = selectedDtoType|default(null)
-            ? path('survos_folio_slideshow_filtered', {provider: provider, dataset: dataset, coreCode: selectedCore, filter: slideshow_filter({dtoType: selectedDtoType})})
+            ? path('survos_folio_slideshow_filtered', {folioCode: folio.code, coreCode: selectedCore, filter: slideshow_filter({dtoType: selectedDtoType})})
             : slideshowBase %}
         <a class="btn btn-sm btn-outline-primary ms-auto"
            href="{{ initialUrl }}"
@@ -203,7 +199,7 @@
     {# Nothing to plot if no core has any geolocated rows (Core::$geoCount, set at ingest —
        see FolioIngestService) — hide rather than send visitors to an empty map. #}
     {% if cores|filter(c => c.geoCount > 0)|length > 0 %}
-        {% set mapBase = path('survos_folio_map', {provider: provider, dataset: dataset}) %}
+        {% set mapBase = path('survos_folio_map', {folioCode: folio.code}) %}
         <a class="btn btn-sm btn-outline-primary"
            href="{{ mapBase }}"
            data-controller="slideshow-link"

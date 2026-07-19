@@ -1,0 +1,35 @@
+{% extends '@SurvosFolioBundle/folio/row/document.html.twig' %}
+
+{# trans_default_domain is per-template-file, not inherited through {% extends %} — see the note
+   in row/document.html.twig. #}
+{% trans_default_domain 'folio' %}
+
+{# postcard is a document (transcription-forward reading experience, inherited from
+   row/document.html.twig) that also carries its own publisher/postmark/message/addressee facts
+   — PostcardDto-only properties the generic FolioNarrative component leaves in its collapsed
+   Details section (see FolioNarrative::baseItemPropertyNames()). Promote the ones a reader
+   actually wants to see without expanding Details. This is the row -> document -> postcard
+   chain: three levels of {% extends %}, each adding only what differs at that level. #}
+{% block folio_narrative %}
+    {{ parent() }}
+
+    {% if dto and (dto.message or dto.addressee or dto.postmarkDate or dto.publisher) %}
+        <ul class="folio-narrative__facts list-unstyled mt-2 mb-0">
+            {% if dto.publisher %}
+                <li>{{ 'narrative.published_by'|trans }} {{ dto.publisher }}{% if dto.pubPlace %}, {{ dto.pubPlace }}{% endif %}</li>
+            {% endif %}
+            {% if dto.postmarkDate %}
+                <li>{{ 'narrative.postmarked'|trans }} {{ dto.postmarkDate }}</li>
+            {% endif %}
+            {% if dto.addressee %}
+                <li>{{ 'narrative.addressed_to'|trans }} {{ dto.addressee }}</li>
+            {% endif %}
+        </ul>
+
+        {% if dto.message %}
+            <blockquote class="folio-narrative__message mt-2 mb-0 fst-italic border-start ps-3">
+                {{ dto.message }}
+            </blockquote>
+        {% endif %}
+    {% endif %}
+{% endblock %}

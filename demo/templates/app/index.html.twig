@@ -26,8 +26,7 @@
         :caller="_self"
     >
         <twig:block name="uri">
-            {% set parts = row.dataset.datasetKey|split('/') %}
-            <a href="{{ path('survos_folio_show', {provider: parts[0], dataset: parts[1]}) }}">
+            <a href="{{ path('survos_folio_show', {folioCode: row.dataset.datasetKey}) }}">
                 {{ row.dataset.datasetKey }}
             </a>
             {% if row.dataset.label %}
@@ -40,10 +39,9 @@
         </twig:block>
 
         <twig:block name="dtoCounts">
-            {% set parts = row.dataset.datasetKey|split('/') %}
             {% if row.dtoCounts %}
                 {% for dtoType, count in row.dtoCounts %}
-                    <a href="{{ path('survos_folio_core', {provider: parts[0], dataset: parts[1], coreCode: 'obj', dto: dtoType}) }}"
+                    <a href="{{ path('survos_folio_core_dto', {folioCode: row.dataset.datasetKey, coreCode: 'obj', dtoType: dtoType}) }}"
                        class="badge bg-azure-lt text-decoration-none me-1 mb-1">
                         {{ dtoType|replace({'-': ' ', '_': ' '})|title }} <span class="ms-1 text-muted">{{ count }}</span>
                     </a>

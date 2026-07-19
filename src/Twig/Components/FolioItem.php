@@ -25,8 +25,9 @@ use Symfony\UX\TwigComponent\Attribute\ExposeInTemplate;
  *   <twig:folio:item provider="mus" dataset="cazma" coreCode="obj" localId="2157686" />
  *
  * Pointing prev/next at a host app's own chrome-preserving page (same placeholder-token
- * convention as PhotoGrid's rowUrlTemplate — defaults to folio-bundle's own chrome-free
- * survos_folio_row_show if not overridden):
+ * convention as PhotoGrid's rowUrlTemplate — only needed to override; left empty (the
+ * default) prev/next link straight to folio-bundle's own chrome-free survos_folio_row_show,
+ * generated directly with real values, no placeholder templating involved):
  *   <twig:folio:item provider="mus" dataset="cazma" coreCode="obj" localId="2157686"
  *       rowUrlTemplate="{{ path('tenant_photo_show', {tenantCode: 'cazma', localId: '__LOCAL_ID__'}) }}" />
  */
@@ -38,7 +39,11 @@ final class FolioItem
     public string $coreCode = '';
     public string $localId = '';
 
-    /** Placeholder-token URL template for prev/next — same tokens as PhotoGrid::$rowUrlTemplate. */
+    /**
+     * Optional override — same tokens/purpose as PhotoGrid::$rowUrlTemplate. Left empty (the
+     * default) means buildAdjacentUrl() generates survos_folio_row_show directly with real
+     * values, no placeholder templating needed.
+     */
     public string $rowUrlTemplate = '';
 
     /**
@@ -75,13 +80,7 @@ final class FolioItem
         $this->coreCode = $coreCode;
         $this->localId = $localId;
         $this->useIiifViewer = $useIiifViewer;
-        $this->rowUrlTemplate = $rowUrlTemplate ?? $this->urlGenerator->generate('survos_folio_row_show', [
-            'provider' => '__PROVIDER__',
-            'dataset' => '__DATASET__',
-            'coreCode' => '__CORE_CODE__',
-            'dtoType' => '__DTO_TYPE__',
-            'localId' => '__LOCAL_ID__',
-        ]);
+        $this->rowUrlTemplate = $rowUrlTemplate ?? '';
     }
 
     #[ExposeInTemplate]
@@ -122,8 +121,7 @@ final class FolioItem
         }
 
         return $this->urlGenerator->generate('survos_folio_row_show', [
-            'provider' => $this->provider,
-            'dataset' => $this->dataset,
+            'folioCode' => "$this->provider/$this->dataset",
             'coreCode' => $this->coreCode,
             'dtoType' => $row->dtoType ?: 'row',
             'localId' => $this->localId,
@@ -209,9 +207,18 @@ final class FolioItem
             return null;
         }
 
+        if ($this->rowUrlTemplate === '') {
+            return $this->urlGenerator->generate('survos_folio_row_show', [
+                'folioCode' => "$this->provider/$this->dataset",
+                'coreCode' => $this->coreCode,
+                'dtoType' => $target['dtoType'],
+                'localId' => $target['localId'],
+            ]);
+        }
+
         return str_replace(
-            ['__PROVIDER__', '__DATASET__', '__CORE_CODE__', '__DTO_TYPE__', '__LOCAL_ID__'],
-            [$this->provider, $this->dataset, $this->coreCode, $target['dtoType'], $target['localId']],
+            ['__CORE_CODE__', '__DTO_TYPE__', '__LOCAL_ID__'],
+            [$this->coreCode, $target['dtoType'], $target['localId']],
             $this->rowUrlTemplate,
         );
     }
