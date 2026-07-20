@@ -8,6 +8,7 @@ use Survos\FolioBundle\Entity\Core;
 use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Service\FolioService;
+use Survos\FolioBundle\Service\RowClaimsResolver;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -33,6 +34,7 @@ final class FolioAiController extends AbstractController
 {
     public function __construct(
         private readonly FolioService $folios,
+        private readonly RowClaimsResolver $rowClaimsResolver,
         private readonly HttpClientInterface $httpClient,
         #[Autowire('%env(MEDIARY_AI_URL)%')]
         private readonly string $endpoint,
@@ -104,6 +106,11 @@ final class FolioAiController extends AbstractController
             }
         }
 
+        // Claims already recorded against this item (from a previous folio:build) — a fresh run's
+        // result isn't in here yet, since claims land on the NEXT build, not synchronously; this is
+        // "what's already known", not "what this run just produced".
+        $claims = $this->rowClaimsResolver->resolve($ctx->em->getConnection(), $row->id);
+
         return $this->render('@SurvosFolioBundle/folio/ai.html.twig', [
             'ctx' => $ctx,
             'folio' => $folio,
@@ -118,6 +125,7 @@ final class FolioAiController extends AbstractController
             'result' => $result,
             'error' => $error,
             'persisted' => $persisted,
+            'claims' => $claims,
         ]);
     }
 }

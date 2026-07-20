@@ -14,7 +14,7 @@ use Survos\FolioBundle\Menu\RowMenu;
 use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowTermsResolver};
+use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowTermsResolver};
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\Kit\AbstractUxBundle;
@@ -119,6 +119,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $services->set(FolioChatTools::class)->autowire()->autoconfigure()->public();
         $services->set(FolioWordCloudService::class)->autowire()->autoconfigure()->public();
         $services->set(RowTermsResolver::class)->autowire()->autoconfigure()->public();
+        $services->set(RowClaimsResolver::class)->autowire()->autoconfigure()->public();
         $services->set(FolioChatPromptSuggester::class)->autowire()->autoconfigure()->public();
         $services->set(FolioChatService::class)->autowire()->autoconfigure()->public()->args([
             '$agent' => new Reference('ai.agent.folio', ContainerInterface::NULL_ON_INVALID_REFERENCE),

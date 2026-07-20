@@ -1,0 +1,50 @@
+{# Shared claims card — predicate/value/source/confidence/agent — used by both row/show.html.twig
+   and ai.html.twig (the task-runner page shows the same claims the row's own page does, so what's
+   already known about the item is visible right where you're about to add to it).
+   Usage: {{ include('@SurvosFolioBundle/folio/_claims_table.html.twig', {claims: claims}) }} #}
+{% if claims|default([]) is not empty %}
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h2 class="card-title mb-0">Claims <span class="text-muted">({{ claims|length }})</span></h2>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-vcenter card-table">
+                <tbody>
+                    {# Multi-valued predicates (dcterms:subject above all -- a photo can assert a
+                       dozen of these) would otherwise repeat their own name once per value. Claims
+                       are ordered by (source, predicate) -- not predicate alone -- so the same
+                       predicate can appear in more than one place if multiple sources assert it;
+                       a real group-by (not just a consecutive/adjacent check) handles that
+                       correctly. Twig has no built-in group-by filter yet, hence the manual
+                       seen-predicates check -- revisit if a future Twig version adds one. #}
+                    {% set seenPredicates = [] %}
+                    {% for claim in claims %}
+                        {% if claim.predicate not in seenPredicates %}
+                            {% set seenPredicates = seenPredicates|merge([claim.predicate]) %}
+                            <tr>
+                                <th class="w-25 align-top font-monospace text-muted">
+                                    {{ claim.predicate }}
+                                </th>
+                                <td>
+                                    {% for c in claims|filter(c => c.predicate == claim.predicate) %}
+                                        <div style="white-space: pre-wrap; word-break: break-word;">{{ c.value }}</div>
+                                        <div class="text-muted small {{ loop.last ? 'mt-1' : 'mb-2 pb-2 border-bottom' }}">
+                                            <span class="badge text-bg-light border">{{ c.source }}</span>
+                                            {% if c.confidence is not null %}
+                                                <span title="confidence">{{ (c.confidence * 100)|round }}%</span>
+                                            {% endif %}
+                                            {% if c.agent %}
+                                                <span class="mx-1">&middot;</span><span class="font-monospace">{{ c.agent }}</span>
+                                            {% endif %}
+                                        </div>
+                                    {% endfor %}
+                                </td>
+                            </tr>
+                        {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endif %}

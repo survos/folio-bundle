@@ -7,7 +7,7 @@ namespace Survos\FolioBundle\Controller;
 use Doctrine\DBAL\Connection;
 use Survos\DataContracts\Dto\Item\BaseItemDto;
 use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Page,Row,Term,TermSet};
-use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService,RowTermsResolver};
+use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService,RowClaimsResolver,RowTermsResolver};
 use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
@@ -60,6 +60,7 @@ final class FolioController extends AbstractController
         private readonly Environment $twig,
         private readonly HttpClientInterface $httpClient,
         private readonly RowTermsResolver $rowTermsResolver,
+        private readonly RowClaimsResolver $rowClaimsResolver,
         private readonly ?ImgproxyUrlBuilder $imgproxy = null,
     ) {}
 
@@ -1332,8 +1333,8 @@ final class FolioController extends AbstractController
             ? $dtoClass::fromNormalized($row->dtoData ?? [])
             : null;
         $pageTableExists = $this->tableExists($ctx->em->getConnection(), 'page');
-        $claims = $this->rowClaims($ctx->em->getConnection(), $row->id);
-        $aiTaskRuns = $this->aiTaskRuns($claims);
+        $claims = $this->rowClaimsResolver->resolve($ctx->em->getConnection(), $row->id);
+        $aiTaskRuns = $this->rowClaimsResolver->aiTaskRuns($claims);
         $links = $this->rowLinks($ctx->em, $folio->code, $coreCode, $localId);
         $terms = $this->rowTermsResolver->resolve($ctx->em, $folio->code, $row->dtoData ?? [], $row->extras ?? []);
         $adjacent = $this->adjacentRows($ctx->em->getConnection(), $core->id, $localId);
@@ -1402,15 +1403,22 @@ final class FolioController extends AbstractController
             UrlGeneratorInterface::ABSOLUTE_URL,
         );
 
+        // Route through imgproxy (the 'archive' preset: original resolution, metadata kept)
+        // rather than embedding the raw source URL — many source CDNs (museum/library
+        // image hosts) send no Access-Control-Allow-Origin header, which breaks IIIF
+        // viewers like diva.js/OpenSeadragon that load canvas images in CORS mode.
+        // imgproxy re-serves same-origin, sidestepping the third-party CORS gap entirely.
+        $format = $this->imgproxy ? 'image/webp' : 'image/jpeg';
+
         $images = [];
         if ($this->tableExists($ctx->em->getConnection(), 'page')) {
             // Pages are the canonical imagery — one canvas per page, in seq order.
             foreach ($row->pages as $page) {
                 $images[] = [
-                    'url' => $page->url,
+                    'url' => $this->imgproxy?->resizePreset($page->url, 'archive') ?? $page->url,
                     'width' => $page->width ?? 1000,
                     'height' => $page->height ?? 1000,
-                    'format' => 'image/jpeg',
+                    'format' => $format,
                 ];
             }
         }
@@ -1419,7 +1427,7 @@ final class FolioController extends AbstractController
             $data = $row->dtoData ?? [];
             $url = $data['largeImageUrl'] ?? $data['thumbnailUrl'] ?? null;
             if (is_string($url) && $url !== '') {
-                $images = [['url' => $url, 'width' => (int) ($data['width'] ?? 1000), 'height' => (int) ($data['height'] ?? 1000), 'format' => 'image/jpeg']];
+                $images = [['url' => $this->imgproxy?->resizePreset($url, 'archive') ?? $url, 'width' => (int) ($data['width'] ?? 1000), 'height' => (int) ($data['height'] ?? 1000), 'format' => $format]];
             }
         }
 
@@ -1570,45 +1578,6 @@ final class FolioController extends AbstractController
             'columns'     => $columns,
             'schemaTable' => $schemaTable,
         ]);
-    }
-
-    /**
-     * Claims recorded against a row (AI/OCR/human assertions), e.g. produced by
-     * running ai-workflow tasks via mediary and landed in the folio `claim` table.
-     *
-     * @return list<array<string,mixed>>
-     */
-    private function rowClaims(Connection $conn, string $itemId): array
-    {
-        if (!$this->tableExists($conn, 'claim')) {
-            return [];
-        }
-
-        return $conn->executeQuery(
-            'SELECT predicate, value, source, confidence, agent, claimed_at, run_id FROM claim WHERE item_id = ? ORDER BY source, predicate',
-            [$itemId],
-        )->fetchAllAssociative();
-    }
-
-    /**
-     * @param list<array<string,mixed>> $claims
-     * @return array<string,string> task/source key => ClaimRun id
-     */
-    private function aiTaskRuns(array $claims): array
-    {
-        $runs = [];
-        foreach ($claims as $claim) {
-            $source = $claim['source'] ?? null;
-            $runId = $claim['run_id'] ?? null;
-            if (!is_string($source) || $source === '' || !is_string($runId) || $runId === '') {
-                continue;
-            }
-
-            $task = str_starts_with($source, 'ai:') ? substr($source, 3) : $source;
-            $runs[$task] ??= $runId;
-        }
-
-        return $runs;
     }
 
     /**

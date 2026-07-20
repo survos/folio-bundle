@@ -25,25 +25,9 @@
             </div>
 
             <div class="col-lg-7">
-                {% set base = {folioCode: row.folioCode, coreCode: core.code, localId: row.localId, page: pageIndex} %}
-                <div class="btn-list mb-3">
-                    {# OCR (typeset text). ocr_mistral works today; a free tesseract task is the next mediary lever. #}
-                    <a class="btn {{ task == 'ocr_mistral' ? 'btn-primary' : 'btn-outline-primary' }} js-ai-task"
-                       href="{{ path('survos_folio_ai', base|merge({task: 'ocr_mistral', run: 1})) }}">
-                        {{ ux_icon('tabler:file-text') }} OCR
-                    </a>
-                    {# Handwriting (vision). Needs a mediary 'handwriting' task; errors surface below until wired. #}
-                    <a class="btn {{ task == 'handwriting' ? 'btn-primary' : 'btn-outline-primary' }} js-ai-task"
-                       href="{{ path('survos_folio_ai', base|merge({task: 'handwriting', run: 1})) }}">
-                        {{ ux_icon('tabler:writing') }} Handwriting
-                    </a>
-                </div>
-
-                <div id="ai-spinner" class="d-none align-items-center gap-2 text-muted my-4">
-                    <span class="spinner-border" role="status" aria-hidden="true"></span>
-                    <span>Running <strong>{{ task ?: 'task' }}</strong> via mediary — this can take a moment…</span>
-                </div>
-
+                {# OCR/Handwriting task switching is RowMenu's PAGE_ACTIONS bar (top of page) —
+                   it linked to the exact same survos_folio_ai route+task this page's own buttons
+                   used to, so having both was pure duplication, not two different features. #}
                 {% if error %}
                     <div class="alert alert-warning"><strong>mediary:</strong> {{ error }}</div>
                 {% elseif run and result is not null %}
@@ -73,7 +57,7 @@
                         {% endif %}
                     {% endif %}
                 {% else %}
-                    <p class="text-muted">Pick a task above to run it. Nothing is computed (or charged) until you click — mediary caches the result on S3 and records claims; the text is also written straight onto this page so it shows immediately.</p>
+                    <p class="text-muted">Pick OCR or Handwriting from the menu above to run it. Nothing is computed (or charged) until you click — mediary caches the result on S3 and records claims; the text is also written straight onto this page so it shows immediately.</p>
                     {% if page and page.text %}
                         <div class="card mt-3">
                             <div class="card-header"><h2 class="card-title mb-0">Current text</h2></div>
@@ -85,15 +69,10 @@
                 {% endif %}
             </div>
         </div>
-    </div>
 
-    {# Reveal the spinner on click — the run is a full-page sync request, so this gives feedback while it loads. #}
-    <script>
-        document.querySelectorAll('.js-ai-task').forEach(function (el) {
-            el.addEventListener('click', function () {
-                var s = document.getElementById('ai-spinner');
-                if (s) { s.classList.remove('d-none'); s.classList.add('d-flex'); }
-            });
-        });
-    </script>
+        {# What's already known about this item — from a previous folio:build, not this run (claims
+           land on the NEXT build, not synchronously; see FolioAiController's docblock). Same card
+           row/show.html.twig uses, so a claim this run adds shows up here identically later. #}
+        {{ include('@SurvosFolioBundle/folio/_claims_table.html.twig', {claims: claims}) }}
+    </div>
 {% endblock %}
