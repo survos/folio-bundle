@@ -252,6 +252,9 @@
                         <div id="doc-viewer" class="card mb-3">
                             <div class="card-body">
                                 {% for page in audioPages %}
+                                    {% if page.denseSummary %}
+                                        <div class="small text-muted mb-1">{{ page.denseSummary }}</div>
+                                    {% endif %}
                                     <audio controls preload="metadata" class="w-100{{ not loop.last ? ' mb-3' : '' }}">
                                         <source src="{{ page.url }}">
                                         Your browser can't play this audio — <a href="{{ page.url }}">download it</a>.
