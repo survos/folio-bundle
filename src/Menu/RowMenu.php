@@ -62,12 +62,15 @@ final class RowMenu
         // BookmarkService) and this is where the user picks/creates a folder and jots why.
         $this->add($menu, 'app_bookmark_row', $rp, 'Bookmark', icon: 'tabler:bookmark');
 
-        // Ask document / Ask page / OCR / Handwriting only make sense once there's imagery to
-        // work from — same gate the bundle's own folio_detail_actions block uses (see
-        // detail.html.twig: pageAiUrls|length > 0 or th).
-        if (!$row->pages->isEmpty()) {
-            $this->add($menu, 'survos_folio_item_chat', $rp, 'Ask document', icon: 'tabler:sparkles');
+        // Ask document ("Ask the Scholar") chats off the row's DTO metadata/description — it
+        // renders fine with zero pages (item_chat.html.twig has an explicit "No image available"
+        // / no-pages fallback), so it belongs on every row, not just image-bearing ones. This used
+        // to be gated the same as OCR/Handwriting/Ask page (which genuinely need Page entities to
+        // work from) and silently disappeared for page-less rows (e.g. a YouTube video item) as a
+        // result — that was the wrong spot for this gate, not a deliberate restriction.
+        $this->add($menu, 'survos_folio_item_chat', $rp, 'Ask document', icon: 'tabler:sparkles');
 
+        if (!$row->pages->isEmpty()) {
             if ($row->pages->count() > 1) {
                 $this->add(
                     $menu,

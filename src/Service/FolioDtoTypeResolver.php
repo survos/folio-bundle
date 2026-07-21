@@ -27,6 +27,12 @@ final class FolioDtoTypeResolver
         ContentType::DOCUMENT,
         ContentType::EPHEMERA,
         ContentType::POSTCARD,
+        // A YouTube interview's real content is its transcript (BaseItemDto::$ocrText), not the
+        // video thumbnail — same "transcription-forward" reasoning as a scanned document, even
+        // though the source medium is audio/video rather than paper. See musdig#24 for where this
+        // is headed (a reusable story/interview aggregate); this is just today's small fix.
+        ContentType::FILM,
+        ContentType::AUDIO,
     ];
 
     /**
