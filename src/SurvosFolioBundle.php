@@ -55,6 +55,14 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('Base URL of the live folio site — hosts the full folio UX and the folio archive API. Used for browse links and as the default folio:pull source (GET <server>/folio/list.json).')
                 ->defaultValue('https://zm.survos.com')
             ->end()
+            ->scalarNode('folio_server_route_prefix')
+                ->info('The REMOTE folio_server\'s own route_prefix (e.g. zm\'s "/f") — used only to build folio:build\'s browse/search links. Deliberately separate from this app\'s own `route_prefix`: a producer app (folio_server set, routes_enabled false) has no reliable way to know the remote host\'s prefix from its own config, and the two are not guaranteed to match. Null falls back to this app\'s own `route_prefix`, which is only correct when folio_server\'s prefix happens to be the same.')
+                ->defaultNull()
+            ->end()
+            ->scalarNode('folio_server_locale_prefix')
+                ->info('Set when folio_server ALSO has `locale_prefix: true` (e.g. zm), so its folio routes are `/{_locale}/f/{folioCode}`, not just `/f/{folioCode}` — a browse link missing the locale segment 404s. Value is the locale to link to (e.g. "en"); null omits the segment entirely.')
+                ->defaultNull()
+            ->end()
             ->scalarNode('search_route')
                 ->info('Host-app route that lists/searches datasets (e.g. zm\'s `app_search`). Set to enable provider breadcrumb links; null leaves the provider as plain text.')
                 ->defaultNull()
@@ -159,6 +167,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $services->set(FolioBuildCommand::class)->autowire()->autoconfigure()->public()->args([
             '$folioServer' => $config['folio_server'],
             '$routePrefix' => $config['route_prefix'],
+            '$folioServerRoutePrefix' => $config['folio_server_route_prefix'],
+            '$folioServerLocalePrefix' => $config['folio_server_locale_prefix'],
             '$kernelDebug' => '%kernel.debug%',
         ]);
         // Same "null if the optional collaborator isn't installed" pattern as FolioRegistry above

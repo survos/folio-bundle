@@ -54,7 +54,17 @@ final class FolioBuildCommand implements SignalableCommandInterface
         private readonly ?EventDispatcherInterface $dispatcher = null,
         private readonly bool $kernelDebug = false,
         private readonly ?string $folioServer = null,
+        private readonly ?string $folioServerRoutePrefix = null,
+        private readonly ?string $folioServerLocalePrefix = null,
     ) {}
+
+    /** '' when unset, else '/xx' — the folio_server's locale segment (see folio_server_locale_prefix config). */
+    private function folioServerLocaleSegment(): string
+    {
+        return $this->folioServerLocalePrefix !== null && $this->folioServerLocalePrefix !== ''
+            ? '/' . $this->folioServerLocalePrefix
+            : '';
+    }
 
     public function __invoke(
         SymfonyStyle $io,
@@ -445,42 +455,47 @@ final class FolioBuildCommand implements SignalableCommandInterface
     /**
      * Absolute, clickable browse URL. folio_server supplies the host when the UX lives on
      * another app; otherwise the router's framework.router.default_uri provides scheme+host.
+     *
+     * When folio_server is set, the path is built from folioServerRoutePrefix (or, if unset,
+     * routePrefix) directly — NEVER from this app's own urlGenerator. This app's compiled
+     * routes reflect ITS OWN route_prefix config (often deliberately unset here, since a
+     * producer app like md sets routes_enabled: false and has no folio UX of its own), which
+     * has no bearing on how the REMOTE folio_server actually serves folio pages — e.g. md's
+     * FolioController route compiles unprefixed while zm's serves the same folios under "/f"
+     * (a separate, known bug: a generic `resource: routing.controllers` loader can register
+     * folio-bundle's controllers unprefixed regardless of routes_enabled/route_prefix). Using
+     * the local urlGenerator here would silently produce a URL valid for THIS app's (possibly
+     * nonexistent or differently-prefixed) routes, not the remote one actually being linked to.
      */
     private function browseLink(string $datasetKey): string
     {
         [$provider, $dataset] = array_pad(explode('/', $datasetKey, 2), 2, $datasetKey);
-        $params = ['folioCode' => $datasetKey];
+
+        if ($this->folioServer !== null && $this->folioServer !== '') {
+            return rtrim($this->folioServer, '/') . $this->folioServerLocaleSegment() . ($this->folioServerRoutePrefix ?? $this->routePrefix) . '/' . $provider . '/' . $dataset;
+        }
 
         try {
-            if ($this->folioServer !== null && $this->folioServer !== '') {
-                return rtrim($this->folioServer, '/') . $this->urlGenerator->generate('survos_folio_show', $params);
-            }
-
-            return $this->urlGenerator->generate('survos_folio_show', $params, UrlGeneratorInterface::ABSOLUTE_URL);
+            return $this->urlGenerator->generate('survos_folio_show', ['folioCode' => $datasetKey], UrlGeneratorInterface::ABSOLUTE_URL);
         } catch (RouteNotFoundException) {
-            // UX not installed here (registry-only app) and no folio_server configured.
-            $base = $this->folioServer !== null && $this->folioServer !== '' ? rtrim($this->folioServer, '/') : '';
-
-            return $base . $this->routePrefix . '/' . $provider . '/' . $dataset;
+            // UX not installed here (registry-only app) and no folio_server configured either.
+            return $this->routePrefix . '/' . $provider . '/' . $dataset;
         }
     }
 
-    /** Deep link to a single core's search within the folio (e.g. .../search/obj). */
+    /** Deep link to a single core's search within the folio (e.g. .../search/obj). See browseLink() for why folio_server bypasses the local urlGenerator. */
     private function coreLink(string $datasetKey, string $coreCode): string
     {
         [$provider, $dataset] = array_pad(explode('/', $datasetKey, 2), 2, $datasetKey);
-        $params = ['folioCode' => $datasetKey, 'coreCode' => $coreCode];
+
+        if ($this->folioServer !== null && $this->folioServer !== '') {
+            return rtrim($this->folioServer, '/') . $this->folioServerLocaleSegment() . ($this->folioServerRoutePrefix ?? $this->routePrefix) . '/' . $provider . '/' . $dataset . '/search/' . $coreCode;
+        }
 
         try {
-            if ($this->folioServer !== null && $this->folioServer !== '') {
-                return rtrim($this->folioServer, '/') . $this->urlGenerator->generate('survos_folio_core_search', $params);
-            }
-
-            return $this->urlGenerator->generate('survos_folio_core_search', $params, UrlGeneratorInterface::ABSOLUTE_URL);
+            return $this->urlGenerator->generate('survos_folio_core_search', ['folioCode' => $datasetKey, 'coreCode' => $coreCode], UrlGeneratorInterface::ABSOLUTE_URL);
         } catch (RouteNotFoundException) {
-            $base = $this->folioServer !== null && $this->folioServer !== '' ? rtrim($this->folioServer, '/') : '';
-
-            return $base . '/folio/' . $provider . '/' . $dataset . '/search/' . $coreCode;
+            return $this->routePrefix . '/' . $provider . '/' . $dataset . '/search/' . $coreCode;
         }
     }
 
