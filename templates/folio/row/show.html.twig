@@ -75,6 +75,14 @@
        image page-set and render their content directly below instead. #}
     {% set textFilePages = pages|filter(p => p.url matches '/\\.txt($|\\?)/i') %}
     {% set pages = pages|filter(p => not (p.url matches '/\\.txt($|\\?)/i')) %}
+    {# Audio pages (interviews, oral histories, field recordings) are never an image/IIIF canvas —
+       same reasoning as textFilePages above. Filtered by page.type (set reliably by the
+       normalizer via PageType::Audio), not a URL-extension guess, since a CDN audio URL doesn't
+       always end in a recognizable audio extension. Pulled out of `pages` BEFORE hasOcr/
+       isSingleImage/pageTexts below compute from it — an audio page must never count toward
+       those or trigger the OSD/image viewer. #}
+    {% set audioPages = pages|filter(p => p.type and p.type.value == 'audio') %}
+    {% set pages = pages|filter(p => not (p.type and p.type.value == 'audio')) %}
     {% set pageTexts = pages|map(p => p.text|default('')) %}
     {# Mistral structured layout per page (typed blocks + bboxes). When present the viewer renders the
        pretty, layout-aware version; otherwise it falls back to the flat OCR text (pageTexts). #}
@@ -195,7 +203,7 @@
             </div>
             {% endblock %}
 
-            {% if pages|length > 0 and (hasOcr or hasLayout or hasHtr) and not isSingleImage and videoPages|length == 0 %}
+            {% if pages|length > 0 and (hasOcr or hasLayout or hasHtr) and not isSingleImage and videoPages|length == 0 and audioPages|length == 0 %}
                 <div class="folio-viewer-toolbar-card">
                     <div class="card-header d-flex flex-column flex-md-row align-items-md-center justify-content-end gap-3">
                         <div class="btn-group folio-view-mode-control" role="group" aria-label="Document viewer mode">
@@ -240,7 +248,48 @@
             <div class="row row-cards folio-viewer-grid" id="folio-viewer-grid" data-viewer-mode="side-by-side">
                 <div class="col-lg-8" id="doc-main-col">
                     {% block folio_main_column %}
-                    {% if videoPages|length > 0 %}
+                    {% if audioPages|length > 0 %}
+                        <div id="doc-viewer" class="card mb-3">
+                            <div class="card-body">
+                                {% for page in audioPages %}
+                                    <audio controls preload="metadata" class="w-100{{ not loop.last ? ' mb-3' : '' }}">
+                                        <source src="{{ page.url }}">
+                                        Your browser can't play this audio — <a href="{{ page.url }}">download it</a>.
+                                    </audio>
+                                    {% if page.dialogue %}
+                                        {# Speaker-turn transcript: list<{speaker, text, startMs, endMs}> — see
+                                           Page::$dialogue. A new speaker gets its own heading; consecutive
+                                           segments from the same speaker (or with no speaker at all — TEI's
+                                           unattributed stage-direction lines) just continue the paragraph. #}
+                                        {# JsonlWriter's DTO serialization drops null values recursively, including
+                                           inside this array (an unattributed segment's "speaker" key is simply
+                                           absent on disk, not present-as-null) — |default(null) is required here
+                                           because this app runs Twig with strict_variables. #}
+                                        <div class="folio-dialogue mt-3 mb-4">
+                                            {% set lastSpeaker = null %}
+                                            {% for segment in page.dialogue %}
+                                                {% set speaker = segment.speaker|default(null) %}
+                                                {% if speaker and speaker != lastSpeaker %}
+                                                    <div class="fw-bold text-primary mt-3">{{ speaker }}</div>
+                                                    {% set lastSpeaker = speaker %}
+                                                {% elseif not speaker %}
+                                                    {% set lastSpeaker = null %}
+                                                {% endif %}
+                                                <p class="mb-1{{ speaker ? '' : ' text-muted small' }}">{{ segment.text|default('') }}</p>
+                                            {% endfor %}
+                                        </div>
+                                    {% elseif page.text %}
+                                        <p class="text-muted mt-3" style="white-space: pre-line">{{ page.text }}</p>
+                                    {% endif %}
+                                    {% if not loop.last %}<hr class="my-4">{% endif %}
+                                {% endfor %}
+                            </div>
+                            <div class="card-footer py-2 small text-muted">
+                                {{ audioPages|length }} audio part{{ audioPages|length > 1 ? 's' : '' }}
+                            </div>
+                        </div>
+
+                    {% elseif videoPages|length > 0 %}
                         <div id="doc-viewer" class="card mb-3">
                             <div class="card-body">
                                 {% for page in videoPages %}

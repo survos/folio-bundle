@@ -33,6 +33,7 @@ final class FolioDtoTypeResolver
         // is headed (a reusable story/interview aggregate); this is just today's small fix.
         ContentType::FILM,
         ContentType::AUDIO,
+        ContentType::INTERVIEW,
     ];
 
     /**
