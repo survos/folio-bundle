@@ -21,6 +21,7 @@ final readonly class PageDto
     /**
      * @param array<string,mixed>|null $ledger
      * @param array<string,mixed>|null $layout
+     * @param list<array{speaker: ?string, text: string, startMs: ?int, endMs: ?int}>|null $dialogue
      */
     public function __construct(
         public string $coreCode,
@@ -34,6 +35,7 @@ final readonly class PageDto
         public ?string $denseSummary = null,
         public ?array $ledger = null,
         public ?array $layout = null,
+        public ?array $dialogue = null,
         public ?int $width = null,
         public ?int $height = null,
         /**

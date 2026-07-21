@@ -46,7 +46,7 @@ final class FolioIngestService
      */
     private const ITEM_COLUMNS = ['id', 'core_id', 'local_id', 'label', 'dto_type', 'dto_data', 'extras', 'raw'];
     private const LINK_COLUMNS = ['id', 'link_type_id', 'left_core', 'left_id', 'right_core', 'right_id', 'extras'];
-    private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'type', 'url', 'media_id', 'text', 'htr', 'dense_summary', 'ledger', 'layout', 'width', 'height'];
+    private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'type', 'url', 'media_id', 'text', 'htr', 'dense_summary', 'ledger', 'layout', 'dialogue', 'width', 'height'];
     private const CLAIM_COLUMNS = ['id', 'item_id', 'predicate', 'value', 'source', 'confidence', 'agent', 'claimed_at', 'meta', 'run_id'];
 
     public function __construct(
@@ -320,6 +320,7 @@ final class FolioIngestService
                 is_scalar($data['denseSummary'] ?? null) ? (string) $data['denseSummary'] : null,
                 $this->encodeJson(is_array($data['ledger'] ?? null) ? $data['ledger'] : null),
                 $this->encodeJson(is_array($data['layout'] ?? null) ? $data['layout'] : null),
+                $this->encodeJson(is_array($data['dialogue'] ?? null) ? $data['dialogue'] : null),
                 isset($data['width']) ? (int) $data['width'] : null,
                 isset($data['height']) ? (int) $data['height'] : null,
             ]);

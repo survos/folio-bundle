@@ -97,6 +97,19 @@ class Page
     #[ApiProperty('Per-page layout blocks (type + bbox) for region highlighting in the viewer')]
     public ?array $layout = null;
 
+    /**
+     * Speaker-attributed transcript segments for this page: list<{speaker: ?string, text: string,
+     * startMs: ?int, endMs: ?int}> — from a TEI transcript, VTT captions, or an AssemblyAI-style
+     * diarized response. Distinct from $text (the flat fallback every renderer already understands)
+     * and $ledger (tabular/bbox extraction — a different shape for a different kind of source).
+     * Any field a given source can't provide (e.g. TEI has no timing, plain captions have no speaker)
+     * is simply null on that segment.
+     */
+    #[ORM\Column(type: Types::JSON, nullable: true)]
+    #[ApiProperty('Speaker-attributed transcript segments: list<{speaker, text, startMs, endMs}>')]
+    #[Groups(['page:read'])]
+    public ?array $dialogue = null;
+
     #[ORM\Column(nullable: true)]
     #[ApiProperty('Pixel width')]
     #[Groups(['page:read'])]
