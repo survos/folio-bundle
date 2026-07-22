@@ -7,6 +7,12 @@
   ],
   "symfony": {
     "controllers": {
+      "audio-transcript": {
+        "main": "controllers/audio_transcript_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
+      },
       "chat": {
         "main": "controllers/chat_controller.js",
         "enabled": true,

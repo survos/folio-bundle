@@ -68,6 +68,7 @@
     {{ tombstoneTitle }} · {{ ctx.folioCode }}
 {% endblock %}
 
+
 {% block body %}
     {% set pages = pageTableExists ? row.pages : [] %}
     {# Plain-text digital objects (e.g. NARA "ASCII Text" manifests) aren't an image/IIIF canvas —
@@ -268,7 +269,9 @@
                                            inside this array (an unattributed segment's "speaker" key is simply
                                            absent on disk, not present-as-null) — |default(null) is required here
                                            because this app runs Twig with strict_variables. #}
-                                        <div class="folio-dialogue mt-3 mb-4">
+                                        {% set audioTranscriptController = survos_stimulus('folio-bundle', 'audio-transcript') %}
+                                        <div class="folio-dialogue mt-3 mb-4"
+                                             {{ stimulus_controller(audioTranscriptController, { highlightMode: 'sentence' }) }}>
                                             {% set lastSpeaker = null %}
                                             {% for segment in page.dialogue %}
                                                 {% set speaker = segment.speaker|default(null) %}
@@ -278,7 +281,12 @@
                                                 {% elseif not speaker %}
                                                     {% set lastSpeaker = null %}
                                                 {% endif %}
-                                                <p class="mb-1{{ speaker ? '' : ' text-muted small' }}">{{ segment.text|default('') }}</p>
+                                                <p class="mb-1{{ speaker ? '' : ' text-muted small' }}"
+                                                   {% if segment.startMs is defined and segment.endMs is defined %}
+                                                       data-sync-segment
+                                                       data-start-ms="{{ segment.startMs }}"
+                                                       data-end-ms="{{ segment.endMs }}"
+                                                   {% endif %}>{% if segment.words is defined %}{% for word in segment.words %}<span data-sync-word data-start-ms="{{ word.startMs }}" data-end-ms="{{ word.endMs }}">{{ word.text }}</span>{{ not loop.last ? ' ' : '' }}{% endfor %}{% else %}{{ segment.text|default('') }}{% endif %}</p>
                                             {% endfor %}
                                         </div>
                                     {% elseif page.text %}
@@ -1146,4 +1154,3 @@
         </div>
     </div>
 {% endblock %}
-
