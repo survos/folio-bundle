@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Menu;
 
+use Survos\DataContracts\Metadata\ContentType;
+use Survos\FolioBundle\Entity\Page;
 use Survos\FolioBundle\Entity\Row;
+use Survos\FolioBundle\Enum\PageType;
 use Survos\TablerBundle\Event\MenuEvent;
 use Survos\TablerBundle\Menu\MenuBuilderTrait;
 use Survos\TablerBundle\Service\IconService;
 use Survos\TablerBundle\Service\RouteAliasService;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Routing\RouterInterface;
 
@@ -36,6 +40,8 @@ final class RowMenu
     use MenuBuilderTrait;
 
     public function __construct(
+        #[Autowire('%kernel.environment%')]
+        private readonly string $environment = 'prod',
         protected readonly ?RouterInterface $router = null,
         protected readonly ?RouteAliasService $routeAliasService = null,
         protected readonly ?IconService $iconService = null,
@@ -71,7 +77,13 @@ final class RowMenu
         $this->add($menu, 'survos_folio_item_chat', $rp, 'Ask document', icon: 'tabler:sparkles');
 
         if (!$row->pages->isEmpty()) {
-            if ($row->pages->count() > 1) {
+            // A row's pages are audio for interviews/film-as-audio content (AssemblyAI transcripts,
+            // TEI-parsed interview parts) — OCR/handwriting recognition is meaningless there, and
+            // "Ask page" scoped to one part of a multi-part interview has too little context to be
+            // worth a dedicated action (unlike a scanned document, where each page IS a distinct unit).
+            $isAudio = $row->pages->exists(static fn (int $i, Page $page): bool => $page->type === PageType::Audio);
+
+            if ($row->pages->count() > 1 && $row->dtoType !== ContentType::INTERVIEW) {
                 $this->add(
                     $menu,
                     'survos_folio_page_chat',
@@ -90,8 +102,12 @@ final class RowMenu
                 'localId' => $rp['localId'],
             ];
 
-            $this->add($menu, 'survos_folio_ai', $aiParams + ['task' => 'ocr_mistral', 'run' => 1, 'page' => 0], 'OCR', icon: 'tabler:file-text');
-            $this->add($menu, 'survos_folio_ai', $aiParams + ['task' => 'handwriting', 'run' => 1, 'page' => 0], 'Handwriting', icon: 'tabler:writing');
+            // 'dev'-only: OCR/handwriting recognition isn't tuned/reliable enough yet to expose to
+            // production users. Also never shown for audio, dev or not (see $isAudio above).
+            if ('dev' === $this->environment && !$isAudio) {
+                $this->add($menu, 'survos_folio_ai', $aiParams + ['task' => 'ocr_mistral', 'run' => 1, 'page' => 0], 'OCR', icon: 'tabler:file-text');
+                $this->add($menu, 'survos_folio_ai', $aiParams + ['task' => 'handwriting', 'run' => 1, 'page' => 0], 'Handwriting', icon: 'tabler:writing');
+            }
         }
 
         // Not wired yet — "share" hasn't been defined (copy link? citation? social?). Kept as a
