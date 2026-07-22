@@ -1149,6 +1149,10 @@ final class FolioIngestService
         // 'parts' (LOC's multi-part interview grouping — App\Enhance\LocSetRecordListener) is
         // consumed by writeNormalizedPages() into this row's Page entities, not a display field.
         unset($extras['parts']);
+        // 'needsRightsReview' (App\Enhance\YoutubeSetRecordListener) is a deliberate editorial
+        // flag (non-Creative-Commons license → true) kept on the row for a future curation
+        // facet/badge — not raw leftover data, but no UI consumes it yet either.
+        unset($extras['needsRightsReview']);
 
         return [$dtoData, $extras];
     }
