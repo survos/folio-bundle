@@ -1146,6 +1146,9 @@ final class FolioIngestService
         foreach (['obj', 'pla', 'per', 'org', 'coll', 'series', 'event'] as $relationCore) {
             unset($extras[$relationCore]);
         }
+        // 'parts' (LOC's multi-part interview grouping — App\Enhance\LocSetRecordListener) is
+        // consumed by writeNormalizedPages() into this row's Page entities, not a display field.
+        unset($extras['parts']);
 
         return [$dtoData, $extras];
     }
