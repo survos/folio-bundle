@@ -33,6 +33,17 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
 
     public function build(array $options = []): void
     {
+        // addFacet()/addAvailableSort() (below and in AbstractSearch) APPEND rather than
+        // replace, on the assumption that build() only ever runs once per instance. That's
+        // false whenever this shared/singleton search handles more than one folioCode
+        // within the same PHP process — worker-mode request reuse, or two search widgets
+        // on one page — so facets from a PRIOR build() leak into this one, and adapters
+        // relying on getFacets() (e.g. computing facet distributions) can end up out of
+        // sync with what the template expects, throwing "Facet distribution ... is not
+        // found". reset() (from AbstractSearch/ResetInterface) clears exactly that
+        // accumulating state; call it first so every build() starts from a clean slate.
+        $this->reset();
+
         $this->hitTemplate = isset($options['hitTemplate']) && is_string($options['hitTemplate']) ? $options['hitTemplate'] : null;
 
         $folioCode = isset($options['folioCode']) && is_string($options['folioCode']) ? $options['folioCode'] : null;

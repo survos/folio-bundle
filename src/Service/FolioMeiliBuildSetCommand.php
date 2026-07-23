@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Doctrine\DBAL\ArrayParameterType;
 use Survos\FolioBundle\Service\FolioMeiliDocumentBuilder;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\MeiliBundle\Service\IndexNameResolver;
@@ -63,6 +64,10 @@ final class FolioMeiliBuildSetCommand
         #[Option('Wait for Meilisearch task completion')] bool $wait = false,
         #[Option('Primary key field')] string $pk = 'id',
         #[Option('Create/sync the managed search key so the frontend can query (requires master key)')] bool $keys = false,
+        #[Option('Target index locale (e.g. en); resolves the index uid through IndexNameResolver instead of uidForRaw. Omit to write the raw/unsuffixed index.')] ?string $locale = null,
+        #[Option('Skip the --fields whitelist and index every dtoData key (still normalises ai:-prefixed aliases)')] bool $allFields = false,
+        #[Option('Which per-folio file variant to open — independent of --locale (which only names the index). Null opens each folio\'s default/source file; a value opens that locale\'s translated build. This is how one --locale index can be filled by two calls: natively-in-locale folios with --open-locale omitted, translated folios with --open-locale=<locale>.')] ?string $openLocale = null,
+        #[Option('Comma-separated dtoData.contentType allowlist (e.g. object,photograph,drawing,painting,print,sculpture). When set, scans EVERY core in the folio instead of just --core and filters per-item by this field — a provider\'s core code is schema/table naming, not a reliable content signal (e.g. NARA files real objects AND scanned text-document pages under the same "doc" core; contentType tells them apart). Omit to keep the legacy single-core behavior.')] ?string $contentTypes = null,
     ): int {
         if ($folioCodes === []) {
             $io->error('Provide at least one folio code.');
@@ -71,27 +76,41 @@ final class FolioMeiliBuildSetCommand
 
         $keep = array_values(array_filter(array_map('trim', explode(',', $fields)), static fn (string $f): bool => $f !== ''));
 
-        $uid = $this->indexNameResolver->uidForRaw($indexBase);
+        // isMultiLingual: true forces the "<base>_<locale>" uid unconditionally — this command's
+        // caller always wants one physical index per locale, regardless of the app-wide
+        // survos_meili.multiLingual toggle (which most apps here don't set).
+        $uid = $locale !== null
+            ? $this->indexNameResolver->uidFor($indexBase, $locale, isMultilingual: true)
+            : $this->indexNameResolver->uidForRaw($indexBase);
         if ($reset) {
             $this->meili->purge($uid);
         }
         $index = $this->meili->getOrCreateIndex($uid, primaryKey: $pk, autoCreate: true);
 
         // Settings first so the InstantSearch UI can auto-build facets from filterableAttributes.
-        $searchable = array_values(array_intersect(['title', 'description', 'caption', 'denseSummary', 'subjects', 'tags', 'country', 'city'], $keep));
+        $searchable = $allFields
+            ? ['title', 'description', 'caption', 'denseSummary', 'subjects', 'tags', 'country', 'city']
+            : array_values(array_intersect(['title', 'description', 'caption', 'denseSummary', 'subjects', 'tags', 'country', 'city'], $keep));
         $searchable[] = 'label';
-        $facetable = array_values(array_intersect(['year', 'subjects', 'tags', 'country', 'city'], $keep));
+        $facetable = $allFields
+            ? ['year', 'subjects', 'tags', 'country', 'city']
+            : array_values(array_intersect(['year', 'subjects', 'tags', 'country', 'city'], $keep));
         $index->updateSettings([
             'searchableAttributes' => array_values(array_unique($searchable)),
             'filterableAttributes' => array_merge(['provider', 'dataset', 'folioCode', 'coreCode'], $facetable),
-            'sortableAttributes' => array_values(array_intersect(['year'], $keep)),
+            'sortableAttributes' => $allFields ? ['year'] : array_values(array_intersect(['year'], $keep)),
         ]);
+
+        $contentTypeList = $contentTypes !== null
+            ? array_values(array_filter(array_map('trim', explode(',', $contentTypes)), static fn (string $t): bool => $t !== ''))
+            : null;
 
         $count = 0;
         $perFolio = [];
+        $failed = [];
         $taskUid = $this->uploader->uploadDocuments(
             $index,
-            $this->documents($folioCodes, $core, $keep, $count, $perFolio),
+            $this->documents($folioCodes, $core, $keep, $count, $perFolio, $failed, $openLocale, $allFields, $contentTypeList),
             $pk,
         );
 
@@ -111,9 +130,18 @@ final class FolioMeiliBuildSetCommand
         foreach ($perFolio as $folioCode => $n) {
             $io->writeln(sprintf('  %s: %d row(s)', $folioCode, $n));
         }
+
+        if ($failed !== []) {
+            $io->warning(sprintf('Skipped %d folio(s) that failed to open/read:', count($failed)));
+            foreach ($failed as $folioCode => $message) {
+                $io->writeln(sprintf('  %s: %s', $folioCode, $message));
+            }
+        }
+
         $io->success(sprintf(
-            'Indexed %d row(s) from %d folio(s) into %s%s',
+            'Indexed %d row(s) from %d/%d folio(s) into %s%s',
             $count,
+            count($folioCodes) - count($failed),
             count($folioCodes),
             $uid,
             $taskUid !== null ? sprintf(' (task %d)', $taskUid) : '',
@@ -125,45 +153,68 @@ final class FolioMeiliBuildSetCommand
     /**
      * @param list<string>          $folioCodes
      * @param list<string>          $keep
-     * @param array<string,int>     $perFolio  filled with per-folio row counts
+     * @param array<string,int>     $perFolio      filled with per-folio row counts
+     * @param array<string,string>  $failed        filled with folioCode => error message for folios that couldn't be read
+     * @param list<string>|null     $contentTypes  when set, scans every core and filters by dtoData.contentType instead of a fixed --core
      * @return \Generator<array<string,mixed>>
      */
-    private function documents(array $folioCodes, string $core, array $keep, int &$count, array &$perFolio): \Generator
+    private function documents(array $folioCodes, string $core, array $keep, int &$count, array &$perFolio, array &$failed, ?string $openLocale, bool $allFields, ?array $contentTypes): \Generator
     {
-        $sql = <<<'SQL'
-SELECT i.id, i.local_id, i.label, i.dto_type, i.dto_data, i.extras
+        // Core code is schema/table naming, not a content signal — the same folio can file real
+        // objects and scanned text-document pages under the same core (see NARA). $contentTypes
+        // filters on the item's actual dtoData.contentType across every core in the folio instead.
+        $sql = $contentTypes !== null
+            ? <<<'SQL'
+SELECT i.id, i.local_id, i.label, i.dto_type, i.dto_data, i.extras, c.code AS core_code
+FROM item i
+JOIN core c ON c.id = i.core_id
+WHERE json_extract(i.dto_data, '$.contentType') IN (:contentTypes)
+ORDER BY i.id
+SQL
+            : <<<'SQL'
+SELECT i.id, i.local_id, i.label, i.dto_type, i.dto_data, i.extras, c.code AS core_code
 FROM item i
 JOIN core c ON c.id = i.core_id
 WHERE c.code = :core
 ORDER BY i.id
 SQL;
 
+        // At the scale folio:meili:build-all runs this at (thousands of independently-built
+        // folios), a single stale/moved/schema-drifted file is expected, not exceptional — one
+        // bad folio must not abort the whole streamed upload. Skip and keep going.
         foreach ($folioCodes as $folioCode) {
             $perFolio[$folioCode] = 0;
-            $connection = $this->folios->context($folioCode)->em->getConnection();
-            $result = $connection->executeQuery($sql, ['core' => $core]);
 
-            while (($row = $result->fetchAssociative()) !== false) {
-                $doc = $this->documentBuilder->build(
-                    $folioCode,
-                    $core,
-                    (string) $row['id'],
-                    (string) $row['local_id'],
-                    $row['label'] !== null ? (string) $row['label'] : null,
-                    $row['dto_type'] !== null ? (string) $row['dto_type'] : null,
-                    $this->decodeJson($row['dto_data'] ?? null),
-                    null, // common-field index: drop source-specific extras (we lift only source_tags below)
-                );
+            try {
+                $connection = $this->folios->context($folioCode, locale: $openLocale)->em->getConnection();
+                $result = $contentTypes !== null
+                    ? $connection->executeQuery($sql, ['contentTypes' => $contentTypes], ['contentTypes' => ArrayParameterType::STRING])
+                    : $connection->executeQuery($sql, ['core' => $core]);
 
-                // The raw fortepan tags live in extras.source_tags; expose them as `tags`.
-                $extras = $this->decodeJson($row['extras'] ?? null);
-                if (is_array($extras) && ($extras['source_tags'] ?? null)) {
-                    $doc['tags'] = $extras['source_tags'];
+                while (($row = $result->fetchAssociative()) !== false) {
+                    $doc = $this->documentBuilder->build(
+                        $folioCode,
+                        (string) $row['core_code'],
+                        (string) $row['id'],
+                        (string) $row['local_id'],
+                        $row['label'] !== null ? (string) $row['label'] : null,
+                        $row['dto_type'] !== null ? (string) $row['dto_type'] : null,
+                        $this->decodeJson($row['dto_data'] ?? null),
+                        null, // common-field index: drop source-specific extras (we lift only source_tags below)
+                    );
+
+                    // The raw fortepan tags live in extras.source_tags; expose them as `tags`.
+                    $extras = $this->decodeJson($row['extras'] ?? null);
+                    if (is_array($extras) && ($extras['source_tags'] ?? null)) {
+                        $doc['tags'] = $extras['source_tags'];
+                    }
+
+                    $count++;
+                    $perFolio[$folioCode]++;
+                    yield $this->project($doc, $keep, $allFields);
                 }
-
-                $count++;
-                $perFolio[$folioCode]++;
-                yield $this->project($doc, $keep);
+            } catch (\Throwable $e) {
+                $failed[$folioCode] = $e->getMessage();
             }
         }
     }
@@ -173,14 +224,10 @@ SQL;
      * @param list<string>        $keep
      * @return array<string,mixed>
      */
-    private function project(array $doc, array $keep): array
+    private function project(array $doc, array $keep, bool $allFields): array
     {
-        $out = [];
-        foreach (self::IDENTITY as $k) {
-            if (array_key_exists($k, $doc)) {
-                $out[$k] = $doc[$k];
-            }
-        }
+        $doc = $this->normalizeAliases($doc);
+        $out = $allFields ? $doc : $this->projectWhitelist($doc, $keep);
 
         // The row id is a composite "folioCode:coreCode:localId" (e.g. "mus/fortepan:obj:1"),
         // whose "/" and ":" are illegal in a Meili document id. Keep the original as rowId and
@@ -188,6 +235,49 @@ SQL;
         if (isset($out['id'])) {
             $out['rowId'] = $out['id'];
             $out['id'] = preg_replace('/[^A-Za-z0-9_-]/', '_', (string) $out['id']);
+        }
+
+        return $out;
+    }
+
+    /**
+     * Lift ai:-prefixed (and other aliased) keys onto their canonical field name in place, so
+     * both the whitelist and allFields paths see e.g. `caption` regardless of which source key
+     * the folio actually populated.
+     *
+     * @param array<string,mixed> $doc
+     * @return array<string,mixed>
+     */
+    private function normalizeAliases(array $doc): array
+    {
+        foreach (self::SOURCES as $field => $candidates) {
+            if (($doc[$field] ?? null) !== null && $doc[$field] !== '' && $doc[$field] !== []) {
+                continue;
+            }
+            foreach ($candidates as $src) {
+                $value = $doc[$src] ?? null;
+                if ($value !== null && $value !== '' && $value !== []) {
+                    $doc[$field] = $value;
+                    break;
+                }
+            }
+        }
+
+        return $doc;
+    }
+
+    /**
+     * @param array<string,mixed> $doc
+     * @param list<string>        $keep
+     * @return array<string,mixed>
+     */
+    private function projectWhitelist(array $doc, array $keep): array
+    {
+        $out = [];
+        foreach (self::IDENTITY as $k) {
+            if (array_key_exists($k, $doc)) {
+                $out[$k] = $doc[$k];
+            }
         }
 
         // Thumbnail/image URLs for the hit template — kept verbatim when present.
@@ -198,13 +288,8 @@ SQL;
         }
 
         foreach ($keep as $field) {
-            $candidates = self::SOURCES[$field] ?? [$field];
-            foreach ($candidates as $src) {
-                $value = $doc[$src] ?? null;
-                if ($value !== null && $value !== '' && $value !== []) {
-                    $out[$field] = $value;
-                    break;
-                }
+            if (($doc[$field] ?? null) !== null && $doc[$field] !== '' && $doc[$field] !== []) {
+                $out[$field] = $doc[$field];
             }
         }
 
