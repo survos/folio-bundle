@@ -1419,6 +1419,7 @@ final class FolioController extends AbstractController
                     'width' => $page->width ?? 1000,
                     'height' => $page->height ?? 1000,
                     'format' => $format,
+                    'summary' => $page->denseSummary,
                 ];
             }
         }
@@ -1427,7 +1428,7 @@ final class FolioController extends AbstractController
             $data = $row->dtoData ?? [];
             $url = $data['largeImageUrl'] ?? $data['thumbnailUrl'] ?? null;
             if (is_string($url) && $url !== '') {
-                $images = [['url' => $this->imgproxy?->resizePreset($url, 'archive') ?? $url, 'width' => (int) ($data['width'] ?? 1000), 'height' => (int) ($data['height'] ?? 1000), 'format' => $format]];
+                $images = [['url' => $this->imgproxy?->resizePreset($url, 'archive') ?? $url, 'width' => (int) ($data['width'] ?? 1000), 'height' => (int) ($data['height'] ?? 1000), 'format' => $format, 'summary' => null]];
             }
         }
 
@@ -1436,7 +1437,7 @@ final class FolioController extends AbstractController
         foreach ($images as $img) {
             ++$seq;
             $canvasId = $manifestUrl.'/canvas/'.$seq;
-            $canvases[] = [
+            $canvas = [
                 'id' => $canvasId,
                 'type' => 'Canvas',
                 'label' => ['none' => ['p. '.$seq]],
@@ -1460,6 +1461,19 @@ final class FolioController extends AbstractController
                     ]],
                 ]],
             ];
+
+            // 'summary' is the real IIIF Presentation v3 canvas property for per-canvas descriptive
+            // text (distinct from 'label', a short identifier). Page::$denseSummary is the generic
+            // cross-provider slot for exactly this (caption/credit, folded together by the
+            // normalizer — see EmitsPagesTrait) — populate it here instead of a provider-specific
+            // side-channel, so ANY IIIF-aware consumer of this manifest (not just this app's own
+            // viewer) gets the caption, not just the row detail page. Omitted entirely when absent,
+            // matching IIIF convention, rather than serializing "summary": null.
+            if ($img['summary']) {
+                $canvas['summary'] = ['none' => [$img['summary']]];
+            }
+
+            $canvases[] = $canvas;
         }
 
         return $this->json([

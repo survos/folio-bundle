@@ -85,6 +85,11 @@
     {% set audioPages = pages|filter(p => p.type and p.type.value == 'audio') %}
     {% set pages = pages|filter(p => not (p.type and p.type.value == 'audio')) %}
     {% set pageTexts = pages|map(p => p.text|default('')) %}
+    {# Per-image caption/credit (e.g. NPS: caption + "Credit: ..." folded together by the provider's
+       normalizer — Page has no dedicated caption/credit fields, denseSummary is the generic
+       cross-provider slot for this). Rendered in the image viewer's status area below, independent
+       of OCR — a plain photograph has no OCR text but can absolutely have a caption. #}
+    {% set pageDenseSummaries = pages|map(p => p.denseSummary|default('')) %}
     {# Mistral structured layout per page (typed blocks + bboxes). When present the viewer renders the
        pretty, layout-aware version; otherwise it falls back to the flat OCR text (pageTexts). #}
     {% set pageLayouts = pages|map(p => p.layout|default(null)) %}
@@ -357,6 +362,7 @@
                                     :images="viewerImages"
                                     :hiresImages="viewerHires"
                                     :infoUrls="viewerInfoUrls"
+                                    :summaries="pageDenseSummaries"
                                     :manifestUrl="rowManifestUrl"
                                     :height="600"
                                     :showLinks="false"
@@ -390,6 +396,30 @@
                                         {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
                                     </button>
                                 </div>
+                            {% endif %}
+
+                            {# Per-image caption/credit — shown even for a single image, unlike the
+                               page-counter footer above, since a caption is relevant regardless of page
+                               count. No server-side data payload needed: the iiif-viewer controller
+                               already receives `pageDenseSummaries` (as `:summaries`, above) and forwards
+                               the current page's value via `iiif-viewer:page`'s `detail.summary` — this
+                               just displays whatever that event carries, so it works for any provider's
+                               pages generically, not just NPS. Same content also lands in the real IIIF
+                               manifest's canvas.summary (FolioController::iiifManifest()), so any
+                               IIIF-aware consumer gets it too, not just this page. #}
+                            {% if pageDenseSummaries|filter(s => s|trim)|length > 0 %}
+                                <div id="doc-page-caption" class="card-footer py-2 small text-muted">{{ pageDenseSummaries|first }}</div>
+                                <script>
+                                    (function () {
+                                        var el = document.getElementById('doc-page-caption');
+                                        if (!el) return;
+                                        document.addEventListener('iiif-viewer:page', function (e) {
+                                            var summary = (e.detail.summary || '').trim();
+                                            el.textContent = summary;
+                                            el.style.display = summary ? '' : 'none';
+                                        });
+                                    })();
+                                </script>
                             {% endif %}
                         </div>
                     {% endif %}

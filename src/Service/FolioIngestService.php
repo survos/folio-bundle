@@ -341,6 +341,24 @@ final class FolioIngestService
                 . 'FROM (SELECT row_id, COUNT(*) AS cnt FROM page GROUP BY row_id) pc '
                 . "WHERE item.id = pc.row_id AND pc.cnt <> COALESCE(json_extract(dto_data, '$.pageCount'), 0)"
             );
+
+            // Search cards, map, and gallery all read the thumbnail from dto_data (iiifBase ??
+            // largeImageUrl ?? thumbnailUrl) — never from the page table directly (only the row
+            // detail view does, via the Row->Page relation). A row whose source record has no
+            // single inline image field of its own (true for every pla/place row, and any obj row
+            // whose provider only supplies images via page.jsonl) ends up with none of those three
+            // dto_data fields set, so it silently gets no thumbnail anywhere but its own detail
+            // page. Backfill thumbnailUrl from the row's first page — core-agnostic, and only fills
+            // the gap when nothing already claimed a cover image (never overrides a provider's own
+            // inline field).
+            $conn->executeStatement(
+                "UPDATE item SET dto_data = json_set(dto_data, '$.thumbnailUrl', p.url) "
+                . 'FROM (SELECT row_id, url FROM page WHERE seq = 1) p '
+                . "WHERE item.id = p.row_id "
+                . "AND json_extract(dto_data, '$.iiifBase') IS NULL "
+                . "AND json_extract(dto_data, '$.largeImageUrl') IS NULL "
+                . "AND json_extract(dto_data, '$.thumbnailUrl') IS NULL"
+            );
         }
 
         return ['count' => $count, 'skipped' => $skipped + $pages->skipped()];
