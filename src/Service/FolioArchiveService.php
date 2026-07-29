@@ -46,6 +46,18 @@ final readonly class FolioArchiveService
         $pdo = new \PDO('sqlite:' . $tmp);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
+        // The working folio runs in WAL mode (faster bulk ingest); checkpoint() above only
+        // flushes WAL frames into the main file, it does NOT clear the "this db is WAL-mode"
+        // flag in the file header (bytes 18-19). A client that loads the archive via
+        // sqlite3_deserialize() (no real filesystem, so no -wal/-shm sidecars can exist) sees
+        // that flag, tries to open a WAL companion that isn't there, and fails with
+        // SQLITE_CANTOPEN. Switching to DELETE here both checkpoints (redundant after the one
+        // above, cheap) AND rewrites the header back to plain rollback-journal mode, so the
+        // shipped archive is fully self-contained and safe to deserialize anywhere. Doing this
+        // BEFORE the DDL/VACUUM below also keeps the whole staging step off WAL, so nothing
+        // re-creates a -wal file while we're building the archive.
+        $pdo->exec('PRAGMA journal_mode = DELETE');
+
         // Drop derived search/facet tables; they are recreated during inflate.
         foreach (['item_facet', 'item_facet_count'] as $derivedTable) {
             $pdo->exec('DROP TABLE IF EXISTS ' . $this->quote($derivedTable));
@@ -72,6 +84,16 @@ final readonly class FolioArchiveService
 
         $pdo->exec('VACUUM');
         unset($pdo);
+
+        // Belt-and-suspenders: DELETE-mode + a clean connection close above should never leave
+        // sidecars, but gzip() only reads $tmp itself -- a stray -wal/-shm would otherwise be
+        // silently left on disk (not in the archive, but not cleaned up either) if anything
+        // upstream ever changes. Confirm there's nothing to ship before we do.
+        foreach ([$tmp . '-wal', $tmp . '-shm'] as $sidecar) {
+            if (is_file($sidecar)) {
+                unlink($sidecar);
+            }
+        }
 
         $this->gzip($tmp, $archivePath);
         unlink($tmp);

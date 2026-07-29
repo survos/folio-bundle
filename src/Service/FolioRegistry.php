@@ -12,6 +12,18 @@ use Symfony\Component\DependencyInjection\Attribute\Target;
 
 final class FolioRegistry
 {
+    // Every entry here has its OWN dedicated ingestion path elsewhere in FolioIngestService
+    // (ingestTerms/ingestLinks/ingestClaims/ingestPages) -- excluded from generic row-core
+    // auto-discovery because they're relational/sidecar data, not because nothing reads them.
+    // 'story' is different: it's the canonical, nested story-contract document (story-contract's
+    // own story.v1 shape, sitting beside obj.jsonl in the same norm/ dir) read directly via
+    // FolioRegistry::sourceFile()/StoryFinder (survos/exhibit-bundle), NOT through folio's generic
+    // row ingest -- excluded for the same reason 'page' is: it has its own reader, not because
+    // there's no ContentType for it. The flattened, DERIVED projections of the same data --
+    // story.jsonl's row-per-tour form now carries a real ContentType::STORY and IS ingested (not
+    // excluded); stop.jsonl (ContentType::STOP, one row per narrative unit) is new and always was
+    // a real core. See md's CuratescapeProvider::storyNormalize() and
+    // ~/sites/rut/docs/PLAN-folio-data-layer.md.
     private const NON_ROW_JSONL = ['termSet', 'term', 'linkType', 'link', 'claim', 'claims', 'page'];
 
     public function __construct(
