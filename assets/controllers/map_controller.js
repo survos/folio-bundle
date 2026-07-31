@@ -10,8 +10,8 @@ import L from 'leaflet';
 // L.MarkerClusterGroup below resolve correctly.
 window.L = L;
 import 'leaflet.markercluster';
-import 'leaflet.markercluster/MarkerCluster.css';
-import 'leaflet.markercluster/MarkerCluster.Default.css';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 
 /*
  * Fetches raw (un-clustered) points from map.geojson -- see FolioController::mapGeoJson()'s own
