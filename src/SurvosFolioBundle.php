@@ -194,6 +194,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->arg('$searchProviderParam', $config['search_provider_param'])
             ->arg('$bookmarksEnabled', $config['bookmark_class'] !== null && $config['folder_class'] !== null)
             ->arg('$baseTemplate', $config['base_template']);
+        $services->set(\Survos\FolioBundle\Service\FolioTimelineStats::class)->autowire()->autoconfigure()->public();
+        $services->set(\Survos\FolioBundle\Twig\FolioTimelineTwig::class)->autowire()->autoconfigure()->public();
         if ($config['routes_enabled']) {
             foreach ([FolioCollectionController::class, FolioController::class, FolioSearchController::class] as $class) {
                 $services->set($class)->autowire()->autoconfigure()->public();
