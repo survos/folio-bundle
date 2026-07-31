@@ -47,6 +47,14 @@ final class FolioItem
     public string $rowUrlTemplate = '';
 
     /**
+     * Base gallery URL (no query string) -- only used by the fortepanLayout branch, to build
+     * tag/donor "click to refine" links (?tag=X / ?donor=X). Empty (the default) means those
+     * fields render as plain text instead of links; the non-fortepan layout never uses this at
+     * all (its tags link to survos_folio_term_show directly, unrelated to this).
+     */
+    public string $galleryUrl = '';
+
+    /**
      * OpenSeadragon (via iiif-bundle's <twig:iiif:viewer>) vs. a plain <img> with simple
      * click-to-zoom. Defaults to true (unchanged behavior for existing host apps) -- OPAN's own
      * "Fortepan Method" ethic is deliberately anti-"traditional archive" chrome/bling (per
@@ -84,6 +92,7 @@ final class FolioItem
         ?string $rowUrlTemplate = null,
         bool $useIiifViewer = true,
         bool $fortepanLayout = false,
+        string $galleryUrl = '',
     ): void {
         $this->provider = $provider;
         $this->dataset = $dataset;
@@ -92,6 +101,7 @@ final class FolioItem
         $this->useIiifViewer = $useIiifViewer;
         $this->rowUrlTemplate = $rowUrlTemplate ?? '';
         $this->fortepanLayout = $fortepanLayout;
+        $this->galleryUrl = $galleryUrl;
     }
 
     #[ExposeInTemplate]

@@ -59,7 +59,7 @@ final class FolioMeiliBuildSetCommand
         #[Argument('Base index name, e.g. fs_fortepan (prefix is applied automatically)')] string $indexBase,
         #[Argument('Folio codes to pool, e.g. mus/fortepan mus/fpus fpeu/hungary')] array $folioCodes,
         #[Option('Core code inside each folio')] string $core = 'obj',
-        #[Option('Comma-separated content fields to keep')] string $fields = 'title,description,caption,denseSummary,subjects,tags,country,city,year',
+        #[Option('Comma-separated content fields to keep')] string $fields = 'title,description,caption,denseSummary,subjects,tags,country,city,year,donor',
         #[Option('Reset index before indexing')] bool $reset = false,
         #[Option('Wait for Meilisearch task completion')] bool $wait = false,
         #[Option('Primary key field')] string $pk = 'id',
@@ -93,8 +93,8 @@ final class FolioMeiliBuildSetCommand
             : array_values(array_intersect(['title', 'description', 'caption', 'denseSummary', 'subjects', 'tags', 'country', 'city'], $keep));
         $searchable[] = 'label';
         $facetable = $allFields
-            ? ['year', 'subjects', 'tags', 'country', 'city']
-            : array_values(array_intersect(['year', 'subjects', 'tags', 'country', 'city'], $keep));
+            ? ['year', 'subjects', 'tags', 'country', 'city', 'donor']
+            : array_values(array_intersect(['year', 'subjects', 'tags', 'country', 'city', 'donor'], $keep));
         $index->updateSettings([
             'searchableAttributes' => array_values(array_unique($searchable)),
             'filterableAttributes' => array_merge(['provider', 'dataset', 'folioCode', 'coreCode'], $facetable),

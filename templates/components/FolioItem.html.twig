@@ -88,24 +88,31 @@
                 </div>
 
                 {% if tombstoneDonor or tombstoneCredit %}
+                    {% set donorValue = tombstoneDonor ?: tombstoneCredit %}
                     <div class="fp-detail__field">
                         <h6>{{ 'donor'|trans({}, 'folio')|default('Donor') }}</h6>
-                        <h5>{{ tombstoneDonor ?: tombstoneCredit }}</h5>
+                        {% if galleryUrl %}
+                            <h5><a href="{{ galleryUrl }}?donor={{ donorValue|url_encode }}">{{ donorValue }}</a></h5>
+                        {% else %}
+                            <h5>{{ donorValue }}</h5>
+                        {% endif %}
                     </div>
                 {% endif %}
 
-                {% if terms %}
-                    {% set allTags = [] %}
-                    {% for set, values in terms %}
-                        {% for value in values %}
-                            {% set allTags = allTags|merge([{set: set, value: value}]) %}
-                        {% endfor %}
-                    {% endfor %}
+                {# Raw fortepan tags (row.extras.source_tags), NOT the resolved term-set `terms`
+                   var used by the non-fortepan layout below -- these are the exact strings
+                   Meilisearch's `tags` array-filter attribute was built from (see
+                   FolioMeiliBuildSetCommand's "expose extras.source_tags as tags" step), so a
+                   click here filters to precisely the same rows a `tags = 'X'` Meilisearch
+                   filter would match. The term-set system resolves/codes values differently and
+                   would silently mismatch. #}
+                {% set rawTags = attribute(row.extras, 'source_tags')|default([]) %}
+                {% if rawTags %}
                     <div class="fp-detail__field">
                         <h6>{{ 'tags'|trans({}, 'folio')|default('Tags') }}</h6>
                         <p class="fp-detail__tags">
-                            {% for tag in allTags %}
-                                {% if tag.value.term %}<a href="{{ path('survos_folio_term_show', {folioCode: row.folioCode, setCode: tag.set, termCode: tag.value.code}) }}">{{ tag.value.label }}</a>{% else %}<span>{{ tag.value.label }}</span>{% endif %}{% if not loop.last %}, {% endif %}
+                            {% for tagValue in rawTags %}
+                                {% if galleryUrl %}<a href="{{ galleryUrl }}?tag={{ tagValue|url_encode }}">{{ tagValue }}</a>{% else %}<span>{{ tagValue }}</span>{% endif %}{% if not loop.last %}, {% endif %}
                             {% endfor %}
                         </p>
                     </div>
