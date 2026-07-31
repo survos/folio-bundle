@@ -10,11 +10,14 @@ import '../elements/collection-slider.js';
  * The main image shows the thumbnail; per-row detail is deferred for later.
  */
 export default class extends Controller {
-    static targets = ['image', 'index', 'detail', 'slider', 'thumbnail'];
+    static targets = ['image', 'link', 'index', 'detail', 'slider', 'thumbnail'];
 
     static values = {
         slides: { type: Array, default: [] },
         current: { type: Number, default: 0 },
+        // __LOCAL_ID__ placeholder convention shared with PhotoGrid/map's own rowUrlTemplate --
+        // lets linkTarget point at each slide's real detail page as the slideshow advances.
+        rowUrlTemplate: { type: String, default: '' },
     };
 
     connect() {
@@ -101,6 +104,7 @@ export default class extends Controller {
         }
 
         this.setImage(slide, boundedIndex);
+        this.setLink(slide);
 
         if (this.hasIndexTarget) {
             this.indexTarget.textContent = `${boundedIndex + 1} / ${slides.length}`;
@@ -162,5 +166,22 @@ export default class extends Controller {
                 this.imageTarget.classList.remove('is-changing');
             };
         }, 140);
+    }
+
+    // Points linkTarget (wrapping the main image) at the current slide's own detail page, so
+    // there's a way to actually open an individual photo from the timeline/slideshow view --
+    // previously nothing but the thumbnail strip and slider existed here, with no way in.
+    setLink(slide) {
+        if (!this.hasLinkTarget) {
+            return;
+        }
+
+        if (!slide.id || !this.rowUrlTemplateValue) {
+            this.linkTarget.removeAttribute('href');
+
+            return;
+        }
+
+        this.linkTarget.href = this.rowUrlTemplateValue.replace('__LOCAL_ID__', encodeURIComponent(slide.id));
     }
 }

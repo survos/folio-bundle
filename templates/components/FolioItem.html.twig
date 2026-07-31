@@ -51,6 +51,123 @@
         {% endfor %}
     {% endif %}
 
+    {% if fortepanLayout %}
+        {# Structural port of fortepan.hu's own /photos/?id=X detail page -- image left
+           (flex-grow, dark stage), fixed 280px light sidebar right (real px value confirmed
+           against the live site via getBoundingClientRect(), 2026-07-30), field order
+           Description/Year/Photo ID/Donor/Tags matching sidebar.scss's carousel-sidebar__*
+           classes exactly (fresh class names here, not folio-row__* -- avoids fighting that
+           layout's own base <style> block below). Year/Donor/Location aren't links here the
+           way fortepan.hu's are (?year=/?donor=/?city= facet filtering isn't wired into
+           FolioRowProvider yet) -- Tags still are, via the existing term-browse route. #}
+        <div class="fp-detail">
+            <div class="fp-detail__image">
+                {% if imageSource %}
+                    <img src="{{ imageSource|imgproxy('display') }}" alt="{{ tombstoneTitle }}" loading="eager">
+                {% endif %}
+            </div>
+
+            <div class="fp-detail__sidebar">
+                <div class="fp-detail__field">
+                    <h6>{{ 'description'|trans({}, 'folio')|default('Description') }}</h6>
+                    {% if tombstoneLocation %}<h5>{{ tombstoneLocation }}</h5>{% endif %}
+                    {% if tombstoneDescription %}<div class="fp-detail__description">{{ tombstoneDescription }}</div>{% endif %}
+                    {% if sourceCaption and sourceCaption != tombstoneDescription %}<div class="fp-detail__description">{{ sourceCaption }}</div>{% endif %}
+                </div>
+
+                {% if tombstoneYear %}
+                    <div class="fp-detail__field fp-detail__field--inline">
+                        <h6>{{ 'year'|trans({}, 'folio')|default('Year') }}</h6>
+                        <h5>{{ tombstoneYear }}</h5>
+                    </div>
+                {% endif %}
+
+                <div class="fp-detail__field fp-detail__field--inline">
+                    <h6>{{ 'photo_id'|trans({}, 'folio')|default('Photo ID') }}</h6>
+                    <h5>{{ row.localId }}</h5>
+                </div>
+
+                {% if tombstoneDonor or tombstoneCredit %}
+                    <div class="fp-detail__field">
+                        <h6>{{ 'donor'|trans({}, 'folio')|default('Donor') }}</h6>
+                        <h5>{{ tombstoneDonor ?: tombstoneCredit }}</h5>
+                    </div>
+                {% endif %}
+
+                {% if terms %}
+                    {% set allTags = [] %}
+                    {% for set, values in terms %}
+                        {% for value in values %}
+                            {% set allTags = allTags|merge([{set: set, value: value}]) %}
+                        {% endfor %}
+                    {% endfor %}
+                    <div class="fp-detail__field">
+                        <h6>{{ 'tags'|trans({}, 'folio')|default('Tags') }}</h6>
+                        <p class="fp-detail__tags">
+                            {% for tag in allTags %}
+                                {% if tag.value.term %}<a href="{{ path('survos_folio_term_show', {folioCode: row.folioCode, setCode: tag.set, termCode: tag.value.code}) }}">{{ tag.value.label }}</a>{% else %}<span>{{ tag.value.label }}</span>{% endif %}{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        </p>
+                    </div>
+                {% endif %}
+
+                <div class="fp-detail__actions">
+                    {% if folio_bookmarks_enabled() %}
+                        {{ include('@SurvosFolioBundle/bookmark/_widget.html.twig', {
+                            folioCode: row.folioCode,
+                            coreCode: coreCode,
+                            localId: row.localId,
+                            dtoType: row.dtoType ?: 'row',
+                            label: tombstoneTitle,
+                        }) }}
+                    {% endif %}
+
+                    {% if downloadUrl %}
+                        {% set _sc = survos_stimulus('folio-bundle', 'download-button') %}
+                        <button type="button" class="btn btn-outline-secondary"
+                            {{ stimulus_controller(_sc, {
+                                title: tombstoneTitle,
+                                thumbnail: imageSource ? imageSource|imgproxy('display') : '',
+                                creator: tombstoneCredit ?: tombstoneDonor,
+                                date: tombstoneYear,
+                                license: tombstoneLicense,
+                                filename: downloadFilename,
+                                citation: downloadCitation,
+                                url: downloadUrl,
+                            }) }}
+                            {{ stimulus_action(_sc, 'download') }}
+                        >
+                            {{ ux_icon('tabler:download', {class: 'icon me-1'}) }}
+                            {{ 'download'|trans({}, 'folio') }}
+                        </button>
+                    {% endif %}
+
+                    {% set _sc = survos_stimulus('folio-bundle', 'share-button') %}
+                    <button type="button" class="btn btn-outline-secondary"
+                        {{ stimulus_controller(_sc, {url: shareUrl, title: tombstoneTitle}) }}
+                        {{ stimulus_action(_sc, 'share') }}
+                    >
+                        {{ ux_icon('tabler:share-3', {class: 'icon me-1'}) }}
+                        {{ 'share'|trans({}, 'folio') }}
+                    </button>
+
+                    {% if citationUrl %}
+                        <a href="{{ citationUrl }}" class="btn btn-outline-secondary" target="_blank" rel="noopener">
+                            {{ ux_icon('tabler:external-link', {class: 'icon me-1'}) }}
+                            {{ 'source'|trans({}, 'folio') }}
+                        </a>
+                    {% endif %}
+                </div>
+
+                {% if prevUrl or nextUrl %}
+                    <div class="fp-detail__nav">
+                        {% if prevUrl %}<a href="{{ prevUrl }}">&larr; {{ 'previous'|trans({}, 'folio') }}</a>{% else %}<span></span>{% endif %}
+                        {% if nextUrl %}<a href="{{ nextUrl }}">{{ 'next'|trans({}, 'folio') }} &rarr;</a>{% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% else %}
     <div class="folio-row">
         <div class="folio-row__image">
             {% if pages|length > 0 and useIiifViewer %}
@@ -82,6 +199,11 @@
             {% if tombstoneYear %}
                 <div class="folio-row__date text-secondary">{{ tombstoneYear }}</div>
             {% endif %}
+
+            {# Matches fortepan.hu's own detail panel field (YEAR / PHOTO ID / DONOR / TAGS) --
+               row.localId is the same identifier already used for downloadFilename/citation
+               above, just also shown here as a plain label since fortepan.hu always does. #}
+            <div class="folio-row__local-id text-secondary">{{ 'photo_id'|trans({}, 'folio')|default('Photo ID') }}: {{ row.localId }}</div>
 
             {% if tombstoneLocation %}
                 <div class="folio-row__location text-secondary">
@@ -186,6 +308,7 @@
                 {% endif %}
             </div>
         </div>
+    {% endif %}
     {% endif %}
 {% endif %}
 

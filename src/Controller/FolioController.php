@@ -373,6 +373,17 @@ final class FolioController extends AbstractController
      * appending `/{zoom}` to a server-computed base (see map_controller.js) rather than juggling query
      * strings alongside a base64 path segment.
      */
+    /**
+     * Raw points only -- NOT server-side clustered. Clustering moved entirely to the client
+     * (Leaflet.markercluster, the same real radius-based algorithm class fortepan.hu's own map
+     * uses via @googlemaps/markerclusterer's SuperClusterAlgorithm) -- the previous approach
+     * (ROUND(lat/lng, precision) GROUP BY, a fixed decimal-precision grid keyed to zoom level)
+     * produced visibly different, cruder groupings than fortepan.hu's real map (2026-07-31).
+     * `zoom` is accepted for URL/route-shape compatibility but no longer used -- bbox (required
+     * in practice; mapWhereAndParams() degrades gracefully to unfiltered if absent, but the
+     * client always sends one) is what actually bounds the result set now, not a zoom-derived
+     * rounding precision. LIMIT is a hard cap on payload size, not a clustering mechanism.
+     */
     #[Route('/map.geojson/{filter}/{zoom}', name: 'survos_folio_map_geojson_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+', 'zoom' => '\d+'], options: ['expose' => true])]
     #[Route('/map.geojson/{zoom}', name: 'survos_folio_map_geojson', requirements: ['zoom' => '\d+'], options: ['expose' => true])]
     public function mapGeoJson(Folio $folio, int $zoom, Request $request, ?string $filter = null): JsonResponse
@@ -380,28 +391,21 @@ final class FolioController extends AbstractController
         $conn = $this->folios->context($folio->code)->em->getConnection();
         [$where, $params] = $this->mapWhereAndParams($conn, $request, $filter);
 
-        $precision = self::ZOOM_PRECISION[$zoom] ?? self::MAX_MAP_PRECISION;
-
         $rows = $conn->executeQuery(
             sprintf(
                 "SELECT
-                    ROUND(CAST(json_extract(d.dto_data, '\$.latitude') AS REAL), :precision) AS bucketLat,
-                    ROUND(CAST(json_extract(d.dto_data, '\$.longitude') AS REAL), :precision) AS bucketLng,
-                    COUNT(*) AS n,
-                    AVG(CAST(json_extract(d.dto_data, '\$.latitude') AS REAL)) AS lat,
-                    AVG(CAST(json_extract(d.dto_data, '\$.longitude') AS REAL)) AS lng,
-                    MIN(d.local_id) AS id,
-                    MIN(d.label) AS label,
-                    MIN(json_extract(d.dto_data, '\$.city')) AS city,
-                    COUNT(DISTINCT json_extract(d.dto_data, '\$.city')) AS cityCount,
-                    MIN(coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl'))) AS thumbnailUrl,
-                    MIN(json_extract(d.dto_data, '\$.year')) AS year
+                    d.local_id AS id,
+                    d.label,
+                    CAST(json_extract(d.dto_data, '\$.latitude') AS REAL) AS lat,
+                    CAST(json_extract(d.dto_data, '\$.longitude') AS REAL) AS lng,
+                    json_extract(d.dto_data, '\$.city') AS city,
+                    coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl')) AS thumbnailUrl,
+                    json_extract(d.dto_data, '\$.year') AS year
                  FROM item d WHERE %s
-                 GROUP BY bucketLat, bucketLng
                  LIMIT :limit",
                 implode(' AND ', $where),
             ),
-            $params + ['precision' => $precision, 'limit' => self::MAX_MAP_FEATURES],
+            $params + ['limit' => self::MAX_MAP_FEATURES],
         )->fetchAllAssociative();
 
         return new JsonResponse([
@@ -409,15 +413,7 @@ final class FolioController extends AbstractController
             'features' => array_map(fn (array $row): array => [
                 'type' => 'Feature',
                 'geometry' => ['type' => 'Point', 'coordinates' => [(float) $row['lng'], (float) $row['lat']]],
-                'properties' => (int) $row['n'] > 1
-                    // bucketLat/bucketLng let the client ask mapClusterItems() for exactly this
-                    // bucket's rows (a mini-slideshow on click) -- the averaged lat/lng above isn't
-                    // reproducible from the client side, but the rounded bucket key is. city is only
-                    // included when every row in the bucket shares it (cityCount === 1) -- a "View all
-                    // in <city>" link is only honest when the whole cluster really is that one place,
-                    // not a coincidental rounding overlap of otherwise-unrelated points.
-                    ? ['cluster' => true, 'point_count' => (int) $row['n'], 'bucketLat' => (float) $row['bucketLat'], 'bucketLng' => (float) $row['bucketLng'], 'city' => (int) $row['cityCount'] === 1 ? $row['city'] : null]
-                    : ['cluster' => false, 'id' => $row['id'], 'label' => $row['label'], 'city' => $row['city'], 'thumbnailUrl' => $this->mapThumbnailUrl($row['thumbnailUrl']), 'year' => $row['year']],
+                'properties' => ['id' => $row['id'], 'label' => $row['label'], 'city' => $row['city'], 'thumbnailUrl' => $this->mapThumbnailUrl($row['thumbnailUrl']), 'year' => $row['year']],
             ], $rows),
         ]);
     }

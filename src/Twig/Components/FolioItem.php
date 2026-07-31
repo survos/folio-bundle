@@ -55,6 +55,15 @@ final class FolioItem
      */
     public bool $useIiifViewer = true;
 
+    /**
+     * Swaps the rendered markup for a structural port of fortepan.hu's own /photos/?id=X
+     * detail page (image left, fixed 280px light sidebar right, Description/Year/Photo ID/
+     * Donor/Tags fields in that order) instead of this component's own default folio-row
+     * layout. Default false -- existing consumers are unaffected; openfoto opts in for its
+     * dedicated photo detail page (2026-07-30).
+     */
+    public bool $fortepanLayout = false;
+
     private ?Row $resolvedRow = null;
     private bool $rowResolved = false;
     private ?array $adjacent = null;
@@ -74,6 +83,7 @@ final class FolioItem
         string $localId = '',
         ?string $rowUrlTemplate = null,
         bool $useIiifViewer = true,
+        bool $fortepanLayout = false,
     ): void {
         $this->provider = $provider;
         $this->dataset = $dataset;
@@ -81,6 +91,7 @@ final class FolioItem
         $this->localId = $localId;
         $this->useIiifViewer = $useIiifViewer;
         $this->rowUrlTemplate = $rowUrlTemplate ?? '';
+        $this->fortepanLayout = $fortepanLayout;
     }
 
     #[ExposeInTemplate]
@@ -179,15 +190,20 @@ final class FolioItem
 
         $conn = $this->folios->context("{$this->provider}/{$this->dataset}")->em->getConnection();
 
+        // ORDER BY here MUST match FolioRowProvider's own grid ordering (year ascending, nulls
+        // last, local_id as a tiebreaker) -- it used to order by bare `rowid` (raw insertion
+        // order), completely unrelated to the year-sorted grid every photo is actually browsed
+        // in. "Next" could jump backward in year (confirmed: 1945 -> 1928, 2026-07-31) because
+        // rowid order and year order have nothing to do with each other.
         $data = $conn->fetchAssociative(
-            'SELECT prev_id, prev_type, next_id, next_type FROM (
+            "SELECT prev_id, prev_type, next_id, next_type FROM (
                 SELECT local_id,
-                       LAG(local_id)  OVER (ORDER BY rowid) AS prev_id,
-                       LAG(dto_type)  OVER (ORDER BY rowid) AS prev_type,
-                       LEAD(local_id) OVER (ORDER BY rowid) AS next_id,
-                       LEAD(dto_type) OVER (ORDER BY rowid) AS next_type
+                       LAG(local_id)  OVER (ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC) AS prev_id,
+                       LAG(dto_type)  OVER (ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC) AS prev_type,
+                       LEAD(local_id) OVER (ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC) AS next_id,
+                       LEAD(dto_type) OVER (ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC) AS next_type
                 FROM item WHERE core_id = :core
-            ) WHERE local_id = :current',
+            ) WHERE local_id = :current",
             ['core' => $row->core->id, 'current' => $this->localId],
         ) ?: [];
 

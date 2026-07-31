@@ -34,6 +34,7 @@
   "suggest": {
     "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",
     "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios.",
+    "survos/settings-bundle": "Lets RowMenu gate OCR/Handwriting behind a per-user beta_features setting instead of only the dev environment.",
     "symfony/ux-twig-component": "Required for the PhotoGrid Twig component.",
     "api-platform/core": "Required for the PhotoGrid Twig component's data source (Row's #[ApiResource]).",
     "tacman/ux-search": "Required for the 'folio_row' faceted search (FolioRowSearch) folio/search.html.twig already assumes exists. Backed by survos/search-bundle's sqlite-fts5 adapter (folio-bundle's own per-folio FTS5 index) -- no external search server needed."

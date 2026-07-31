@@ -50,6 +50,24 @@ final class FolioRowProvider implements ProviderInterface
             $dtoType = $filters['dto'];
         }
 
+        // Powers the timeline ruler's "seek to year" -- >=, not =, so seeking lands you at
+        // that point in the same year-ascending sort (matching fortepan.hu's own "jump to
+        // year" semantics) rather than only ever showing the one exact year, which could be
+        // empty for it while still having plenty of nearby photos.
+        $yearMin = null;
+        if (isset($filters['yearMin']) && is_numeric($filters['yearMin'])) {
+            $yearMin = (int) $filters['yearMin'];
+        }
+
+        // Deliberately crude (LIKE over label + the whole dto_data JSON blob, not FolioRowSearch's
+        // real Meilisearch full-text index) -- a debug tool for combining with the timeline's
+        // yearMin while that Meilisearch integration stays untouched, not a search feature in its
+        // own right (2026-07-31).
+        $q = null;
+        if (isset($filters['q']) && is_string($filters['q']) && trim($filters['q']) !== '') {
+            $q = trim($filters['q']);
+        }
+
         $request      = $this->requestStack->getCurrentRequest();
         $page         = max(1, (int) ($request?->query->get('page', 1) ?? 1));
         $itemsPerPage = max(1, (int) ($request?->query->get('itemsPerPage', 50) ?? 50));
@@ -66,6 +84,14 @@ final class FolioRowProvider implements ProviderInterface
         if ($dtoType) {
             $where[] = 'dto_type = :dtoType';
             $params['dtoType'] = $dtoType;
+        }
+        if ($yearMin !== null) {
+            $where[] = "CAST(json_extract(dto_data, '\$.year') AS INTEGER) >= :yearMin";
+            $params['yearMin'] = $yearMin;
+        }
+        if ($q !== null) {
+            $where[] = '(label LIKE :q OR dto_data LIKE :q)';
+            $params['q'] = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $q) . '%';
         }
         $whereSql = implode(' AND ', $where);
 

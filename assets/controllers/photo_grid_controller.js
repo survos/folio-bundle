@@ -13,7 +13,7 @@ import { path } from '@survos/js-twig/generated/fos_routes.js';
  * imgproxy call needed.
  */
 export default class extends Controller {
-    static targets = ['grid', 'loader', 'timeline'];
+    static targets = ['grid', 'loader', 'timeline', 'search'];
 
     static values = {
         endpoint: String,
@@ -56,12 +56,66 @@ export default class extends Controller {
         });
 
         this.observer.observe(this.loaderTarget);
+
+        // fortepan_timeline_controller.js's seek/drag dispatches this instead of scrolling
+        // directly -- the target year is very likely not loaded yet (infinite scroll only ever
+        // has a fraction of the archive in the DOM), so "seek to year" has to mean "refetch
+        // filtered from that year", not just "scroll to it if it happens to already be here".
+        this._onSeekYear = (event) => this.jumpToYear(event.detail.year);
+        document.addEventListener('fortepanTimeline:seekYear', this._onSeekYear);
     }
 
     disconnect() {
         this.observer?.disconnect();
         this._resizeObserver?.disconnect();
         this.timelineObserver?.disconnect();
+        document.removeEventListener('fortepanTimeline:seekYear', this._onSeekYear);
+    }
+
+    jumpToYear(year) {
+        this.applyFilters({ yearMin: year });
+    }
+
+    // Debug text filter (FolioRowProvider's crude LIKE-over-label/dto_data `q`, not
+    // FolioRowSearch's real Meilisearch full-text index) -- lets yearMin + a text query combine
+    // while testing timeline context, e.g. "1950s photos matching 'wedding'" (2026-07-31).
+    // Called from a plain <input> via data-action="input->...#search" (debounced by the browser's
+    // own natural typing cadence -- fine for a debug tool, not worth a real debounce helper).
+    search(event) {
+        this.applyFilters({ q: event.target.value || undefined });
+    }
+
+    // Resets the grid entirely and refetches with `partial` merged into the existing filters
+    // (undefined values removed, so e.g. {q: undefined} clears a previous query instead of
+    // sending the literal string "undefined") -- the grid's own state (loaded columns, timeline
+    // ticks, done/paging) doesn't carry over, since this is a genuinely different result set,
+    // not more of the same one. Re-registers the loader with the (recreated) IntersectionObserver
+    // since a previously-exhausted grid (this.done) had already disconnected it.
+    applyFilters(partial) {
+        this.gridTarget.innerHTML = '';
+        this.columns = [];
+        this.nextColumn = 0;
+        this.loading = false;
+        this.done = false;
+        this.pageValue = 1;
+
+        const merged = { ...this.filtersValue, ...partial };
+        for (const key of Object.keys(merged)) {
+            if (merged[key] === undefined) {
+                delete merged[key];
+            }
+        }
+        this.filtersValue = merged;
+
+        if (this.hasTimelineTarget) {
+            this.timelineTarget.innerHTML = '';
+            this.timelineYears.clear();
+        }
+
+        this._layoutColumns();
+        this.observer.disconnect();
+        this.observer.observe(this.loaderTarget);
+        this.loadMore();
     }
 
     // Round-robin item placement into a fixed number of flex columns, computed from the

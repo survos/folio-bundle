@@ -17,6 +17,21 @@
         homeCountryCode: homeCountryCode ?? '',
     }) }}
 >
+    {# Debug-only text filter (FolioRowProvider's crude LIKE `q`, not real Meilisearch search --
+       see that provider's own comment) -- lets a year picked on the timeline combine with a
+       text query while testing timeline context. Admin/debug-gated, same convention as
+       tenant/base.html.twig's admin toolbar -- not meant as a real search feature. #}
+    {% if is_granted('ROLE_ADMIN') or app.debug %}
+        <div class="folio-photo-grid__debug-search">
+            <input
+                type="search"
+                placeholder="{{ 'debug_search_placeholder'|trans({}, 'folio')|default('Debug: filter by text (combines with the timeline year)') }}"
+                {{ stimulus_target(_sc, 'search') }}
+                {{ stimulus_action(_sc, 'search', 'input') }}
+            >
+        </div>
+    {% endif %}
+
     <div class="folio-photo-grid__items" {{ stimulus_target(_sc, 'grid') }}>
         {% for item in items %}
             {# extras.place is already a pre-joined "City, State, Country" string (see the
@@ -91,6 +106,22 @@
 </div>
 
 <style>
+    .folio-photo-grid__debug-search {
+        margin-bottom: 0.75rem;
+    }
+    .folio-photo-grid__debug-search input {
+        width: 100%;
+        max-width: 420px;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8125rem;
+        border: 1px dashed var(--tblr-border-color, #ccc);
+        border-radius: 0.25rem;
+        background: repeating-linear-gradient(
+            45deg,
+            transparent, transparent 8px,
+            rgba(245, 159, 0, 0.06) 8px, rgba(245, 159, 0, 0.06) 16px
+        );
+    }
     /* Masonry, laid out by photo_grid_controller.js: items keep their natural aspect ratio
        (no forced crop) AND read left-to-right in sort order. Plain CSS multi-column
        (`columns:`) was tried first and dropped -- it balances by total column height, which

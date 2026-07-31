@@ -10,6 +10,7 @@ use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Enum\PageType;
 use Survos\TablerBundle\Event\MenuEvent;
 use Survos\TablerBundle\Menu\MenuBuilderTrait;
+use Survos\TablerBundle\Menu\SettingsAwareMenuTrait;
 use Survos\TablerBundle\Service\IconService;
 use Survos\TablerBundle\Service\RouteAliasService;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -38,6 +39,7 @@ use Symfony\Component\Routing\RouterInterface;
 final class RowMenu
 {
     use MenuBuilderTrait;
+    use SettingsAwareMenuTrait;
 
     public function __construct(
         #[Autowire('%kernel.environment%')]
@@ -102,9 +104,15 @@ final class RowMenu
                 'localId' => $rp['localId'],
             ];
 
-            // 'dev'-only: OCR/handwriting recognition isn't tuned/reliable enough yet to expose to
-            // production users. Also never shown for audio, dev or not (see $isAudio above).
-            if ('dev' === $this->environment && !$isAudio) {
+            // OCR/handwriting recognition isn't tuned/reliable enough yet to expose to production
+            // users by default -- shown unconditionally in 'dev' (developer convenience, as
+            // before), or in any env once the current user has opted into it via the 'ocr'
+            // beta_features setting (see config/packages/survos_settings.yaml). Also never shown
+            // for audio, dev or not (see $isAudio above).
+            $betaFeatures = (array) ($this->settingsManager?->get('beta_features', []) ?? []);
+            $ocrEnabled = 'dev' === $this->environment || \in_array('ocr', $betaFeatures, true);
+
+            if ($ocrEnabled && !$isAudio) {
                 $this->add($menu, 'survos_folio_ai', $aiParams + ['task' => 'ocr_mistral', 'run' => 1, 'page' => 0], 'OCR', icon: 'tabler:file-text');
                 $this->add($menu, 'survos_folio_ai', $aiParams + ['task' => 'handwriting', 'run' => 1, 'page' => 0], 'Handwriting', icon: 'tabler:writing');
             }
