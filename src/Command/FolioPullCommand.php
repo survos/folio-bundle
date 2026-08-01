@@ -41,6 +41,11 @@ final class FolioPullCommand
         // survos_folio.folio_server — the live folio site; the default API source for pulls.
         #[Autowire('%survos_folio.folio_server%')]
         private readonly ?string $folioServer = null,
+        // When this app and the folio-building app share APP_DATA_DIR (e.g. both mount the same
+        // /platform volume), the file --force/--refresh would download already sits at $target —
+        // skip the fetch instead of a pointless HTTP round-trip. See SurvosFolioBundle::configure().
+        #[Autowire('%survos_folio.local_passthrough%')]
+        private readonly bool $localPassthrough = false,
         private readonly ?LoggerInterface $logger = null,
     ) {}
 
@@ -173,8 +178,10 @@ final class FolioPullCommand
             $io->section($display);
 
             $target = $this->folios->path($code, locale: $locale);
-            if (is_file($target) && !$force) {
-                $io->text('Exists, skipping (use --force to replace)');
+            if (is_file($target) && ($this->localPassthrough || !$force)) {
+                $io->text($this->localPassthrough
+                    ? 'Local copy found (local_passthrough), skipping fetch'
+                    : 'Exists, skipping (use --force to replace)');
                 $skipped++;
                 continue;
             }
@@ -299,8 +306,10 @@ final class FolioPullCommand
             $io->section($code);
 
             $target = $this->folios->path($code);
-            if (is_file($target) && !$force) {
-                $io->text('Exists, skipping (use --force to replace)');
+            if (is_file($target) && ($this->localPassthrough || !$force)) {
+                $io->text($this->localPassthrough
+                    ? 'Local copy found (local_passthrough), skipping fetch'
+                    : 'Exists, skipping (use --force to replace)');
                 $skipped++;
                 continue;
             }

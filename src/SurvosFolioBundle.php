@@ -91,6 +91,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('FolioRowSearch\'s default sort key, e.g. "year:asc" — must match a sort this class actually offers or it\'s silently ignored. Null keeps the historical default (whichever sort is added first — Title A-Z when search_title_sort_enabled).')
                 ->defaultNull()
             ->end()
+            ->booleanNode('local_passthrough')
+                ->info('folio:pull (and tenants:load, which delegates to it): when the target .folio already exists at the local Artifact path, skip the HTTP/storage fetch entirely — even under --force/--refresh. Opt-in: only correct when this app and the folio-building app share APP_DATA_DIR on the same filesystem (e.g. openfoto + md both mounting the same /platform volume); on a genuinely separate deployment a stale/wrong local file would silently never refresh.')
+                ->defaultFalse()
+            ->end()
         ->end();
     }
 
@@ -109,6 +113,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // folio:build browse/search links) match the SERVED routes instead of hardcoding "/folio".
         // zm configures this to "/f"; a mismatch 404s folio:pull.
         $builder->setParameter('survos_folio.route_prefix', $config['route_prefix']);
+        $builder->setParameter('survos_folio.local_passthrough', $config['local_passthrough']);
         $services = $container->services();
         foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class, StrRepository::class, StrTranslationRepository::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');
