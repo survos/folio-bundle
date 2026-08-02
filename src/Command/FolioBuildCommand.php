@@ -250,16 +250,23 @@ final class FolioBuildCommand implements SignalableCommandInterface
                 $archiveBytesTotal += $res['archiveBytes'];
                 $ratio = $res['sourceBytes'] > 0 ? (int) round(100 * (1 - $res['archiveBytes'] / $res['sourceBytes'])) : 0;
                 $io->writeln(sprintf('  archive  %s  (%d%% smaller, %s)  %s', $this->humanBytes($res['archiveBytes']), $ratio, $this->fmtSecs(microtime(true) - $t), $archivePath));
+                // Same coreCounts/cores/dtoCounts richness as the --inflate branch below, not just
+                // compressed/sourceBytes/archiveBytes -- this is the Artifact row a folio-archive
+                // browsing API actually reads (TYPE_FOLIO_ARCHIVE), and it was the only one NOT
+                // getting per-core counts, so "which folios have a non-empty 'story' core" could
+                // never be answered without opening every archive file individually.
                 $this->dispatchArtifactUpdated(
                     datasetKey: $code,
                     type: Artifact::TYPE_FOLIO_ARCHIVE,
                     uri: $archivePath,
                     rowCount: (int) $result['rows'],
-                    dtoCounts: null,
+                    dtoCounts: $this->dtoCounts($result['cores']),
                     metadata: [
                         'compressed' => true,
                         'sourceBytes' => $res['sourceBytes'],
                         'archiveBytes' => $res['archiveBytes'],
+                        'cores' => $this->coreMetadata($result['cores']),
+                        'coreCounts' => $this->coreCounts($result['cores']),
                     ],
                     code: $buildLocale ?? Artifact::CODE_DEFAULT,
                 );
