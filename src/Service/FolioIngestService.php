@@ -10,6 +10,7 @@ use Survos\DataContracts\Metadata\ContentType;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DatasetBundle\Enum\Stage;
 use Survos\DatasetBundle\Service\DataPaths;
+use Survos\FieldBundle\Attribute\Map;
 use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Str,StrTranslation,Term,TermSet};
 use Survos\FolioBundle\Dto\PageDto;
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
@@ -18,6 +19,7 @@ use Survos\JsonlBundle\Service\JsonlCountService;
 use Survos\Lingua\Contracts\Util\TranslatableReflector;
 use Survos\Lingua\Core\Identity\HashUtil;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -57,6 +59,8 @@ final class FolioIngestService
         private readonly DataPaths $dataPaths,
         private readonly JsonlCountService $counter,
         private readonly ?EventDispatcherInterface $dispatcher = null,
+        #[Autowire('%survos_folio.reviewed_translations_dir%')]
+        private readonly ?string $reviewedTranslationsDir = null,
     ) {}
 
     /**
@@ -620,15 +624,30 @@ final class FolioIngestService
      */
     /**
      * Load <dataset>/25_intl/tr.<locale>.jsonl (written by dataset:intl:pull) into a
-     * hash-code => translated-text map. Missing file (never pushed/pulled for this
-     * dataset+locale) just means "no translations available yet" — build proceeds with
-     * every field falling back to source text.
+     * hash-code => translated-text map, then let a committed, hand-reviewed override file
+     * (survos_folio.reviewed_translations_dir, if configured) replace any entries it also
+     * covers. Missing files (never pushed/pulled, or nothing reviewed yet for this
+     * dataset+locale) just mean "no translations available" at that layer — build proceeds
+     * with every field falling back to source text.
      *
      * @return array<string,string>
      */
     private function loadTranslationMap(string $datasetKey, string $locale): array
     {
         $file = $this->dataPaths->stageDir($datasetKey, Stage::Intl->value) . '/tr.' . $locale . '.jsonl';
+        $map = $this->readTranslationJsonl($file);
+
+        if ($this->reviewedTranslationsDir !== null && $this->reviewedTranslationsDir !== '') {
+            $reviewedFile = sprintf('%s/%s.%s.jsonl', rtrim($this->reviewedTranslationsDir, '/'), $datasetKey, $locale);
+            $map = [...$map, ...$this->readTranslationJsonl($reviewedFile)];
+        }
+
+        return $map;
+    }
+
+    /** @return array<string,string> */
+    private function readTranslationJsonl(string $file): array
+    {
         if (!is_file($file)) {
             return [];
         }
@@ -663,17 +682,77 @@ final class FolioIngestService
         }
 
         foreach (TranslatableReflector::fieldsFor($dtoClass) as $field) {
-            $text = $data[$field] ?? null;
-            if (!is_string($text) || $text === '') {
+            // A #[Translatable] field's row key isn't always its own property name --
+            // #[Map(source: [...])] declares aliases (e.g. BaseItemDto::$tags reads either
+            // 'tags' or the legacy 'source_tags' key a *SetRecordListener still writes).
+            // Resolve to whichever key is actually present, write the translation back to
+            // that SAME key (splitDtoData() downstream resolves the DTO the same way).
+            $key = $this->resolveMappedKey($data, $dtoClass, $field);
+            if ($key === null) {
                 continue;
             }
-            $code = HashUtil::calcSourceKey($text, $sourceLocale);
+            $value = $data[$key];
+
+            // Mirror PhraseExtractor::accept()'s per-element handling for list<string> fields
+            // (e.g. $tags) -- translate each item independently, falling back to the source
+            // text for anything not yet translated (same "falls back to source" behavior as
+            // the string-field case below, just applied per element instead of to the whole
+            // field at once).
+            if (is_array($value)) {
+                $data[$key] = array_map(
+                    static function ($item) use ($sourceLocale, $translations) {
+                        if (!is_string($item) || $item === '') {
+                            return $item;
+                        }
+                        $code = HashUtil::calcSourceKey($item, $sourceLocale);
+                        return $translations[$code] ?? $item;
+                    },
+                    $value,
+                );
+                continue;
+            }
+
+            if (!is_string($value) || $value === '') {
+                continue;
+            }
+            $code = HashUtil::calcSourceKey($value, $sourceLocale);
             if (isset($translations[$code])) {
-                $data[$field] = $translations[$code];
+                $data[$key] = $translations[$code];
             }
         }
 
         return $data;
+    }
+
+    /**
+     * @param array<string,mixed> $data
+     */
+    private function resolveMappedKey(array $data, string $dtoClass, string $field): ?string
+    {
+        foreach ($this->mapSourcesFor($dtoClass, $field) as $key) {
+            if (array_key_exists($key, $data)) {
+                return $key;
+            }
+        }
+
+        return array_key_exists($field, $data) ? $field : null;
+    }
+
+    /** @return list<string> */
+    private function mapSourcesFor(string $dtoClass, string $field): array
+    {
+        try {
+            $property = new \ReflectionProperty($dtoClass, $field);
+        } catch (\ReflectionException) {
+            return [];
+        }
+
+        $sources = [];
+        foreach ($property->getAttributes(Map::class) as $attribute) {
+            $sources = [...$sources, ...$attribute->newInstance()->sources()];
+        }
+
+        return $sources;
     }
 
     private function maybeCheckpoint(Connection $conn, int $sinceCommit, ?FolioBulkInserter $inserter = null): int

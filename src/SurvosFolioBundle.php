@@ -95,6 +95,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('folio:pull (and tenants:load, which delegates to it): when the target .folio already exists at the local Artifact path, skip the HTTP/storage fetch entirely — even under --force/--refresh. Opt-in: only correct when this app and the folio-building app share APP_DATA_DIR on the same filesystem (e.g. openfoto + md both mounting the same /platform volume); on a genuinely separate deployment a stale/wrong local file would silently never refresh.')
                 ->defaultFalse()
             ->end()
+            ->scalarNode('reviewed_translations_dir')
+                ->info('Directory of hand-reviewed translation overrides, one <code.locale>.jsonl per dataset+locale (same {code,locale,text} shape dataset:intl:pull writes to the gitignored working trans/ dir) — but THIS directory is meant to be committed to the app\'s own repo, same convention as translations/messages.*.yaml. Checked by folio:build --locale, taking precedence over whatever Lingua returned for the same code: a small, human/AI-correctable vocabulary (dataset tags, term labels — hundreds of entries, not thousands) is worth reviewing once and keeping stable, rather than trusting a machine-translation engine\'s output verbatim forever. Null (default) disables the override entirely.')
+                ->defaultNull()
+            ->end()
         ->end();
     }
 
@@ -114,6 +118,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // zm configures this to "/f"; a mismatch 404s folio:pull.
         $builder->setParameter('survos_folio.route_prefix', $config['route_prefix']);
         $builder->setParameter('survos_folio.local_passthrough', $config['local_passthrough']);
+        $builder->setParameter('survos_folio.reviewed_translations_dir', $config['reviewed_translations_dir']);
         $services = $container->services();
         foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class, StrRepository::class, StrTranslationRepository::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');
