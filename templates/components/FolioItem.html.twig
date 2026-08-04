@@ -65,6 +65,20 @@
                 {% if imageSource %}
                     <img src="{{ imageSource|imgproxy('display') }}" alt="{{ tombstoneTitle }}" loading="eager">
                 {% endif %}
+                {# On-image prev/next -- the old text links tucked at the bottom of the 280px
+                   sidebar needed a scroll to even see (2026-08-04 feedback); arrows over the
+                   photo itself are the common pattern (any image viewer/carousel) and need no
+                   scrolling to find. #}
+                {% if prevUrl %}
+                    <a href="{{ prevUrl }}" class="fp-detail__image-nav fp-detail__image-nav--prev" aria-label="{{ 'previous'|trans({}, 'folio') }}">
+                        {{ ux_icon('tabler:chevron-left', {class: 'icon'}) }}
+                    </a>
+                {% endif %}
+                {% if nextUrl %}
+                    <a href="{{ nextUrl }}" class="fp-detail__image-nav fp-detail__image-nav--next" aria-label="{{ 'next'|trans({}, 'folio') }}">
+                        {{ ux_icon('tabler:chevron-right', {class: 'icon'}) }}
+                    </a>
+                {% endif %}
             </div>
 
             <div class="fp-detail__sidebar">
@@ -166,12 +180,6 @@
                     {% endif %}
                 </div>
 
-                {% if prevUrl or nextUrl %}
-                    <div class="fp-detail__nav">
-                        {% if prevUrl %}<a href="{{ prevUrl }}">&larr; {{ 'previous'|trans({}, 'folio') }}</a>{% else %}<span></span>{% endif %}
-                        {% if nextUrl %}<a href="{{ nextUrl }}">{{ 'next'|trans({}, 'folio') }} &rarr;</a>{% endif %}
-                    </div>
-                {% endif %}
             </div>
         </div>
     {% else %}

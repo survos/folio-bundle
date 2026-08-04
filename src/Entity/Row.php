@@ -161,6 +161,18 @@ class Row implements RouteParametersInterface
     private static ?array $countryCodesByName = null;
 
     /**
+     * A handful of source-data country spellings that no longer match Symfony Intl's current
+     * CLDR name table -- not a second full name list (see getCountryFlagCode()'s own doc), just
+     * overrides for the cases where CLDR has since renamed a country and older aggregator data
+     * still uses the previous English short name. "Turkey" -> CLDR's English name for TR is now
+     * "Türkiye" (the 2022 ISO/UN short-name change), so the reverse lookup missed silently and
+     * every Turkish photo showed no flag at all (2026-08-04).
+     */
+    private const LEGACY_COUNTRY_NAME_ALIASES = [
+        'Turkey' => 'TR',
+    ];
+
+    /**
      * ISO 3166-1 alpha-2 code for `<span class="fi fi-{code}">` (flag-icons), or null when the
      * country isn't known/doesn't match. dto_data.country is free-text from the source
      * aggregator ("United States", "Switzerland", ...), not a code, so this reverse-looks-up
@@ -177,7 +189,7 @@ class Row implements RouteParametersInterface
             return null;
         }
 
-        self::$countryCodesByName ??= array_flip(Countries::getNames('en'));
+        self::$countryCodesByName ??= array_flip(Countries::getNames('en')) + self::LEGACY_COUNTRY_NAME_ALIASES;
 
         return self::$countryCodesByName[$country] ?? null;
     }
