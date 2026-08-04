@@ -251,16 +251,19 @@ export default class extends Controller {
         // No override template (the common case) — rp is exactly survos_folio_row_show's
         // param shape (Row::getRp()), so the generated client-side path() needs no
         // placeholder templating at all.
-        if (!this.hasRowUrlTemplateValue || !this.rowUrlTemplateValue) {
-            return path('survos_folio_row_show', rp);
-        }
+        const base = (!this.hasRowUrlTemplateValue || !this.rowUrlTemplateValue)
+            ? path('survos_folio_row_show', rp)
+            : this.rowUrlTemplateValue
+                .replace('__CORE_CODE__', encodeURIComponent(rp.coreCode ?? ''))
+                .replace('__DTO_TYPE__', encodeURIComponent(rp.dtoType ?? ''))
+                .replace('__LOCAL_ID__', encodeURIComponent(rp.localId ?? ''));
 
-        const enc = (value) => encodeURIComponent(value ?? '');
+        // Same filters (q/tag/donor/yearMin) carried on every SSR page-1 link
+        // (PhotoGrid.html.twig) -- these client-fetched pages need them too, or prev/next
+        // on the detail page only works for whichever page happened to render server-side.
+        const qs = new URLSearchParams(this.filtersValue).toString();
 
-        return this.rowUrlTemplateValue
-            .replace('__CORE_CODE__', enc(rp.coreCode))
-            .replace('__DTO_TYPE__', enc(rp.dtoType))
-            .replace('__LOCAL_ID__', enc(rp.localId));
+        return qs ? `${base}?${qs}` : base;
     }
 
     // Same extras.place / dtoData fallback PhotoGrid.html.twig uses server-side, so

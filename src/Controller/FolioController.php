@@ -1286,12 +1286,25 @@ final class FolioController extends AbstractController
         $term = $ctx->em->find(Term::class, $termSet->id . ':' . $termCode)
             ?? throw $this->createNotFoundException($termCode);
 
-        return $this->render('@SurvosFolioBundle/folio/term.html.twig', [
-            'ctx' => $ctx,
-            'folio' => $folio,
-            'termSet' => $termSet,
-            'term' => $term,
-        ]);
+        // A term page with no browsable content of its own was a dead end (2026-08-04 feedback)
+        // -- redirect straight to the search grid, pre-filtered by this term, same as clicking a
+        // facet checkbox there. TermSetBinding::fields() lists this set's own code first, then its
+        // real DTO/facet source fields (e.g. 'obj' -> ['obj', 'subjects', 'keywords', ...]) --
+        // the first REAL field (skipping the set's own code, which isn't itself a facet property)
+        // is the one FolioRowSearch actually exposes as a filterable facet.
+        $sourceFields = TermSetBinding::fields()[$setCode] ?? [];
+        $filterProperty = null;
+        foreach ($sourceFields as $field) {
+            if ($field !== $setCode) {
+                $filterProperty = $field;
+                break;
+            }
+        }
+
+        return $this->redirectToRoute('survos_folio_search', array_filter([
+            'folioCode' => $folio->code,
+            $filterProperty => $filterProperty !== null ? $termCode : null,
+        ]));
     }
 
     #[Route('/{coreCode}/{dtoType}/{localId}', name: 'survos_folio_row_show', options: ['expose' => true])]

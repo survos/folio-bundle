@@ -56,14 +56,18 @@
             {# No override (the common case): item.rp is exactly survos_folio_row_show's param
                shape (Row::getRp()) — path() needs no placeholder templating at all. A host
                override still uses the placeholder tokens, since its own route rarely matches
-               rp's shape (see PhotoGrid.php::$rowUrlTemplate). #}
+               rp's shape (see PhotoGrid.php::$rowUrlTemplate).
+               The active filters (q/tag/donor/yearMin) ride along as a query string so the
+               detail page a click lands on can compute real prev/next WITHIN this same
+               filtered/sorted result set instead of the whole unfiltered folio -- see
+               TenantController::photo()'s meiliAdjacentUrls() (2026-08-04). #}
             <a href="{{ rowUrlTemplate is empty
                     ? path('survos_folio_row_show', item.rp)
                     : rowUrlTemplate|replace({
                         '__CORE_CODE__': item.rp.coreCode|default(''),
                         '__DTO_TYPE__': item.rp.dtoType|default(''),
                         '__LOCAL_ID__': item.rp.localId|default(''),
-                    }) }}"
+                    }) }}{{ filters is not empty ? '?' ~ filters|url_encode : '' }}"
                class="folio-photo-grid__item"
                title="{{ item.label }}"
                {% if year %}data-year="{{ year }}"{% endif %}>

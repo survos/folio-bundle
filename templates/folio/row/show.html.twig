@@ -648,7 +648,7 @@
                     {% if hasUxMap and tombstoneIsPreciseLocation %}
                         <div class="card mb-3">
                             <div class="card-header">
-                                <h2 class="card-title mb-0">Location</h2>
+                                <h2 class="card-title mb-0">{{ 'location'|trans({}, 'folio')|default('Location') }}</h2>
                             </div>
 
                             <div class="card-body p-0">
@@ -684,7 +684,7 @@
                     {% if terms %}
                         <div class="card mb-3">
                             <div class="card-header">
-                                <h2 class="card-title mb-0">Terms</h2>
+                                <h2 class="card-title mb-0">{{ 'terms'|trans({}, 'folio')|default('Terms') }}</h2>
                             </div>
 
                             <div class="list-group list-group-flush">

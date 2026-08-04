@@ -72,6 +72,18 @@ final class FolioItem
      */
     public bool $fortepanLayout = false;
 
+    /**
+     * Override prev/next entirely instead of this component's own internal (raw sort_key order,
+     * no filter awareness) getAdjacent() computation -- a host app browsing a filtered/sorted
+     * Meilisearch result set (e.g. openfoto's gallery search) computes true prev/next within
+     * THAT result set itself and passes the real URLs straight through, so next/prev on the
+     * detail page stays inside the search you actually came from instead of silently reverting
+     * to the whole unfiltered archive (2026-08-04). Null (the default, both) means "no override,
+     * use the internal computation" -- unchanged behavior for every existing caller.
+     */
+    public ?string $prevUrlOverride = null;
+    public ?string $nextUrlOverride = null;
+
     private ?Row $resolvedRow = null;
     private bool $rowResolved = false;
     private ?array $adjacent = null;
@@ -93,10 +105,14 @@ final class FolioItem
         bool $useIiifViewer = true,
         bool $fortepanLayout = false,
         string $galleryUrl = '',
+        ?string $prevUrlOverride = null,
+        ?string $nextUrlOverride = null,
     ): void {
         $this->provider = $provider;
         $this->dataset = $dataset;
         $this->coreCode = $coreCode;
+        $this->prevUrlOverride = $prevUrlOverride;
+        $this->nextUrlOverride = $nextUrlOverride;
         $this->localId = $localId;
         $this->useIiifViewer = $useIiifViewer;
         $this->rowUrlTemplate = $rowUrlTemplate ?? '';
@@ -171,12 +187,20 @@ final class FolioItem
     #[ExposeInTemplate]
     public function getPrevUrl(): ?string
     {
+        if ($this->prevUrlOverride !== null) {
+            return $this->prevUrlOverride !== '' ? $this->prevUrlOverride : null;
+        }
+
         return $this->buildAdjacentUrl($this->getAdjacent()['prev'] ?? null);
     }
 
     #[ExposeInTemplate]
     public function getNextUrl(): ?string
     {
+        if ($this->nextUrlOverride !== null) {
+            return $this->nextUrlOverride !== '' ? $this->nextUrlOverride : null;
+        }
+
         return $this->buildAdjacentUrl($this->getAdjacent()['next'] ?? null);
     }
 

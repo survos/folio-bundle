@@ -7,6 +7,18 @@ download: Descargar
 share: Compartir
 source: Fuente
 donor: Donante
+description: Descripción
+year: "Año"
+photo_id: "ID de la foto"
+tags: Etiquetas
+categories: Categorías
+location: Ubicación
+terms: Términos
+debug_search_placeholder: "Depuración: filtrar por texto (se combina con el año de la línea de tiempo)"
+filtering_by_tag: "Filtrado por etiqueta: %tag%"
+filtering_by_donor: "Filtrado por donante: %donor%"
+search_results_for: "Resultados de búsqueda para: %query%"
+clear: Borrar
 narrative.by: "Por"
 narrative.dated: "Fechado en"
 narrative.in_place: "en"

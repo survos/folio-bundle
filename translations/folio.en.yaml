@@ -11,7 +11,14 @@ description: Description
 year: Year
 photo_id: "Photo ID"
 tags: Tags
+categories: Categories
+location: Location
+terms: Terms
 debug_search_placeholder: "Debug: filter by text (combines with the timeline year)"
+filtering_by_tag: "Filtered by tag: %tag%"
+filtering_by_donor: "Filtered by donor: %donor%"
+search_results_for: "Search results for: %query%"
+clear: Clear
 narrative.by: "By"
 narrative.dated: "Dated"
 narrative.in_place: "in"
