@@ -159,7 +159,13 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             ],
             'where' => $where === [] ? null : implode(' AND ', $where),
             'params' => $params,
-            'maxFacetValues' => 50,
+            // 50 was too low: real facet vocabularies run into the thousands of distinct values
+            // (mus/fpus has 12,224 distinct tags alone), so anything past the ~50 most common
+            // silently never reached the client at all -- e.g. "african american" (275 photos,
+            // ranked 97th by count) was invisible in both the default list AND the facet search
+            // box, since that box only filters values already fetched from the server, not a
+            // fresh query (2026-08-04, found via a demo for a Black-history-focused partner).
+            'maxFacetValues' => 1000,
             // item_facet_count is partitioned by core (core='' = all cores), so the precomputed fast
             // path serves core-scoped pages too — the adapter scopes counts to the active core. Only a
             // pinned dtoType (an extra where-constraint the precompute can't represent) forces the live
