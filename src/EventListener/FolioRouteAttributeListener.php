@@ -65,8 +65,39 @@ final class FolioRouteAttributeListener
             $folioCode = $resolved;
         }
 
+        if ($this->folioService->requestContentLocale === null) {
+            $this->applySiteLocaleIfBuilt($folioCode, $request);
+        }
+
         $request->attributes->set('folioCode', $folioCode);
         $this->folioService->switch($folioCode);
+    }
+
+    /**
+     * No explicit ".{locale}" suffix on the URL (the common case: every folio-scoped link in the
+     * app is built from the bare folioCode, not a locale-suffixed one) -- fall back to the site's
+     * own active locale (Symfony's routing "_locale", e.g. zm's /en/ vs /es/ URL prefix), but
+     * ONLY when that locale's folio file actually exists on disk. This is a pure file-existence
+     * check (FolioService::path() just builds a path string, no I/O until this is_file() call),
+     * so it's silently a no-op -- same as before this method existed -- for every dataset that
+     * has no translated build yet, and for a UI locale that matches the dataset's own source
+     * locale (source builds have no locale suffix, so "<code>.<sourceLocale>.folio" never exists
+     * and this correctly leaves the bare/source file in effect). Without this, a translated
+     * folio (folio:build --locale) was reachable only via an explicit ".en"-suffixed folioCode
+     * that nothing in the app actually links to -- the site-wide locale switcher had no effect
+     * on dataset content at all (2026-08-04, mus/enterreno: /en/ still rendered Spanish titles).
+     */
+    private function applySiteLocaleIfBuilt(string $folioCode, Request $request): void
+    {
+        $siteLocale = $request->attributes->get('_locale');
+        if (!is_string($siteLocale) || $siteLocale === '') {
+            return;
+        }
+
+        if (is_file($this->folioService->path($folioCode, locale: $siteLocale))) {
+            $request->attributes->set('content_locale', $siteLocale);
+            $this->folioService->requestContentLocale = $siteLocale;
+        }
     }
 
     private function stripLocaleSuffix(string $value, Request $request): string

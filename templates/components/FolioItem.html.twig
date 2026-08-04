@@ -119,14 +119,46 @@
                    FolioMeiliBuildSetCommand's "expose extras.source_tags as tags" step), so a
                    click here filters to precisely the same rows a `tags = 'X'` Meilisearch
                    filter would match. The term-set system resolves/codes values differently and
-                   would silently mismatch. #}
+                   would silently mismatch.
+                   Fallback to row.dtoData.tags when extras.source_tags is empty -- NOT every
+                   provider's normalize step populates that raw extras blob (mus/fpus doesn't),
+                   even though dtoData.tags (the DTO's own canonical, always-populated field) has
+                   the real tag values -- the fortepanLayout page was silently showing NO tags at
+                   all for those rows despite the data being right there (2026-08-04). #}
                 {% set rawTags = attribute(row.extras, 'source_tags')|default([]) %}
+                {% if not rawTags %}
+                    {% set rawTags = attribute(row.dtoData, 'tags')|default([]) %}
+                {% endif %}
                 {% if rawTags %}
                     <div class="fp-detail__field">
                         <h6>{{ 'tags'|trans({}, 'folio')|default('Tags') }}</h6>
                         <p class="fp-detail__tags">
                             {% for tagValue in rawTags %}
                                 {% if galleryUrl %}<a href="{{ galleryUrl }}?tag={{ tagValue|url_encode }}">{{ tagValue }}</a>{% else %}<span>{{ tagValue }}</span>{% endif %}{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        </p>
+                    </div>
+                {% endif %}
+
+                {# Controlled-vocabulary subjects/categories (dtoData.subjects, resolved into
+                   term-set groups by RowTermsResolver -- same data the non-fortepan layout's
+                   "Terms" card shows below). fortepanLayout previously showed neither this NOR
+                   working tags, i.e. NO metadata at all beyond description/year/donor -- the
+                   "match fortepan.hu's minimal chrome" simplification went too far and dropped
+                   real content, not just styling (2026-08-04: fortepan.us's own page shows this
+                   same photo with a full category list). #}
+                {% if terms %}
+                    <div class="fp-detail__field">
+                        <h6>{{ 'categories'|trans({}, 'folio')|default('Categories') }}</h6>
+                        <p class="fp-detail__tags">
+                            {% for set, values in terms %}
+                                {% for value in values %}
+                                    {% if value.term %}
+                                        <a href="{{ path('survos_folio_term_show', {folioCode: row.folioCode, setCode: set, termCode: value.code}) }}">{{ value.label }}</a>
+                                    {% else %}
+                                        <span>{{ value.label }}</span>
+                                    {% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
                             {% endfor %}
                         </p>
                     </div>
