@@ -36,7 +36,10 @@ final class FolioTimelineStats
         }
 
         $conn = $ctx->em->getConnection();
-        $yearExpr = "json_extract(d.dto_data, '\$.year')";
+        // Materialized column, not json_extract(d.dto_data, '$.year') -- see
+        // FolioFtsIndexer::ensurePrimarySortColumn() (measured ~5x faster end to end on
+        // mus/fortepan's 219k rows, 2026-08-04).
+        $yearExpr = 'd.sort_key';
         $where = 'd.core_id = :core';
         $params = ['core' => $core->id];
 

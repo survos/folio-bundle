@@ -78,6 +78,11 @@ final class FolioRowProvider implements ProviderInterface
         // goes through the raw connection like FolioRowSearch and TenantController::timelineData()
         // already do for the same dto_data-is-JSON reason; Row entities are then hydrated by id
         // and reordered to match, since a WHERE id IN (...) doesn't preserve that order itself.
+        //
+        // sort_key (materialized column), not json_extract(dto_data, '$.year') -- see
+        // FolioFtsIndexer::ensurePrimarySortColumn() for why (measured ~5x faster end to end on
+        // mus/fortepan's 219k rows, 2026-08-04). NULLS LAST lets SQLite use the covering index
+        // directly instead of falling back to a temp sort.
         $conn = $ctx->em->getConnection();
         $where = ['core_id = :coreId'];
         $params = ['coreId' => $core->id];
@@ -86,7 +91,7 @@ final class FolioRowProvider implements ProviderInterface
             $params['dtoType'] = $dtoType;
         }
         if ($yearMin !== null) {
-            $where[] = "CAST(json_extract(dto_data, '\$.year') AS INTEGER) >= :yearMin";
+            $where[] = 'sort_key >= :yearMin';
             $params['yearMin'] = $yearMin;
         }
         if ($q !== null) {
@@ -99,9 +104,9 @@ final class FolioRowProvider implements ProviderInterface
 
         $localIds = $conn->executeQuery(
             sprintf(
-                "SELECT local_id FROM item WHERE %s
-                 ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC
-                 LIMIT %d OFFSET %d",
+                'SELECT local_id FROM item WHERE %s
+                 ORDER BY sort_key ASC NULLS LAST, local_id ASC
+                 LIMIT %d OFFSET %d',
                 $whereSql,
                 $itemsPerPage,
                 ($page - 1) * $itemsPerPage,

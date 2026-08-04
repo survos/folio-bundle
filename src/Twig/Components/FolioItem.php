@@ -205,15 +205,23 @@ final class FolioItem
         // order), completely unrelated to the year-sorted grid every photo is actually browsed
         // in. "Next" could jump backward in year (confirmed: 1945 -> 1928, 2026-07-31) because
         // rowid order and year order have nothing to do with each other.
+        //
+        // sort_key (materialized column), not json_extract(dto_data, '$.year') -- SQLite still
+        // needs a temp sort for this window function's ORDER BY either way, but a plain int
+        // column avoids re-parsing the whole dto_data JSON blob per row on every comparison
+        // during that sort. See FolioFtsIndexer::ensurePrimarySortColumn() (measured ~5x faster
+        // end to end on mus/fortepan's 219k rows, 2026-08-04). NULLS LAST (not the old
+        // `(expr IS NULL)` bucket trick) lets SQLite use the covering index directly instead of
+        // sorting at all when there's nothing to break the tie on.
         $data = $conn->fetchAssociative(
-            "SELECT prev_id, prev_type, next_id, next_type FROM (
+            'SELECT prev_id, prev_type, next_id, next_type FROM (
                 SELECT local_id,
-                       LAG(local_id)  OVER (ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC) AS prev_id,
-                       LAG(dto_type)  OVER (ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC) AS prev_type,
-                       LEAD(local_id) OVER (ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC) AS next_id,
-                       LEAD(dto_type) OVER (ORDER BY (json_extract(dto_data, '\$.year') IS NULL), json_extract(dto_data, '\$.year') ASC, local_id ASC) AS next_type
+                       LAG(local_id)  OVER (ORDER BY sort_key ASC NULLS LAST, local_id ASC) AS prev_id,
+                       LAG(dto_type)  OVER (ORDER BY sort_key ASC NULLS LAST, local_id ASC) AS prev_type,
+                       LEAD(local_id) OVER (ORDER BY sort_key ASC NULLS LAST, local_id ASC) AS next_id,
+                       LEAD(dto_type) OVER (ORDER BY sort_key ASC NULLS LAST, local_id ASC) AS next_type
                 FROM item WHERE core_id = :core
-            ) WHERE local_id = :current",
+            ) WHERE local_id = :current',
             ['core' => $row->core->id, 'current' => $this->localId],
         ) ?: [];
 

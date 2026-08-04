@@ -110,6 +110,48 @@ final class FolioFtsIndexer
                 $path,
             ));
         }
+
+        self::ensurePrimarySortColumn($pdo);
+    }
+
+    /**
+     * "Primary sort" -- a materialized, indexable numeric column for whichever dto_data field a
+     * folio is most commonly browsed/paginated by (currently always 'year', the only field that's
+     * needed this treatment so far -- generalize the source field once a second one does).
+     *
+     * Plain json_extract() expression indexes don't help here: SQLite still falls back to a temp
+     * sort for a window-function ORDER BY (used by prev/next-row navigation), and during that sort
+     * it re-parses the whole dto_data JSON blob per row per comparison. A generated column avoids
+     * both -- measured ~5x faster end to end on mus/fortepan's 219k rows (2026-08-04).
+     *
+     * VIRTUAL, not STORED: SQLite only allows adding a STORED generated column in the original
+     * CREATE TABLE, never via ALTER TABLE (which is how every existing folio gets this column --
+     * there's no full-rebuild-only path here). A VIRTUAL column's *index* still physically stores
+     * the computed values same as any other index, which is what actually matters for query speed.
+     */
+    public static function ensurePrimarySortColumn(\PDO $pdo, string $field = 'year'): void
+    {
+        $hasColumn = false;
+        foreach ($pdo->query('PRAGMA table_info(item)')->fetchAll(\PDO::FETCH_ASSOC) as $column) {
+            if ($column['name'] === 'sort_key') {
+                $hasColumn = true;
+                break;
+            }
+        }
+
+        if (!$hasColumn) {
+            $path = '$.' . str_replace("'", "''", $field);
+            // NULLIF(..., '') before the CAST matters: SQLite's CAST('' AS INTEGER) is 0, not
+            // NULL, which would otherwise plant a spurious "year 0" at the front of every sort
+            // and pollute MIN()/GROUP BY for any provider whose data has empty-string (not
+            // JSON-null/missing) values for this field.
+            $pdo->exec(sprintf(
+                "ALTER TABLE item ADD COLUMN sort_key INTEGER GENERATED ALWAYS AS (CAST(NULLIF(json_extract(dto_data, '%s'), '') AS INTEGER)) VIRTUAL",
+                $path,
+            ));
+        }
+
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_core_sort ON item(core_id, sort_key, local_id)');
     }
 
     private function rebuildFacetCounts(\PDO $pdo): void

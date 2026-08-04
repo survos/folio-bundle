@@ -656,7 +656,8 @@ final class FolioController extends AbstractController
     {
         $columns = [
             'label' => ['expr' => 'd.label', 'numeric' => false],
-            'year' => ['expr' => "json_extract(d.dto_data, '$.year')", 'numeric' => true],
+            // Materialized column, not json_extract() -- see FolioFtsIndexer::ensurePrimarySortColumn().
+            'year' => ['expr' => 'd.sort_key', 'numeric' => true],
         ];
 
         if ($sortBy === '' || !str_contains($sortBy, ':')) {

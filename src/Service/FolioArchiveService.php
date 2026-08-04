@@ -162,6 +162,11 @@ final readonly class FolioArchiveService
             $pdo->exec($sql);
             $indexes++;
         }
+        // May need to ALTER TABLE ADD COLUMN first, if this archive predates 'sort_key' -- see
+        // FolioFtsIndexer::ensurePrimarySortColumn() for why it's not just another CREATE INDEX
+        // in $indexDefs above.
+        FolioFtsIndexer::ensurePrimarySortColumn($pdo);
+        $indexes++;
         $indexesTime = microtime(true) - $tIndexes;
         unset($pdo);
 

@@ -144,7 +144,10 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 "json_extract(d.dto_data, '$.imageCount') AS imageCount",
                 "json_extract(d.dto_data, '$.itemCount') AS itemCount",
                 "json_extract(d.dto_data, '$.sourceFormat') AS sourceFormat",
-                "json_extract(d.dto_data, '$.year') AS year",
+                // Materialized column, not jsonExtract('year') -- see
+                // FolioFtsIndexer::ensurePrimarySortColumn(); this is the exact 'year:asc' sort
+                // used as the default below.
+                'd.sort_key AS year',
                 "json_extract(d.dto_data, '$.city') AS city",
                 "json_extract(d.dto_data, '$.state') AS state",
                 "json_extract(d.dto_data, '$.country') AS country",
@@ -152,7 +155,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             'facetColumns' => $facetColumns,
             'sortColumns' => [
                 'label' => 'd.label',
-                'year' => $this->jsonExtract('year'),
+                'year' => 'd.sort_key',
             ],
             'where' => $where === [] ? null : implode(' AND ', $where),
             'params' => $params,
