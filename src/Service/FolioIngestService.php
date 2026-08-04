@@ -915,8 +915,19 @@ final class FolioIngestService
         // One row per phrase, held in memory to batch-lookup existing rows instead
         // of a findOneBy() per code -- fine at term-vocabulary scale (hundreds to a
         // few thousand distinct phrases per dataset, deduped by content hash already).
+        //
+        // facet !== false, not === true: PhraseExtractor only started stamping this field
+        // 2026-08-04 (survos/mono#25's sibling fix) -- phrases.jsonl from before that has no
+        // 'facet' key at all, and treating "missing" as "not a facet" would silently stop
+        // populating Term translations for every dataset not yet re-extracted with the new
+        // PhraseExtractor. Skip only what's explicitly known to be free text (title,
+        // description, ...); this is what was actually slow -- measured 90% of
+        // mus/fortepan's phrases.hu.jsonl, 2026-08-04.
         $phrases = [];
         foreach (JsonlReader::open($phrasesFile) as $row) {
+            if (($row['facet'] ?? true) === false) {
+                continue;
+            }
             $code = (string) ($row['code'] ?? '');
             $text = $row['text'] ?? null;
             if ($code === '' || !is_string($text) || $text === '') {

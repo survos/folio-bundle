@@ -131,8 +131,14 @@ final class FolioFtsIndexer
      */
     public static function ensurePrimarySortColumn(\PDO $pdo, string $field = 'year'): void
     {
+        // table_xinfo, not table_info -- SQLite's plain PRAGMA table_info() doesn't list
+        // GENERATED columns at all (confirmed empirically, 2026-08-04: a freshly-added VIRTUAL
+        // sort_key was invisible to table_info but present in table_xinfo with hidden=2). Using
+        // table_info here always reported "missing" even after the column existed, so this guard
+        // never actually skipped anything -- the try/catch below is what was really preventing
+        // the crash, not this check. Still worth having as the real fast path.
         $hasColumn = false;
-        foreach ($pdo->query('PRAGMA table_info(item)')->fetchAll(\PDO::FETCH_ASSOC) as $column) {
+        foreach ($pdo->query('PRAGMA table_xinfo(item)')->fetchAll(\PDO::FETCH_ASSOC) as $column) {
             if ($column['name'] === 'sort_key') {
                 $hasColumn = true;
                 break;
@@ -145,10 +151,18 @@ final class FolioFtsIndexer
             // NULL, which would otherwise plant a spurious "year 0" at the front of every sort
             // and pollute MIN()/GROUP BY for any provider whose data has empty-string (not
             // JSON-null/missing) values for this field.
-            $pdo->exec(sprintf(
-                "ALTER TABLE item ADD COLUMN sort_key INTEGER GENERATED ALWAYS AS (CAST(NULLIF(json_extract(dto_data, '%s'), '') AS INTEGER)) VIRTUAL",
-                $path,
-            ));
+            try {
+                $pdo->exec(sprintf(
+                    "ALTER TABLE item ADD COLUMN sort_key INTEGER GENERATED ALWAYS AS (CAST(NULLIF(json_extract(dto_data, '%s'), '') AS INTEGER)) VIRTUAL",
+                    $path,
+                ));
+            } catch (\PDOException $e) {
+                // Same tolerance as FolioSchemaManager::update() for the identical class of
+                // problem: a second caller in the same build pipeline that already added it.
+                if (!str_contains($e->getMessage(), 'duplicate column')) {
+                    throw $e;
+                }
+            }
         }
 
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_core_sort ON item(core_id, sort_key, local_id)');
