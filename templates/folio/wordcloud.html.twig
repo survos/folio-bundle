@@ -1,0 +1,66 @@
+{% extends '@SurvosFolioBundle/folio/base.html.twig' %}
+
+{% set folioLabel = folio.label ?: folio.code %}
+{% set activeSet = activeSetCode ? termSets[activeSetCode] : null %}
+
+{% block body_class %}folio-layout{% endblock %}
+{% block page_pretitle %}{{ folioLabel }}{% endblock %}
+{% block page_title %}Word Cloud{% endblock %}
+{% block title %}Word Cloud: {{ ctx.folioCode }}{% endblock %}
+
+{% block body %}
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title mb-0">
+                {{ ux_icon('tabler:tags', { class: 'icon me-1 text-primary' }) }}
+                Term Set
+            </h2>
+
+            {% if termSets %}
+                <div class="card-actions">
+                    <form method="get" class="d-flex align-items-center gap-2">
+                        <select name="set" class="form-select" onchange="this.form.submit()">
+                            {% for setCode, set in termSets %}
+                                <option value="{{ setCode }}" {{ setCode == activeSetCode ? 'selected' }}>
+                                    {{ set.label }} ({{ set.terms|length }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="card-body">
+            {% if not termSets %}
+                <div class="text-muted">
+                    No term-set data yet — this folio needs its facet index (item_facet) and
+                    vocabulary terms built before a word cloud can be shown.
+                </div>
+            {% elseif activeSet %}
+                <div class="d-flex flex-wrap align-items-center gap-2 folio-term-cloud">
+                    {% for entry in activeSet.terms %}
+                        {% set term = entry.term %}
+                        <a
+                            href="{{ path('survos_folio_term_show', folio.getRp()|merge({ setCode: activeSet.setCode, termCode: term.code })) }}"
+                            class="btn btn-sm rounded-pill shadow-none folio-term-pill"
+                            style="font-size: {{ (0.8 + entry.weight * 1.5)|number_format(2) }}rem"
+                            data-bs-toggle="tooltip"
+                            data-bs-title="{{ entry.count }} occurrence{{ entry.count == 1 ? '' : 's' }} across {{ entry.docs }} item{{ entry.docs == 1 ? '' : 's' }}"
+                        >
+                            {{ term.label ?: term.code }}
+                        </a>
+                    {% else %}
+                        <div class="text-muted">No terms found for this set.</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <style>
+        .folio-term-pill {
+            line-height: 1.4;
+        }
+    </style>
+{% endblock %}

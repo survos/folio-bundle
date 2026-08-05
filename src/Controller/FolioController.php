@@ -7,7 +7,7 @@ namespace Survos\FolioBundle\Controller;
 use Doctrine\DBAL\Connection;
 use Survos\DataContracts\Dto\Item\BaseItemDto;
 use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Page,Row,Term,TermSet};
-use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioWordCloudService,RowClaimsResolver,RowTermsResolver};
+use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioTermCloudService,FolioWordCloudService,RowClaimsResolver,RowTermsResolver};
 use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
@@ -57,6 +57,7 @@ final class FolioController extends AbstractController
         private readonly FolioChatService $chat,
         private readonly FolioChatPromptSuggester $promptSuggester,
         private readonly FolioWordCloudService $wordCloud,
+        private readonly FolioTermCloudService $termCloud,
         private readonly Environment $twig,
         private readonly HttpClientInterface $httpClient,
         private readonly RowTermsResolver $rowTermsResolver,
@@ -775,6 +776,25 @@ final class FolioController extends AbstractController
             'wordCloud' => $this->wordCloud->cloud($ctx, 32),
             'result' => $result,
             'error' => $error,
+        ]);
+    }
+
+    #[Route('/wordcloud', name: 'survos_folio_termset_wordcloud', options: ['expose' => true])]
+    public function termsetWordCloud(Folio $folio, Request $request): Response
+    {
+        $ctx = $this->folios->context($folio->code);
+        $termSets = $this->termCloud->cloud($ctx);
+
+        $activeSetCode = $request->query->getString('set') ?: null;
+        if ($activeSetCode === null || !isset($termSets[$activeSetCode])) {
+            $activeSetCode = array_key_first($termSets);
+        }
+
+        return $this->render('@SurvosFolioBundle/folio/wordcloud.html.twig', [
+            'ctx' => $ctx,
+            'folio' => $folio,
+            'termSets' => $termSets,
+            'activeSetCode' => $activeSetCode,
         ]);
     }
 
