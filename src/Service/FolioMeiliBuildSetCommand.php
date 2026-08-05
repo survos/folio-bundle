@@ -95,10 +95,15 @@ final class FolioMeiliBuildSetCommand
         $facetable = $allFields
             ? ['year', 'subjects', 'tags', 'country', 'city', 'donor']
             : array_values(array_intersect(['year', 'subjects', 'tags', 'country', 'city', 'donor'], $keep));
+        // localId is always sortable regardless of --fields: TenantController::meiliAdjacentUrls()
+        // uses it as the tie-breaker after year for a stable total order (same year has runs of
+        // 5+ items in some folios, which year alone can't disambiguate).
+        $sortable = $allFields ? ['year'] : array_values(array_intersect(['year'], $keep));
+        $sortable[] = 'localId';
         $index->updateSettings([
             'searchableAttributes' => array_values(array_unique($searchable)),
             'filterableAttributes' => array_merge(['provider', 'dataset', 'folioCode', 'coreCode'], $facetable),
-            'sortableAttributes' => $allFields ? ['year'] : array_values(array_intersect(['year'], $keep)),
+            'sortableAttributes' => $sortable,
         ]);
 
         $contentTypeList = $contentTypes !== null
