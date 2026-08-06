@@ -783,18 +783,18 @@ final class FolioController extends AbstractController
     public function termsetWordCloud(Folio $folio, Request $request): Response
     {
         $ctx = $this->folios->context($folio->code);
-        $termSets = $this->termCloud->cloud($ctx);
+        $facetClouds = $this->termCloud->cloud($ctx);
 
-        $activeSetCode = $request->query->getString('set') ?: null;
-        if ($activeSetCode === null || !isset($termSets[$activeSetCode])) {
-            $activeSetCode = array_key_first($termSets);
+        $activeField = $request->query->getString('field') ?: null;
+        if ($activeField === null || !isset($facetClouds[$activeField])) {
+            $activeField = array_key_first($facetClouds);
         }
 
         return $this->render('@SurvosFolioBundle/folio/wordcloud.html.twig', [
             'ctx' => $ctx,
             'folio' => $folio,
-            'termSets' => $termSets,
-            'activeSetCode' => $activeSetCode,
+            'facetClouds' => $facetClouds,
+            'activeField' => $activeField,
         ]);
     }
 

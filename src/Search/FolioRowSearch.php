@@ -9,6 +9,7 @@ use Mezcalito\UxSearchBundle\Attribute\AsSearch;
 use Mezcalito\UxSearchBundle\Search\AbstractSearch;
 use Mezcalito\UxSearchBundle\Twig\Components\Facet\RangeSlider;
 use Mezcalito\UxSearchBundle\Twig\Components\Facet\RefinementList;
+use Survos\FolioBundle\Service\FolioFacetFieldResolver;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\SearchBundle\Search\HitTemplateSearchInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
@@ -20,6 +21,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
 
     public function __construct(
         private readonly FolioService $folios,
+        private readonly FolioFacetFieldResolver $facetFieldResolver,
         private readonly TranslatorInterface $translator,
         /** survos_folio.yaml's search_title_sort_enabled — off for collections where titles are
          *  sparse/generic and year is the meaningful ordering (e.g. openfoto's photo archives). */
@@ -86,7 +88,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             'dtoType' => 'd.dto_type',
         ];
 
-        foreach ($this->folioFacetFields($connection) as $field) {
+        foreach ($this->facetFieldResolver->facetFieldNames($connection) as $field) {
             if (isset($facetColumns[$field['name']])) {
                 continue;
             }
@@ -186,137 +188,6 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
     }
 
     /**
-     * @return list<array{name: string, label: string}>
-     */
-    private function folioFacetFields(Connection $connection): array
-    {
-        if (!$this->tableExists($connection, 'schema_property')) {
-            return [];
-        }
-
-        $rows = $connection->executeQuery(<<<'SQL'
-            SELECT name, label, type, filterable, facet
-            FROM schema_property
-            WHERE visible = 1
-            ORDER BY
-                CASE WHEN facet = 1 OR filterable = 1 THEN 0 ELSE 1 END,
-                position,
-                name
-        SQL)->fetchAllAssociative();
-
-        // schema_property carries many duplicate rows per field (one per observed row/dtoType), often
-        // with inconsistent type/flags. Dedup by name so the 8-facet cap counts *distinct* fields —
-        // otherwise duplicates burn the budget before every term-set facet (dept, med, cul, …) surfaces.
-        // A name only counts once it actually passes shouldExposeFolioFacet, so a json-typed duplicate
-        // that's rejected doesn't block a later array/string duplicate of the same field from passing.
-        $facets = [];
-        $seen = [];
-        foreach ($rows as $row) {
-            $name = (string) $row['name'];
-            if (isset($seen[$name]) || !$this->shouldExposeFolioFacet($connection, $name, (string) $row['type'], (bool) $row['filterable'], (bool) $row['facet'])) {
-                continue;
-            }
-            $seen[$name] = true;
-
-            $facets[] = [
-                'name' => $name,
-                'label' => $this->humanize($row['label'] !== null && $row['label'] !== '' ? (string) $row['label'] : $name),
-                'type' => (string) $row['type'],
-            ];
-
-            if (count($facets) >= 8) {
-                break;
-            }
-        }
-
-        return $facets;
-    }
-
-    private function shouldExposeFolioFacet(Connection $connection, string $name, string $type, bool $filterable, bool $facet): bool
-    {
-        if ($this->isNeverFacet($name) || !$this->isFacetType($type)) {
-            return false;
-        }
-
-        if (!$this->hasUsableFacetValues($connection, $name)) {
-            return false;
-        }
-
-        if ($facet || $filterable) {
-            return true;
-        }
-
-        return in_array($name, [
-            'country',
-            'city',
-            'date',
-            'language',
-            // Rights/licence is a high-value facet. Cleveland carries it as free text (not a URI), so
-            // expose both the canonical `rights`/`license` and the URI form.
-            'rights',
-            'rightsUri',
-            'license',
-            'contentType',
-            'itemType',
-            'medium',
-            'format',
-            'collection',
-            // Genre/form terms (MODS genre) — flagged a facet on the DTO; surface when values exist.
-            'genreBasic',
-            'genreSpecific',
-            'creator',
-            'repository',
-        ], true);
-    }
-
-    private function isFacetType(string $type): bool
-    {
-        return $type !== 'json';
-    }
-
-    private function isNeverFacet(string $name): bool
-    {
-        $blocked = [
-            'id',
-            'localId',
-            'sourceId',
-            'title',
-            'label',
-            'description',
-            'hasImages',
-            'hasTranscription',
-            'imageCount',
-            'itemCount',
-            'pageCount',
-            'dctermsDescription',
-            'dctermsDate',
-            'iiifBase',
-            'thumbnailUrl',
-            'largeImageUrl',
-            'citationUrl',
-            'sourceUrl',
-            'url',
-            'image',
-            'latitude',
-            'longitude',
-            'ai:denseSummary',
-            // External-resource / authority links are reference data, not facets (e.g. a wikidata Q-id
-            // per object yields ~1 value per row — useless as a refinement and noisy in the sidebar).
-            'externalResources',
-            'wikidata',
-        ];
-
-        $lowerName = strtolower($name);
-
-        return in_array($name, $blocked, true)
-            || str_ends_with($lowerName, 'url')
-            || str_ends_with($lowerName, 'id')
-            || str_contains($lowerName, 'wikidata')
-            || str_contains($lowerName, 'latitude')
-            || str_contains($lowerName, 'longitude');
-    }
-
-    /**
      * Whether any row carries a non-null value for a dto_data field — used to gate sorts (e.g. only
      * offer the Year sort when the dataset actually has integer years). LIMIT 1 stops at the first hit,
      * so it's cheap when the field exists; a full miss scans the core but only runs once per build.
@@ -326,18 +197,6 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         return (bool) $connection->executeQuery(
             sprintf('SELECT 1 FROM item d WHERE %s IS NOT NULL LIMIT 1', $this->jsonExtract($field)),
         )->fetchOne();
-    }
-
-    private function hasUsableFacetValues(Connection $connection, string $field): bool
-    {
-        if (!$this->tableExists($connection, 'item_facet_count')) {
-            return true;
-        }
-
-        return (int) $connection->executeQuery(
-            'SELECT COUNT(*) FROM item_facet_count WHERE field = :field',
-            ['field' => $field],
-        )->fetchOne() > 1;
     }
 
     /**
@@ -364,21 +223,6 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
     private function jsonExtract(string $field): string
     {
         return sprintf("json_extract(d.dto_data, '$.%s')", str_replace("'", "''", $field));
-    }
-
-    private function tableExists(Connection $connection, string $table): bool
-    {
-        return $connection->executeQuery(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = :table",
-            ['table' => $table],
-        )->fetchOne() === $table;
-    }
-
-    private function humanize(string $field): string
-    {
-        $label = preg_replace('/(?<!^)[A-Z]/', ' $0', str_replace(['_', ':'], ' ', $field)) ?? $field;
-
-        return str_replace([' Uri', ' Url'], [' URI', ' URL'], ucwords($label));
     }
 
     /**

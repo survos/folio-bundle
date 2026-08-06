@@ -1,57 +1,71 @@
 {% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
 {% set folioLabel = folio.label ?: folio.code %}
-{% set activeSet = activeSetCode ? termSets[activeSetCode] : null %}
+{% set activeCloud = activeField ? facetClouds[activeField] : null %}
 
 {% block body_class %}folio-layout{% endblock %}
 {% block page_pretitle %}{{ folioLabel }}{% endblock %}
-{% block page_title %}Word Cloud{% endblock %}
-{% block title %}Word Cloud: {{ ctx.folioCode }}{% endblock %}
+{% block page_title %}Term Cloud{{ activeCloud ? ': ' ~ activeCloud.label : '' }}{% endblock %}
+{% block title %}Term Cloud: {{ ctx.folioCode }}{% endblock %}
 
 {% block body %}
     <div class="card">
         <div class="card-header">
             <h2 class="card-title mb-0">
                 {{ ux_icon('tabler:tags', { class: 'icon me-1 text-primary' }) }}
-                Term Set
+                {{ activeCloud ? activeCloud.label : 'Term Cloud' }}
             </h2>
 
-            {% if termSets %}
+            {% if activeCloud %}
                 <div class="card-actions">
-                    <form method="get" class="d-flex align-items-center gap-2">
-                        <select name="set" class="form-select" onchange="this.form.submit()">
-                            {% for setCode, set in termSets %}
-                                <option value="{{ setCode }}" {{ setCode == activeSetCode ? 'selected' }}>
-                                    {{ set.label }} ({{ set.terms|length }})
-                                </option>
-                            {% endfor %}
-                        </select>
-                    </form>
+                    <span class="badge {{ activeCloud.setCode ? 'bg-success-lt' : 'bg-secondary-lt' }}">
+                        {{ activeCloud.setCode ? 'Controlled vocabulary' : 'Free text' }}
+                    </span>
                 </div>
             {% endif %}
         </div>
 
         <div class="card-body">
-            {% if not termSets %}
+            {% if not facetClouds %}
                 <div class="text-muted">
-                    No term-set data yet — this folio needs its facet index (item_facet) and
-                    vocabulary terms built before a word cloud can be shown.
+                    No facet data yet — this folio needs its facet index (item_facet) built
+                    before a term cloud can be shown.
                 </div>
-            {% elseif activeSet %}
+            {% elseif activeCloud %}
+                <div class="text-muted small mb-2">
+                    {% if not activeCloud.setCode %}
+                        {{ ux_icon('tabler:tag', { class: 'icon icon-sm me-1' }) }}
+                        Free-text field — no controlled vocabulary behind these values.
+                    {% endif %}
+                    {% if activeCloud.totalValues > activeCloud.terms|length %}
+                        Showing the top {{ activeCloud.terms|length }} of {{ activeCloud.totalValues|number_format }} distinct values.
+                    {% endif %}
+                </div>
+
                 <div class="d-flex flex-wrap align-items-center gap-2 folio-term-cloud">
-                    {% for entry in activeSet.terms %}
-                        {% set term = entry.term %}
-                        <a
-                            href="{{ path('survos_folio_term_show', folio.getRp()|merge({ setCode: activeSet.setCode, termCode: term.code })) }}"
-                            class="btn btn-sm rounded-pill shadow-none folio-term-pill"
-                            style="font-size: {{ (0.8 + entry.weight * 1.5)|number_format(2) }}rem"
-                            data-bs-toggle="tooltip"
-                            data-bs-title="{{ entry.count }} occurrence{{ entry.count == 1 ? '' : 's' }} across {{ entry.docs }} item{{ entry.docs == 1 ? '' : 's' }}"
-                        >
-                            {{ term.label ?: term.code }}
-                        </a>
+                    {% for entry in activeCloud.terms %}
+                        {% if activeCloud.setCode and entry.code %}
+                            <a
+                                href="{{ path('survos_folio_term_show', folio.getRp()|merge({ setCode: activeCloud.setCode, termCode: entry.code })) }}"
+                                class="btn btn-sm rounded-pill shadow-none folio-term-pill"
+                                style="font-size: {{ (0.8 + entry.weight * 1.5)|number_format(2) }}rem"
+                                data-bs-toggle="tooltip"
+                                data-bs-title="{{ entry.count }} occurrence{{ entry.count == 1 ? '' : 's' }} across {{ entry.docs }} item{{ entry.docs == 1 ? '' : 's' }}"
+                            >
+                                {{ entry.label }}
+                            </a>
+                        {% else %}
+                            <span
+                                class="btn btn-sm rounded-pill shadow-none folio-term-pill folio-term-pill-freetext"
+                                style="font-size: {{ (0.8 + entry.weight * 1.5)|number_format(2) }}rem"
+                                data-bs-toggle="tooltip"
+                                data-bs-title="{{ entry.count }} occurrence{{ entry.count == 1 ? '' : 's' }} across {{ entry.docs }} item{{ entry.docs == 1 ? '' : 's' }}"
+                            >
+                                {{ entry.label }}
+                            </span>
+                        {% endif %}
                     {% else %}
-                        <div class="text-muted">No terms found for this set.</div>
+                        <div class="text-muted">No terms found for this facet.</div>
                     {% endfor %}
                 </div>
             {% endif %}
@@ -61,6 +75,11 @@
     <style>
         .folio-term-pill {
             line-height: 1.4;
+        }
+
+        .folio-term-pill-freetext {
+            opacity: .8;
+            border-style: dashed;
         }
     </style>
 {% endblock %}
