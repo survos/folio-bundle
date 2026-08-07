@@ -157,7 +157,13 @@ final class SurvosFolioBundle extends AbstractUxBundle
         if (class_exists(\Survos\MeiliBundle\Service\MeiliService::class)) {
             $services->set(FolioMeiliDocumentBuilder::class)->autowire()->autoconfigure()->public();
             $services->set(FolioMeiliIndexer::class)->autowire()->autoconfigure()->public();
-            $services->set(FolioMeiliBuildSetCommand::class)->autowire()->autoconfigure()->public();
+            // $datasets nullable/optional -- same "erroring clearly at runtime, not a container
+            // compile failure" pattern as FolioTranslateCommand's own registration below, for an
+            // app with folio-bundle but not dataset-bundle. Used only for the best-effort
+            // raw-index Meili locale hint (see the command's own resolveLocalizedAttributes()).
+            $services->set(FolioMeiliBuildSetCommand::class)->autowire()->autoconfigure()->public()->args([
+                '$datasets' => service(\Survos\DatasetBundle\Repository\DatasetInfoRepository::class)->ignoreOnInvalid(),
+            ]);
         }
         // The 'folio_row' search this bundle's own search.html.twig already assumes exists
         // (hardcodes name: 'folio_row' + hitTemplate: 'search/hits/folio_row.html.twig') --

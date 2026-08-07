@@ -1631,28 +1631,42 @@ final class FolioController extends AbstractController
      *
      * @return array{prev: ?array{localId: string, dtoType: string}, next: ?array{localId: string, dtoType: string}}
      */
+    /**
+     * Was a LAG/LEAD window function over the WHOLE core (`... OVER (ORDER BY rowid) FROM item
+     * WHERE core_id = :core`), filtered down to one row only in the outer query -- SQLite has to
+     * materialize prev/next for every row in the partition before it can apply that filter, an
+     * O(n) cost on every single row-show page view regardless of which row you asked for.
+     * Confirmed via EXPLAIN QUERY PLAN (nested CO-ROUTINE/SCAN over the full core_id-filtered
+     * set) and empirically: 3+ seconds on a 489k-row core (n4/tobacco), reproducing the exact
+     * "why does a primary-key lookup take 3 seconds" report. Two direct indexed range queries
+     * (`core_id = ? AND rowid < / > ? ORDER BY rowid ... LIMIT 1`) use the existing
+     * `(core_id)`-prefixed index as a real SEARCH, not a SCAN -- confirmed 5ms on the same file,
+     * same `ORDER BY rowid` semantics, same output shape.
+     */
     private function adjacentRows(Connection $conn, string $coreId, string $localId): array
     {
-        $row = $conn->fetchAssociative(
-            'SELECT prev_id, prev_type, next_id, next_type FROM (
-                SELECT local_id,
-                       LAG(local_id)  OVER (ORDER BY rowid) AS prev_id,
-                       LAG(dto_type)  OVER (ORDER BY rowid) AS prev_type,
-                       LEAD(local_id) OVER (ORDER BY rowid) AS next_id,
-                       LEAD(dto_type) OVER (ORDER BY rowid) AS next_type
-                FROM item WHERE core_id = :core
-            ) WHERE local_id = :current',
+        $currentRowid = $conn->fetchOne(
+            'SELECT rowid FROM item WHERE core_id = :core AND local_id = :current',
             ['core' => $coreId, 'current' => $localId],
-        ) ?: [];
+        );
+        if ($currentRowid === false) {
+            return ['prev' => null, 'next' => null];
+        }
 
-        $mk = static fn (?string $id, ?string $type): ?array => null === $id || '' === $id
+        $prev = $conn->fetchAssociative(
+            'SELECT local_id, dto_type FROM item WHERE core_id = :core AND rowid < :rowid ORDER BY rowid DESC LIMIT 1',
+            ['core' => $coreId, 'rowid' => $currentRowid],
+        ) ?: null;
+        $next = $conn->fetchAssociative(
+            'SELECT local_id, dto_type FROM item WHERE core_id = :core AND rowid > :rowid ORDER BY rowid ASC LIMIT 1',
+            ['core' => $coreId, 'rowid' => $currentRowid],
+        ) ?: null;
+
+        $mk = static fn (?array $row): ?array => $row === null
             ? null
-            : ['localId' => $id, 'dtoType' => $type ?: 'row'];
+            : ['localId' => $row['local_id'], 'dtoType' => $row['dto_type'] ?: 'row'];
 
-        return [
-            'prev' => $mk($row['prev_id'] ?? null, $row['prev_type'] ?? null),
-            'next' => $mk($row['next_id'] ?? null, $row['next_type'] ?? null),
-        ];
+        return ['prev' => $mk($prev), 'next' => $mk($next)];
     }
 
     private function tableExists(Connection $conn, string $table): bool

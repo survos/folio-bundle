@@ -20,6 +20,10 @@ bin/console folio:meili:build-set <indexBase> <folioCode...> [options]
 | `--wait` | off | Wait for the Meili task and fail loudly on error. |
 | `--pk` | `id` | Primary-key field. |
 | `--keys` | off | Create/sync the managed search key (`MeiliServerKeyService::ensureServerKeys`) so a browser/InstantSearch client can query without a 401. Requires the master key. |
+| `--locale` | none | Target index LOCALE (e.g. `en`) — suffixes the index uid via `IndexNameResolver::uidFor()` (`<base>_<locale>`) AND (since 2026-08-06) sets Meilisearch's `localizedAttributes` stemming/tokenization hint to that locale. Omit to write the raw/unsuffixed index with no locale hint asserted from CLI args (see "Locale hints" below). |
+| `--open-locale` | none | Which per-folio file variant to open — independent of `--locale` (which only names the index/sets the hint). Omit to open each folio's default/source file; set to open that locale's translated `.{locale}.folio` build. `--locale=en --open-locale=en` is how you fill an `_en` index with genuinely-translated content, not just a mislabeled copy of the source. |
+| `--all-fields` | off | Skip the `--fields` whitelist, index every `dtoData` key (still normalises `ai:`-prefixed aliases). |
+| `--content-types` | none | Comma-separated `dtoData.contentType` allowlist — scans every core in the folio instead of just `--core`, filtered by this field. |
 
 ## How it works
 
@@ -43,11 +47,32 @@ bin/console folio:meili:build-set <indexBase> <folioCode...> [options]
   `filterableAttributes` (provider/dataset/folioCode/coreCode + year/subjects/tags/country/city),
   `sortableAttributes` (`year`, numeric → range slider).
 
+### Locale hints (since 2026-08-06)
+
+Before this, **no** folio-built index ever got a Meilisearch `localizedAttributes`
+hint — stemming/tokenization was unhinted for every one, including working
+multi-locale demos (two genuinely different-language indexes, but neither told
+Meili what language it held). Now:
+
+- `--locale` explicit → always sets `localizedAttributes` to that locale
+  (`[['locales' => [$locale], 'attributePatterns' => ['*']]]`) — the caller is
+  asserting the resulting index's language, no further lookup needed.
+- `--locale` omitted (the raw/pooled index, which can genuinely mix languages —
+  e.g. a "Fortepan" pool spanning Hungarian/English/French folios) → best-effort
+  via `Survos\DatasetBundle\Entity\DatasetInfo::$locale` per pooled folio code,
+  **only** if every folio's `DatasetInfo` row exists and agrees on one locale.
+  Any missing row or disagreement across the pool → no hint set, same as before
+  (never asserts a guessed/wrong locale). Requires the app to have `dataset-bundle`
+  installed; degrades to "no hint" cleanly if not (see the command's nullable
+  `$datasets` constructor param).
+
 > Why not `meili:populate` / `IndexProducer`? That path is Doctrine-entity only —
 > it throws for non-entity classes and redirects file-backed collections to
 > `meili:flush-file`. Folio rows come from per-folio SQLite via raw SQL, so the
 > streaming `uploadDocuments()` primitive is the correct, lighter reuse.
 
-The command is generic; the app decides *which* folios form a set. In the `zm` app
-that mapping lives in `config/packages/folio_set.yaml` and is driven by
-`app:meili:folio-set <code>`.
+The command is generic; the app decides *which* folios form a set. Both `zm` and
+`openfoto` store that mapping as an `App\Entity\FolioSet` row (code/label/
+indexBase/core/fields/folios) and drive this command through their own thin
+`folioset:build <code>` wrapper (`folioset:save <code> --folio=... --folio=...` to
+define the set first).
