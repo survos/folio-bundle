@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Gcf\Generic\Encoder;
 use Psr\Log\LoggerInterface;
 use Survos\FolioBundle\Event\FolioChatTurnEvent;
 use Survos\FolioBundle\Model\FolioChatAnswer;
@@ -338,20 +339,36 @@ final readonly class FolioChatService
      */
     private function contextPrompt(string $question, array $hits): string
     {
-        $lines = ['Question: ' . $question, '', 'Candidate items from the collection:'];
-
-        foreach ($hits as $hit) {
-            // denseSummary (curated) if present, else the row's own description.
-            $summary = $hit->denseSummary() ?? $hit->description();
-            $lines[] = '';
-            $lines[] = '- localId: ' . $hit->localId;
-            $lines[] = '  title: ' . ($hit->label ?: '(untitled)');
-            if ($summary !== null) {
-                $lines[] = '  description: ' . $summary;
-            }
+        if ($hits === []) {
+            return trim('Question: ' . $question . "\n\nCandidate items from the collection: none found.");
         }
 
-        return trim(implode("\n", $lines));
+        // denseSummary (curated) is missing for most rows today, and the row's own description()
+        // isn't always present either — but the FTS5 match snippet always is (it's derived from
+        // the match itself), so it's included as its own column rather than only as a fallback.
+        // GCF's tabular form declares the field union once and marks genuinely-absent fields with
+        // ~ per row, instead of the description line being silently skipped for rows that lack one.
+        $rows = array_map(static function (FolioChatHit $hit): array {
+            $row = [
+                'localId' => $hit->localId,
+                'title' => $hit->label ?: '(untitled)',
+            ];
+            $summary = $hit->denseSummary() ?? $hit->description();
+            if ($summary !== null) {
+                $row['description'] = $summary;
+            }
+            if ($hit->snippet !== '') {
+                $row['snippet'] = $hit->snippet;
+            }
+
+            return $row;
+        }, $hits);
+
+        return trim(sprintf(
+            "Question: %s\n\nCandidate items from the collection, GCF format (tabular; ~ marks a field not available for that item):\n%s",
+            $question,
+            Encoder::encode($rows),
+        ));
     }
 
     /**
@@ -429,7 +446,11 @@ final readonly class FolioChatService
     {
         return <<<'PROMPT'
             You are an expert, friendly guide to ONE digital collection. The user's message gives a question
-            and a list of candidate items from the collection — each with a localId, a title, and a description.
+            and a list of candidate items from the collection, in GCF format: a header line declares the field
+            names once (localId, title, and optionally description and snippet), then one row per item with
+            values separated by |. A ~ in a cell means that field has no value for that item, not that it's
+            empty text. "snippet" is the exact matched text from the search index — useful even when
+            description is absent.
 
             The candidates are a starting point, not the whole collection. When they don't fully answer the
             question — a different angle, a comparison, or more examples — call search_collection with your own

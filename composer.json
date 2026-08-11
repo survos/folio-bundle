@@ -29,7 +29,8 @@
     "twig/twig": "^3.24|^4.0",
     "voku/stop-words": "^2.0",
     "ext-sqlite3": "*",
-    "ext-pdo_sqlite": "*"
+    "ext-pdo_sqlite": "*",
+    "tacman/gcf-php": "^1.0"
   },
   "suggest": {
     "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",
