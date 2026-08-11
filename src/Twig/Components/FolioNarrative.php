@@ -39,41 +39,24 @@ final class FolioNarrative
     }
 
     /**
-     * The main descriptive paragraph — richest available prose, in priority order.
-     * observationProse is AI-generated markdown; everything else is plain text.
+     * The main descriptive paragraph — delegates to BaseItemDto::mainText(), the single source of
+     * truth shared with FolioController::rowShow()'s markdown-response bypass for bots.
      *
-     * searchSummary is the last resort, not a peer of the others: its own docblock calls it
-     * "deterministic BM25-friendly text... distinct from ai:denseSummary" -- normally an
-     * internal search-indexing artifact, not authored for display. But some providers map real
-     * source prose into it when nothing better exists in their source schema (confirmed: md's
-     * n4 provider maps tobacco.org's own article `summary` field here) -- when every richer
-     * field above is empty, showing that real content beats showing nothing, even unpolished.
-     * Silently dropping it entirely was the actual bug (2026-08-06): getDetailFacts() also never
-     * surfaces it, since every BaseItemDto property is assumed "spoken here or shown elsewhere"
-     * (see baseItemPropertyNames()) -- so an item with only searchSummary populated showed zero
-     * descriptive text anywhere on the page.
+     * Silently dropping searchSummary entirely was an actual bug (2026-08-06): getDetailFacts()
+     * also never surfaces it, since every BaseItemDto property is assumed "spoken here or shown
+     * elsewhere" (see baseItemPropertyNames()) -- so an item with only searchSummary populated
+     * showed zero descriptive text anywhere on the page.
      */
     #[ExposeInTemplate]
     public function getMainText(): ?string
     {
-        $dto = $this->dto;
-        if ($dto === null) {
-            return null;
-        }
-
-        return $dto->contextDescription
-            ?: ($dto->observationProse
-                ?: ($dto->description
-                    ?: ($dto->sourceCaption
-                        ?: $dto->searchSummary)));
+        return $this->dto?->mainText();
     }
 
     #[ExposeInTemplate]
     public function isMainTextMarkdown(): bool
     {
-        $dto = $this->dto;
-
-        return $dto !== null && $this->getMainText() === $dto->observationProse && $dto->observationProse !== null;
+        return $this->dto !== null && $this->dto->mainTextIsMarkdown();
     }
 
     /** Plain-text source caption, only when it isn't already the main text shown above. */

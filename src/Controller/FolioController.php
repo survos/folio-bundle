@@ -1362,6 +1362,14 @@ final class FolioController extends AbstractController
         $dto = $dtoClass !== null && is_a($dtoClass, BaseItemDto::class, true)
             ? $dtoClass::fromNormalized($row->dtoData ?? [])
             : null;
+
+        // AI crawlers/bots hammering item pages: an explicit `Accept: text/markdown` skips the
+        // claims/links/terms/adjacent-row queries and full HTML render below entirely, returning
+        // just the narrative text that's the actual content they're after.
+        if ($dto !== null && $this->wantsMarkdown($request)) {
+            return $this->markdownResponse($dto);
+        }
+
         $pageTableExists = $this->tableExists($ctx->em->getConnection(), 'page');
         $claims = $this->rowClaimsResolver->resolve($ctx->em->getConnection(), $row->id);
         $aiTaskRuns = $this->rowClaimsResolver->aiTaskRuns($claims);
@@ -1412,6 +1420,26 @@ final class FolioController extends AbstractController
             'adjacent' => $adjacent,
             'hasUxMap' => class_exists(\Symfony\UX\Map\Map::class),
         ]));
+    }
+
+    /** True when the client explicitly asked for text/markdown (not a browser's default wildcard/text-html Accept). */
+    private function wantsMarkdown(Request $request): bool
+    {
+        return in_array('text/markdown', $request->getAcceptableContentTypes(), true);
+    }
+
+    /**
+     * Minimal markdown rendering of a row — title + {@see BaseItemDto::mainText()} — for the
+     * `Accept: text/markdown` bypass in {@see rowShow()}. Deliberately skips everything the full
+     * HTML page adds (claims, links, terms, adjacent rows, media viewer): those queries and the
+     * template render are exactly what this bypass exists to avoid paying for.
+     */
+    private function markdownResponse(BaseItemDto $dto): Response
+    {
+        $body = $dto->title !== null ? "# {$dto->title}\n\n" : '';
+        $body .= $dto->mainText() ?? '';
+
+        return new Response($body, Response::HTTP_OK, ['Content-Type' => 'text/markdown; charset=UTF-8']);
     }
 
     /**
