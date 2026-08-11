@@ -21,6 +21,7 @@ use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Twig\Environment;
 
@@ -730,6 +731,12 @@ final class FolioController extends AbstractController
         ]);
     }
 
+    // Hits the LLM (or, even with no ?q=, still does real DB lookups) — require login so
+    // anonymous crawlers can't trigger API calls or add load to an expensive page. Was
+    // previously enforced per-app via a security.yaml path regex — moved here so it travels
+    // with the route itself instead of being an easy-to-silently-disable app-level config line
+    // (see mono commit history 2026-08-11 for the incident that prompted this).
+    #[IsGranted('ROLE_USER')]
     #[Route('/chat', name: 'survos_folio_chat')]
     public function chat(Folio $folio, Request $request): Response
     {
@@ -857,6 +864,7 @@ final class FolioController extends AbstractController
         ]);
     }
 
+    #[IsGranted('ROLE_USER')]
     #[Route('/{coreCode}/{dtoType}/{localId}/chat', name: 'survos_folio_item_chat', options: ['expose' => true])]
     public function itemChat(Request $request, Folio $folio, string $coreCode, string $dtoType, string $localId): Response
     {
@@ -906,6 +914,7 @@ final class FolioController extends AbstractController
         ]);
     }
 
+    #[IsGranted('ROLE_USER')]
     #[Route('/{coreCode}/{dtoType}/{localId}/page/{seq}/chat', name: 'survos_folio_page_chat', requirements: ['seq' => '\d+'], options: ['expose' => true])]
     public function pageChat(Request $request, Folio $folio, string $coreCode, string $dtoType, string $localId, int $seq): Response
     {
@@ -1002,6 +1011,7 @@ final class FolioController extends AbstractController
         ]);
     }
 
+    #[IsGranted('ROLE_USER')]
     #[Route('/{coreCode}/{dtoType}/{localId}/chat/stream', name: 'survos_folio_item_chat_stream', methods: ['POST'], options: ['expose' => true])]
     public function itemChatStream(Request $request, Folio $folio, string $coreCode, string $dtoType, string $localId): StreamedResponse
     {
@@ -1037,6 +1047,7 @@ final class FolioController extends AbstractController
         );
     }
 
+    #[IsGranted('ROLE_USER')]
     #[Route('/{coreCode}/{dtoType}/{localId}/page/{seq}/chat/stream', name: 'survos_folio_page_chat_stream', requirements: ['seq' => '\d+'], methods: ['POST'], options: ['expose' => true])]
     public function pageChatStream(Request $request, Folio $folio, string $coreCode, string $dtoType, string $localId, int $seq): StreamedResponse
     {
