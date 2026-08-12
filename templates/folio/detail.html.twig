@@ -34,10 +34,12 @@
 {# NOTE the inversion vs. the DTO's own property names: this template's local `citationUrl` var
    is the DTO's $sourceUrl (the citable, reader-facing page); this template's local `sourceUrl`
    var is the DTO's $url (the canonical/raw source URI, e.g. a Wikibase item's raw wiki page).
-   Neither `row.citationUrl` nor `dtoData.citationUrl`/`dtoData.url`-as-citation ever existed as
-   real fields -- this link was silently null on every row until fixed to read the DTO's actual
-   property names. #}
-{% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'sourceUrl')|default(null) %}
+   Read via attribute(row.dtoData, ...) only -- NOT `row.citationUrl` directly: Row (Entity\Row)
+   has no such property/method, and this app's strict Twig config throws (RuntimeError) rather
+   than quietly returning null on `row.anythingThatDoesntExist`. row.dtoData itself IS a real
+   property (used safely throughout this file); only the never-real citationUrl/sourceUrl/url
+   properties on `row` directly are the trap. #}
+{% set citationUrl = attribute(row.dtoData, 'sourceUrl')|default(null) %}
 {% set sourceUrl = attribute(row.dtoData, 'url')|default(null) %}
 {% set tombstoneUrl = citationUrl ?: sourceUrl %}
 {% set tombstoneCredit = attribute(row.dtoData, 'citation')|default(null) %}
@@ -791,7 +793,7 @@
                             <div class="list-group list-group-flush">
                                 {% for set, values in terms %}
                                     <div class="list-group-item bg-transparent">
-                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ ('term.' ~ set)|trans({}, 'system') }}</div>
+                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ term_set_label(set) }}</div>
 
                                         {% for value in values %}
                                             {% if value.term %}

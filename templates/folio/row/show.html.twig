@@ -13,10 +13,14 @@
 {% set tombstoneYear = null %}
 {% set tombstoneCredit = null %}
 {# citationUrl/sourceUrl here name the DTO's REAL properties -- $sourceUrl (citable page) and
-   $url (canonical/raw source URI) -- not the never-real 'citationUrl'/'url' dtoData keys this
-   template used to check (always null; see mono commit "Fix detail page: ..."). #}
-{% set citationUrl = row.sourceUrl %}
-{% set sourceUrl = row.url %}
+   $url (canonical/raw source URI) -- resolved below from dto/dtoData, never NOT from `row`
+   directly: Row (Entity\Row) has neither as a real property/method, and this app's strict Twig
+   config throws (RuntimeError, not a quiet null) on `row.anythingThatDoesntExist`. The previous
+   `row.citationUrl` here hit the exact same fatal error whenever this template was freshly
+   compiled -- masked in earlier testing by a stale var/cache/dev/twig/ compile predating this
+   line, only surfaced once `composer update`'s cache:clear forced a real recompile. #}
+{% set citationUrl = null %}
+{% set sourceUrl = null %}
 {% set tombstoneSourceImage = null %}
 {% set tombstoneLatitude = null %}
 {% set tombstoneLongitude = null %}
@@ -696,7 +700,7 @@
                             <div class="list-group list-group-flush">
                                 {% for set, values in terms %}
                                     <div class="list-group-item bg-transparent">
-                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ ('term.' ~ set)|trans({}, 'system') }}</div>
+                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ term_set_label(set) }}</div>
 
                                         {% for value in values %}
                                             {% if value.term %}

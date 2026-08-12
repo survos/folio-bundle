@@ -8,6 +8,7 @@ use League\CommonMark\CommonMarkConverter;
 use Survos\DataContracts\Vocabulary\Core;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Attribute\AsTwigFilter;
 use Twig\Attribute\AsTwigFunction;
 
@@ -59,7 +60,34 @@ final class FolioCoreTwig
         private readonly bool $bookmarksEnabled = false,
         /** survos_folio.base_template — the layout folio-bundle pages extend; null uses 'base.html.twig'. */
         private readonly ?string $baseTemplate = null,
+        private readonly ?TranslatorInterface $translator = null,
     ) {}
+
+    /**
+     * Label for a term-set code (e.g. 'gender' -> "Gender", 'eventType' -> "Event Type") shown
+     * as a Terms-section header on the row detail page. Real translation ('term.<set>' in the
+     * 'system' domain) when one exists, else a humanized fallback -- deliberately NOT a bare
+     * `{{ ('term.' ~ set)|trans }}` (which was the actual bug: no fallback means a missing
+     * translation shows the literal untranslated key, e.g. "TERM.GENDER", not a a foot-gun
+     * silent-null default, but not what a reader should ever see either). Same fallback
+     * humanization FolioFacetFieldResolver::humanize() uses for facet field labels, so a term
+     * set's header always matches its facet-sidebar label.
+     */
+    #[AsTwigFunction('term_set_label')]
+    public function termSetLabel(string $set): string
+    {
+        $key = 'term.' . $set;
+        if ($this->translator !== null) {
+            $label = $this->translator->trans($key, domain: 'system');
+            if ($label !== $key) {
+                return $label;
+            }
+        }
+
+        $humanized = preg_replace('/(?<!^)[A-Z]/', ' $0', str_replace(['_', ':'], ' ', $set)) ?? $set;
+
+        return ucwords($humanized);
+    }
 
     /**
      * Every folio-bundle top-level template does `{% extends folio_base_template() %}` instead of
