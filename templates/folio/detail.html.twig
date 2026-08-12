@@ -31,7 +31,13 @@
 {% set tombstoneDate = attribute(row.dtoData, 'date')|default(attribute(row.extras, 'dcterms:date')|default(null)) %}
 {% set tombstoneDimensions = attribute(row.dtoData, 'dimensions')|default(null) %}
 {% set tombstoneDimensionsRaw = attribute(row.dtoData, 'dimensionsRaw')|default(null) %}
-{% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
+{# NOTE the inversion vs. the DTO's own property names: this template's local `citationUrl` var
+   is the DTO's $sourceUrl (the citable, reader-facing page); this template's local `sourceUrl`
+   var is the DTO's $url (the canonical/raw source URI, e.g. a Wikibase item's raw wiki page).
+   Neither `row.citationUrl` nor `dtoData.citationUrl`/`dtoData.url`-as-citation ever existed as
+   real fields -- this link was silently null on every row until fixed to read the DTO's actual
+   property names. #}
+{% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'sourceUrl')|default(null) %}
 {% set sourceUrl = attribute(row.dtoData, 'url')|default(null) %}
 {% set tombstoneUrl = citationUrl ?: sourceUrl %}
 {% set tombstoneCredit = attribute(row.dtoData, 'citation')|default(null) %}
@@ -164,6 +170,16 @@
                             {% if tombstoneUrl %}
                                 <a href="{{ tombstoneUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
                                     Citation {{ ux_icon('tabler:external-link', { class: 'icon ms-1' }) }}
+                                </a>
+                            {% endif %}
+
+                            {# The canonical/raw source URI (e.g. a Wikibase item's own wiki page), shown
+                               separately from the citable page above whenever the two genuinely differ --
+                               so both "the record as the source system itself shows it" and "the polished
+                               public page" are one click away. #}
+                            {% if sourceUrl and sourceUrl != tombstoneUrl %}
+                                <a href="{{ sourceUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
+                                    Source record {{ ux_icon('tabler:external-link', { class: 'icon ms-1' }) }}
                                 </a>
                             {% endif %}
 

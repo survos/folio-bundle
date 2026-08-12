@@ -52,7 +52,12 @@ final class RowTermsResolver
                     : $this->termCache[$termId] = $em->find(Term::class, $termId);
                 $terms[$setCode][] = [
                     'code' => $code,
-                    'label' => $label,
+                    // The real Term row's label when found -- NOT the raw field value, which is
+                    // only readable-as-is for existing MuseumVocab-driven datasets ("Roman", "Oil
+                    // on canvas"). A dataset whose raw values are opaque codes (Wikibase Q-ids)
+                    // showed literal "Q296" here even with a matching, correctly-labeled Term row
+                    // sitting right there in $term -- this line just never read it.
+                    'label' => $term?->label ?? $label,
                     'term' => $term instanceof Term ? $term : null,
                 ];
             }
