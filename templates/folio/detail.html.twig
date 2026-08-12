@@ -791,7 +791,7 @@
                             <div class="list-group list-group-flush">
                                 {% for set, values in terms %}
                                     <div class="list-group-item bg-transparent">
-                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ ('term.' ~ set)|trans }}</div>
+                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ ('term.' ~ set)|trans({}, 'system') }}</div>
 
                                         {% for value in values %}
                                             {% if value.term %}

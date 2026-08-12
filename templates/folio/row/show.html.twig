@@ -12,7 +12,11 @@
 {% set tombstoneTitle = row.label ?: row.localId %}
 {% set tombstoneYear = null %}
 {% set tombstoneCredit = null %}
-{% set citationUrl = row.citationUrl %}
+{# citationUrl/sourceUrl here name the DTO's REAL properties -- $sourceUrl (citable page) and
+   $url (canonical/raw source URI) -- not the never-real 'citationUrl'/'url' dtoData keys this
+   template used to check (always null; see mono commit "Fix detail page: ..."). #}
+{% set citationUrl = row.sourceUrl %}
+{% set sourceUrl = row.url %}
 {% set tombstoneSourceImage = null %}
 {% set tombstoneLatitude = null %}
 {% set tombstoneLongitude = null %}
@@ -20,7 +24,8 @@
     {% set tombstoneTitle = dto.title ?: tombstoneTitle %}
     {% set tombstoneYear = dto.year ?: dto.date %}
     {% set tombstoneCredit = dto.credit %}
-    {% set citationUrl = citationUrl ?: dto.citationUrl %}
+    {% set citationUrl = citationUrl ?: dto.sourceUrl %}
+    {% set sourceUrl = sourceUrl ?: dto.url %}
     {% set tombstoneSourceImage = dto.largeImageUrl ?: dto.iiifBase %}
     {% set tombstoneLatitude = dto.latitude %}
     {% set tombstoneLongitude = dto.longitude %}
@@ -28,7 +33,8 @@
     {% set tombstoneTitle = attribute(row.dtoData, 'title')|default(attribute(row.extras, 'dcterms:title')|default(tombstoneTitle)) %}
     {% set tombstoneYear = attribute(row.dtoData, 'year')|default(attribute(row.dtoData, 'date')|default(null)) %}
     {% set tombstoneCredit = attribute(row.dtoData, 'citation')|default(null) %}
-    {% set citationUrl = citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
+    {% set citationUrl = citationUrl ?: attribute(row.dtoData, 'sourceUrl')|default(null) %}
+    {% set sourceUrl = sourceUrl ?: attribute(row.dtoData, 'url')|default(null) %}
     {% set tombstoneSourceImage = attribute(row.dtoData, 'largeImageUrl')|default(attribute(row.dtoData, 'iiifBase')|default(null)) %}
     {% set tombstoneLatitude = attribute(row.dtoData, 'latitude')|default(null) %}
     {% set tombstoneLongitude = attribute(row.dtoData, 'longitude')|default(null) %}
@@ -690,7 +696,7 @@
                             <div class="list-group list-group-flush">
                                 {% for set, values in terms %}
                                     <div class="list-group-item bg-transparent">
-                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ ('term.' ~ set)|trans }}</div>
+                                        <div class="text-muted small text-uppercase">{{ ux_icon(set, {class: 'icon me-1'}) }}{{ ('term.' ~ set)|trans({}, 'system') }}</div>
 
                                         {% for value in values %}
                                             {% if value.term %}
