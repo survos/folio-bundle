@@ -4,6 +4,18 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Psr\Log\LoggerInterface;
+
+/**
+ * The ONLY code in this codebase allowed to write into folio_archive.storage (an rclone mount of
+ * the shared S3 bucket, see zm/mono/harvest's config/packages/flysystem.yaml) -- new archive
+ * plumbing must go through archive() below, not fopen()/gzopen()/sqlite `ATTACH` directly on an
+ * archive path. Every SQLite/gzip step happens in a local staging dir first; publishToMount() is
+ * the single, timed, logged copy() that actually crosses to the mount. This is deliberate: a raw
+ * write stream (gzopen($mountPath, 'wb') + a loop of gzwrite() calls) left a partial file visible
+ * on S3 for the whole duration of the write if interrupted; a copy() of an already-complete local
+ * file is one atomic-from-the-caller's-perspective operation.
+ */
 final readonly class FolioArchiveService
 {
     public function __construct(
@@ -11,6 +23,7 @@ final readonly class FolioArchiveService
         private FolioFtsIndexer $ftsIndexer,
         private FolioArchivePreparer $preparer,
         private FolioViewBuilder $viewBuilder,
+        private ?LoggerInterface $logger = null,
     ) {
     }
 
@@ -27,18 +40,45 @@ final readonly class FolioArchiveService
         $this->preparer->prepare($source, ['archivePreparedAt' => gmdate(DATE_ATOM)]);
 
         $archivePath ??= $source . '.gz';
-        $dir = dirname($archivePath);
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            throw new \RuntimeException(sprintf('Unable to create archive directory "%s".', $dir));
+
+        // Everything up to the final publish happens in a LOCAL staging dir -- never on the
+        // mount. Besides gating writes, this is also just faster: the SQLite DDL/VACUUM below is
+        // many small round trips, which used to each cross the FUSE mount when $tmp lived next to
+        // $archivePath.
+        $stagingDir = sys_get_temp_dir() . '/folio-archive-staging/' . bin2hex(random_bytes(8));
+        if (!mkdir($stagingDir, 0775, true) && !is_dir($stagingDir)) {
+            throw new \RuntimeException(sprintf('Unable to create local staging directory "%s".', $stagingDir));
         }
 
+        try {
+            $localGz = $stagingDir . '/' . basename($archivePath);
+            $this->buildLocalArchive($source, $stagingDir, $localGz);
+            $this->publishToMount($localGz, $archivePath);
+        } finally {
+            $this->removeDirectory($stagingDir);
+        }
+
+        return [
+            'source' => $source,
+            'archive' => $archivePath,
+            'sourceBytes' => filesize($source) ?: 0,
+            'archiveBytes' => filesize($archivePath) ?: 0,
+        ];
+    }
+
+    /**
+     * Prepares and gzips $source entirely within $stagingDir (local disk), producing $localGz.
+     * Never touches folio_archive.storage -- see the class docblock.
+     */
+    private function buildLocalArchive(string $source, string $stagingDir, string $localGz): void
+    {
         // Fold the WAL into the main file before the copy: copy() takes only the
         // .folio bytes, not the -wal sidecar, and SQLite auto-checkpoints just every
         // ~1000 WAL pages — so without this the tail of recent commits (rows, the
         // archivePreparedAt just written above) can be missing from the archive.
         $this->checkpoint($source);
 
-        $tmp = $archivePath . '.tmp.sqlite';
+        $tmp = $stagingDir . '/' . basename($source) . '.tmp.sqlite';
         if (!copy($source, $tmp)) {
             throw new \RuntimeException(sprintf('Unable to create archive staging copy "%s".', $tmp));
         }
@@ -95,15 +135,34 @@ final readonly class FolioArchiveService
             }
         }
 
-        $this->gzip($tmp, $archivePath);
+        $this->gzip($tmp, $localGz);
         unlink($tmp);
+    }
 
-        return [
-            'source' => $source,
+    /**
+     * The one place a finished archive crosses onto folio_archive.storage -- a single copy() of
+     * an already-complete local file, timed and logged. See the class docblock.
+     */
+    private function publishToMount(string $localGz, string $archivePath): void
+    {
+        $dir = dirname($archivePath);
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new \RuntimeException(sprintf('Unable to create archive directory "%s".', $dir));
+        }
+
+        $bytes = filesize($localGz) ?: 0;
+        $start = microtime(true);
+        if (!copy($localGz, $archivePath)) {
+            throw new \RuntimeException(sprintf('Unable to publish archive to "%s".', $archivePath));
+        }
+        $elapsed = microtime(true) - $start;
+
+        $this->logger?->info('Folio archive published to mount', [
             'archive' => $archivePath,
-            'sourceBytes' => filesize($source) ?: 0,
-            'archiveBytes' => filesize($archivePath) ?: 0,
-        ];
+            'bytes' => $bytes,
+            'seconds' => round($elapsed, 3),
+            'bytesPerSecond' => $elapsed > 0 ? (int) round($bytes / $elapsed) : null,
+        ]);
     }
 
     /**
@@ -147,6 +206,7 @@ final readonly class FolioArchiveService
             'CREATE INDEX IF NOT EXISTS idx_item_core_dto_type ON item(core_id, dto_type)',
             "CREATE INDEX IF NOT EXISTS idx_item_json_creator ON item(json_extract(dto_data, '$.creator'))",
             "CREATE INDEX IF NOT EXISTS idx_item_json_date ON item(json_extract(dto_data, '$.date'))",
+            "CREATE INDEX IF NOT EXISTS idx_item_json_year ON item(json_extract(dto_data, '$.year'))",
             "CREATE INDEX IF NOT EXISTS idx_item_json_contenttype ON item(json_extract(dto_data, '$.contentType'))",
             "CREATE INDEX IF NOT EXISTS idx_item_json_language ON item(json_extract(dto_data, '$.language'))",
             'CREATE INDEX IF NOT EXISTS idx_link_left ON link(left_core, left_id)',
@@ -222,6 +282,23 @@ final readonly class FolioArchiveService
 
         fclose($in);
         gzclose($out);
+    }
+
+    private function removeDirectory(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        foreach (scandir($dir) ?: [] as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $path = $dir . '/' . $entry;
+            is_dir($path) ? $this->removeDirectory($path) : unlink($path);
+        }
+
+        rmdir($dir);
     }
 
     private function quote(string $identifier): string

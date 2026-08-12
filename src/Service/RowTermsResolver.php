@@ -18,6 +18,15 @@ use Survos\FolioBundle\Entity\Term;
  */
 final class RowTermsResolver
 {
+    // Keyed by the full "$folioCode:$setCode:$code" term id. resolve() runs once per rendered
+    // item on pages that list many rows (e.g. the "Most Results" facet-value panel), and the
+    // same term (e.g. a common genre) recurs across most of them -- seen live: 1000 identical
+    // `find(Term::class, ...)` queries for one id on a single search page. $em->find() should
+    // hit Doctrine's identity map on repeat calls, but each item's context() call can land on a
+    // fresh/cleared EM (see FolioService::switch()), defeating it -- so cache here too.
+    /** @var array<string, ?Term> */
+    private array $termCache = [];
+
     /**
      * @param array<string,mixed> $dtoData
      * @param array<string,mixed> $extras
@@ -37,7 +46,10 @@ final class RowTermsResolver
             // an array key would be coerced to an int and break termCode(string).
             foreach (array_unique($labels) as $label) {
                 $code = $this->termCode($label);
-                $term = $em->find(Term::class, "$folioCode:$setCode:$code");
+                $termId = "$folioCode:$setCode:$code";
+                $term = array_key_exists($termId, $this->termCache)
+                    ? $this->termCache[$termId]
+                    : $this->termCache[$termId] = $em->find(Term::class, $termId);
                 $terms[$setCode][] = [
                     'code' => $code,
                     'label' => $label,

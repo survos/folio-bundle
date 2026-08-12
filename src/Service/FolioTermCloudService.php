@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\DataContracts\Vocabulary\TermSetBinding;
-use Survos\FolioBundle\Entity\Term;
 use Survos\FolioBundle\Model\FolioContext;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
@@ -68,7 +67,14 @@ final readonly class FolioTermCloudService
         // field like tags can carry thousands of one-off values, and silently showing only the top
         // 60 with no indication of that would understate exactly the messiness this cloud exists to
         // show (2026-08-05, caught via mus/fpus: tags looked like "only 60" when it's really 6,112).
-        $byField = [];
+        //
+        // Two passes: first collect the (already capped-to-60-per-field) candidate rows and every
+        // term-set id they need, then resolve all those terms in ONE batched query. This used to
+        // call $em->find(Term::class, $id) per row -- up to (term-set fields) x 60 individual
+        // round trips (~900-1000 seen live on a single search page), each a distinct id so no
+        // per-id cache could help.
+        $candidates = [];
+        $neededIds = [];
         $totalValues = [];
         foreach ($rows as $row) {
             $field = (string) $row['field'];
@@ -77,31 +83,60 @@ final readonly class FolioTermCloudService
             }
             $totalValues[$field] = ($totalValues[$field] ?? 0) + 1;
 
-            if (count($byField[$field] ?? []) >= $limitPerField) {
+            if (count($candidates[$field] ?? []) >= $limitPerField) {
                 continue;
             }
 
             $setCode = $fieldToSetCode[$field] ?? null;
-            if ($setCode !== null) {
-                $term = $ctx->em->find(Term::class, "{$ctx->folioCode}:{$setCode}:{$row['value']}");
-                if (!$term instanceof Term) {
-                    // An unclassified value under a controlled set isn't real vocabulary yet --
-                    // skip rather than show a raw code where a translated label is expected.
-                    continue;
-                }
-                $label = $term->label ?: $term->code;
-                $code = $term->code;
-            } else {
-                $label = (string) $row['value'];
-                $code = null;
+            $termId = $setCode !== null ? "{$ctx->folioCode}:{$setCode}:{$row['value']}" : null;
+            if ($termId !== null) {
+                $neededIds[$termId] = true;
             }
 
-            $byField[$field][] = [
-                'label' => $label,
-                'code' => $code,
+            $candidates[$field][] = [
+                'termId' => $termId,
+                'value' => (string) $row['value'],
                 'count' => (int) $row['cnt'],
                 'docs' => (int) $row['docs'],
             ];
+        }
+
+        $terms = [];
+        if ($neededIds !== []) {
+            $ids = array_keys($neededIds);
+            $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+            foreach ($conn->executeQuery(
+                "SELECT id, label, code FROM term WHERE id IN ($placeholders)",
+                $ids,
+            )->fetchAllAssociative() as $termRow) {
+                $terms[(string) $termRow['id']] = $termRow;
+            }
+        }
+
+        $byField = [];
+        foreach ($candidates as $field => $entries) {
+            foreach ($entries as $entry) {
+                if ($entry['termId'] !== null) {
+                    $termRow = $terms[$entry['termId']] ?? null;
+                    if ($termRow === null) {
+                        // An unclassified value under a controlled set isn't real vocabulary yet --
+                        // skip rather than show a raw code where a translated label is expected.
+                        continue;
+                    }
+                    $label = $termRow['label'] !== null && $termRow['label'] !== '' ? (string) $termRow['label'] : (string) $termRow['code'];
+                    $code = (string) $termRow['code'];
+                } else {
+                    $label = $entry['value'];
+                    $code = null;
+                }
+
+                $byField[$field][] = [
+                    'label' => $label,
+                    'code' => $code,
+                    'count' => $entry['count'],
+                    'docs' => $entry['docs'],
+                ];
+            }
         }
 
         $result = [];
