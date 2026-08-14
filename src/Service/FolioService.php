@@ -48,6 +48,16 @@ final class FolioService
         return $this->dataPaths->folioArchiveFile($folioCode, $this->localizedExtension($locale) . '.gz', $createDirectory);
     }
 
+    /**
+     * Path to the bare, uninflated, uncompressed snapshot, e.g. <root>/folio-bare/<provider>/<code>.folio
+     * — captured right after row ingest, before indexes/FTS5 are added. This is what a `.gz` archive
+     * gets lazily compressed from on first request, so compression never has to strip indexes/VACUUM.
+     */
+    public function barePath(string $folioCode, bool $createDirectory = false, ?string $locale = null): string
+    {
+        return $this->dataPaths->folioBareFile($folioCode, $this->localizedExtension($locale), $createDirectory);
+    }
+
     private function localizedExtension(?string $locale): string
     {
         $locale ??= $this->requestContentLocale;

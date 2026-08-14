@@ -166,6 +166,65 @@ final readonly class FolioArchiveService
     }
 
     /**
+     * Checkpoint and copy the just-ingested, pre-inflate working folio to its durable bare
+     * snapshot location (folio-bare/<provider>/<code>.folio) -- captured once, right after row
+     * ingest, before inflate() adds indexes/FTS5/views. compressBare() later gzips this file
+     * directly on first request, so lazy archive creation never has to strip indexes back out
+     * or VACUUM a large working database.
+     */
+    public function snapshotBare(string $folioCode, string $workingPath, ?string $locale = null): string
+    {
+        $this->checkpoint($workingPath);
+
+        $target = $this->folios->barePath($folioCode, createDirectory: true, locale: $locale);
+        if (!copy($workingPath, $target)) {
+            throw new \RuntimeException(sprintf('Unable to snapshot bare folio to "%s".', $target));
+        }
+
+        return $target;
+    }
+
+    /**
+     * Compress the bare (pre-inflate) snapshot straight to a `.gz` archive -- no checkpoint, no
+     * index/FTS/view stripping, no VACUUM, since the bare snapshot was already clean when
+     * snapshotBare() captured it. This is the lazy, on-request counterpart to archive(): cheap
+     * enough to run inline in an HTTP request instead of needing a background job.
+     *
+     * @return array{source:string,archive:string,sourceBytes:int,archiveBytes:int}
+     */
+    public function compressBare(string $folioCode, ?string $archivePath = null, ?string $locale = null): array
+    {
+        $source = $this->folios->barePath($folioCode, locale: $locale);
+        if (!is_file($source)) {
+            throw new \RuntimeException(sprintf('Bare folio snapshot not found: %s', $source));
+        }
+
+        $archivePath ??= $this->folios->archivePath($folioCode, locale: $locale);
+
+        // Same local-staging-then-publish pattern as archive() (see class docblock): gzip into a
+        // local temp dir, then one timed/logged copy() onto the (possibly mounted) archive path.
+        $stagingDir = sys_get_temp_dir() . '/folio-archive-staging/' . bin2hex(random_bytes(8));
+        if (!mkdir($stagingDir, 0775, true) && !is_dir($stagingDir)) {
+            throw new \RuntimeException(sprintf('Unable to create local staging directory "%s".', $stagingDir));
+        }
+
+        try {
+            $localGz = $stagingDir . '/' . basename($archivePath);
+            $this->gzip($source, $localGz);
+            $this->publishToMount($localGz, $archivePath);
+        } finally {
+            $this->removeDirectory($stagingDir);
+        }
+
+        return [
+            'source' => $source,
+            'archive' => $archivePath,
+            'sourceBytes' => filesize($source) ?: 0,
+            'archiveBytes' => filesize($archivePath) ?: 0,
+        ];
+    }
+
+    /**
      * @return array{archive:string,target:string,targetBytes:int,indexedRows:int}
      */
     public function restore(string $archivePath, string $folioCode, bool $force = false, ?string $locale = null): array
@@ -268,10 +327,15 @@ final readonly class FolioArchiveService
         unset($pdo);
     }
 
-    private function gzip(string $source, string $target): void
+    /**
+     * Level defaults to 6 (zlib's own default), not 9 (max): 9 buys a modest size reduction
+     * over 6 for a lot more CPU time, and disk space is cheap here -- speed matters more,
+     * especially for compressBare()'s on-request, block-a-live-HTTP-request use.
+     */
+    private function gzip(string $source, string $target, int $level = 6): void
     {
         $in = fopen($source, 'rb');
-        $out = gzopen($target, 'wb9');
+        $out = gzopen($target, 'wb' . $level);
         if (!$in || !$out) {
             throw new \RuntimeException(sprintf('Unable to gzip "%s" to "%s".', $source, $target));
         }

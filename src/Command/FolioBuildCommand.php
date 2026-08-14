@@ -241,6 +241,15 @@ final class FolioBuildCommand implements SignalableCommandInterface
                 continue;
             }
 
+            // Bare snapshot (regardless of --gz/--inflate): the pipeline's only clean, pre-index
+            // state. Captured now, before Step 3's inflate() mutates $workingPath in place, so a
+            // `.gz` archive can be produced later — on demand, on first download request — by a
+            // plain gzip of this file instead of stripping indexes/FTS back out of a working folio.
+            $barePath = $this->archiveService->snapshotBare($code, $workingPath, locale: $buildLocale);
+            if ($io->isVerbose()) {
+                $io->writeln(sprintf('  bare     %s  %s', $this->humanBytes(filesize($barePath) ?: 0), $barePath));
+            }
+
             // Step 2 (--gz only): snapshot the compressed index-free archive (archive() also writes the
             // schema snapshot onto the working folio, which inflate() needs for its views).
             if ($gz) {

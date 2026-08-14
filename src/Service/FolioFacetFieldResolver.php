@@ -45,15 +45,22 @@ final class FolioFacetFieldResolver
     ];
 
     /**
+     * @param ?string $coreCode When given, restricts fields to the schema_table rows for that core
+     *                          (e.g. 'doc', 'per') via schema_table.core_code -- schema_property has
+     *                          no core column of its own, only table_id ('folioCode:dto_<core>_<dto>').
+     *                          A search scoped to one core (FolioRowSearch::build()'s $selectedCore)
+     *                          must NOT surface another core's fields as facets (e.g. 'doc' showing
+     *                          'gender'/'role' from 'per') -- omit for whole-folio callers that want
+     *                          every field across every core (FolioTermCloudService's cloud()).
      * @return list<array{name: string, label: string, type: string}>
      */
-    public function facetFieldNames(Connection $connection, ?int $limit = self::MAX_FACETS): array
+    public function facetFieldNames(Connection $connection, ?int $limit = self::MAX_FACETS, ?string $coreCode = null): array
     {
         // This resolver runs once per rendered item on pages that list many rows (the "Most
         // Results" facet-value panel, in particular) -- schema_property/item_facet_count are
         // immutable for the lifetime of the request, so re-deriving the field list per item was
-        // pure N+1 waste. Cache by connection identity + limit.
-        $cacheKey = spl_object_id($connection) . ':' . ($limit ?? 'null');
+        // pure N+1 waste. Cache by connection identity + limit + core.
+        $cacheKey = spl_object_id($connection) . ':' . ($limit ?? 'null') . ':' . ($coreCode ?? 'all');
         if (isset($this->facetFieldNamesCache[$cacheKey])) {
             return $this->facetFieldNamesCache[$cacheKey];
         }
@@ -62,15 +69,28 @@ final class FolioFacetFieldResolver
             return $this->facetFieldNamesCache[$cacheKey] = [];
         }
 
-        $rows = $connection->executeQuery(<<<'SQL'
-            SELECT name, label, type, filterable, facet
-            FROM schema_property
-            WHERE visible = 1
-            ORDER BY
-                CASE WHEN facet = 1 OR filterable = 1 THEN 0 ELSE 1 END,
-                position,
-                name
-        SQL)->fetchAllAssociative();
+        if ($coreCode !== null && $this->tableExists($connection, 'schema_table')) {
+            $rows = $connection->executeQuery(<<<'SQL'
+                SELECT p.name, p.label, p.type, p.filterable, p.facet
+                FROM schema_property p
+                JOIN schema_table t ON t.id = p.table_id
+                WHERE p.visible = 1 AND t.core_code = :coreCode
+                ORDER BY
+                    CASE WHEN p.facet = 1 OR p.filterable = 1 THEN 0 ELSE 1 END,
+                    p.position,
+                    p.name
+            SQL, ['coreCode' => $coreCode])->fetchAllAssociative();
+        } else {
+            $rows = $connection->executeQuery(<<<'SQL'
+                SELECT name, label, type, filterable, facet
+                FROM schema_property
+                WHERE visible = 1
+                ORDER BY
+                    CASE WHEN facet = 1 OR filterable = 1 THEN 0 ELSE 1 END,
+                    position,
+                    name
+            SQL)->fetchAllAssociative();
+        }
 
         // schema_property carries many duplicate rows per field (one per observed row/dtoType), often
         // with inconsistent type/flags. Dedup by name so the cap counts *distinct* fields -- otherwise
@@ -113,10 +133,10 @@ final class FolioFacetFieldResolver
      *
      * @return list<array{name: string, label: string, type: string}>
      */
-    public function refinementFieldNames(Connection $connection, ?int $limit = self::MAX_FACETS): array
+    public function refinementFieldNames(Connection $connection, ?int $limit = self::MAX_FACETS, ?string $coreCode = null): array
     {
         return array_values(array_filter(
-            $this->facetFieldNames($connection, $limit),
+            $this->facetFieldNames($connection, $limit, $coreCode),
             static fn (array $field): bool => !preg_match('/\b(int|integer|float|double|number|numeric)\b/i', $field['type']),
         ));
     }

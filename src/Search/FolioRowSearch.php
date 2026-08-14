@@ -88,7 +88,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             'dtoType' => 'd.dto_type',
         ];
 
-        foreach ($this->facetFieldResolver->facetFieldNames($connection) as $field) {
+        foreach ($this->facetFieldResolver->facetFieldNames($connection, coreCode: $selectedCore) as $field) {
             if (isset($facetColumns[$field['name']])) {
                 continue;
             }
