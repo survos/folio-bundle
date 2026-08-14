@@ -109,13 +109,14 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         // wrong) — but only when the dataset actually has integer years. Many datasets carry only a
         // free-text `date` (never normalised to `year`); offering a no-op "Year" sort there is misleading.
         // Deliberately jsonExtract('year'), NOT d.sort_key: sort_key is a VIRTUAL generated column
-        // (uncomputed/unstored), so an existence check against it with no core_id filter can't use
-        // its composite (core_id, sort_key, local_id) index at all and has to recompute the
-        // expression for all 1.2M rows from scratch -- measured ~33s live on wikibase/enslaved,
-        // WORSE than the ~2.4s this replaced. json_extract(dto_data,'$.year') is only fast here
-        // because FolioArchiveService::inflate() now builds idx_item_json_year as a PARTIAL index
-        // (rows WHERE ... IS NOT NULL) -- empty (so this query is instant) for a dataset that
-        // genuinely has no years, unlike a plain index which still holds one entry per NULL row.
+        // (uncomputed/unstored) covered only by the composite (core_id, sort_key, local_id) index,
+        // so a core-less existence check against it can't use that index at all -- would need its
+        // own plain single-column index for no real benefit over reusing the one below.
+        // json_extract(dto_data,'$.year') is fast here because FolioArchiveService::inflate()
+        // builds idx_item_json_year as a PARTIAL index (rows WHERE ... IS NOT NULL) -- empty (so
+        // this query is instant) for a dataset that genuinely has no years, unlike a plain index
+        // which still holds one entry per NULL row. Measured live on wikibase/enslaved's 1.2M
+        // rows: ~2.4s before the partial index, ~5ms after.
         if ($this->hasNonNullExpression($connection, $this->jsonExtract('year'))) {
             $sorts['year:asc'] = 'Year Old-New';
             $sorts['year:desc'] = 'Year New-Old';
@@ -197,17 +198,19 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
 
     /**
      * Whether any row carries a non-null value for a real column/expression — used to gate sorts
-     * (e.g. only offer the Year sort when the dataset actually has integer years, via d.sort_key).
-     * LIMIT 1 stops at the first hit, so this is cheap when a match exists; a genuine miss (no row
-     * anywhere has this) still has to rule out every row, so $expression must be backed by an
-     * index that's actually selective for "IS NOT NULL" -- a covering/partial index, not a plain
-     * index over a mostly-NULL json_extract(dto_data, ...) expression (that degrades to a full
-     * index scan on a miss, since a plain index still holds every NULL entry).
+     * (e.g. only offer the Year sort when the dataset actually has integer years).
+     * `WHERE expr IS NOT NULL LIMIT 1` looks like the obvious query but SQLite's planner does NOT
+     * reliably use an index for it (confirmed live: `idx_item_sort_key` present and actually usable
+     * -- 7ms under an explicit INDEXED BY hint -- yet the planner still chose a full table SCAN
+     * without one, on SQLite 3.45.1, even after ANALYZE). `ORDER BY expr LIMIT 1` is the form that
+     * gets the index chosen naturally: finding the first row in index order is the exact query an
+     * index is for, so the planner uses it without hinting. Needs a genuine index over $expression
+     * (not e.g. a composite index with something else as the leading column).
      */
     private function hasNonNullExpression(Connection $connection, string $expression): bool
     {
         return (bool) $connection->executeQuery(
-            sprintf('SELECT 1 FROM item d WHERE %s IS NOT NULL LIMIT 1', $expression),
+            sprintf('SELECT 1 FROM item d WHERE %s IS NOT NULL ORDER BY %s LIMIT 1', $expression, $expression),
         )->fetchOne();
     }
 
