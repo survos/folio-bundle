@@ -258,16 +258,43 @@ final readonly class FolioArchiveService
         $pdo = new \PDO('sqlite:' . $dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
-        // Recreate standard indexes
+        // json_extract(dto_data, '$.<field>') columns are sparse -- most datasets never populate
+        // 'year'/'creator'/'date'/... at all, so FolioRowSearch's existence gates (e.g. "does ANY
+        // row have a year, to decide whether to offer the Year sort") are a guaranteed full miss
+        // for them. A plain index still has to hold all rows' worth of (mostly-NULL) entries, so
+        // SQLite's "SELECT 1 ... IS NOT NULL LIMIT 1" scans the entire index anyway instead of
+        // stopping early -- measured ~2.4s live on wikibase/enslaved's 1.2M rows. A PARTIAL index
+        // (only rows where the expression IS NOT NULL) is empty for a field the dataset never
+        // populates, so that same query is answered from zero index entries -- measured ~60ms
+        // after switching, real "instant" not "scan until you give up". DROP first: a folio
+        // inflated by an older bundle version still has the old full index under this name, and
+        // CREATE INDEX IF NOT EXISTS wouldn't upgrade it in place.
+        //
+        // 'year' deliberately reuses the raw json_extract(dto_data,'$.year') expression here, NOT
+        // item.sort_key (the materialized/generated column FolioFtsIndexer maintains for actual
+        // sorting, e.g. FolioItem's prev/next window function, FolioRowProvider's WHERE/ORDER BY).
+        // sort_key is a VIRTUAL (uncomputed/unstored) generated column, so it's only fast when a
+        // query also constrains core_id and can use the composite idx_item_core_sort(core_id,
+        // sort_key, local_id) index -- a bare "sort_key IS NOT NULL" existence check with no core
+        // filter can't use that index at all and has to recompute the expression from dto_data for
+        // every row, measured ~33s live on wikibase/enslaved when tried as the fix here -- three
+        // times worse than the json_extract scan it was meant to replace. The partial index on the
+        // raw expression is the one that's actually fast for this specific "does any row anywhere
+        // have this at all" query shape.
         $indexDefs = [
             'CREATE INDEX IF NOT EXISTS idx_item_label ON item(label)',
             'CREATE INDEX IF NOT EXISTS idx_item_dto_type ON item(dto_type)',
             'CREATE INDEX IF NOT EXISTS idx_item_core_dto_type ON item(core_id, dto_type)',
-            "CREATE INDEX IF NOT EXISTS idx_item_json_creator ON item(json_extract(dto_data, '$.creator'))",
-            "CREATE INDEX IF NOT EXISTS idx_item_json_date ON item(json_extract(dto_data, '$.date'))",
-            "CREATE INDEX IF NOT EXISTS idx_item_json_year ON item(json_extract(dto_data, '$.year'))",
-            "CREATE INDEX IF NOT EXISTS idx_item_json_contenttype ON item(json_extract(dto_data, '$.contentType'))",
-            "CREATE INDEX IF NOT EXISTS idx_item_json_language ON item(json_extract(dto_data, '$.language'))",
+            'DROP INDEX IF EXISTS idx_item_json_year',
+            "CREATE INDEX idx_item_json_year ON item(json_extract(dto_data, '$.year')) WHERE json_extract(dto_data, '$.year') IS NOT NULL",
+            'DROP INDEX IF EXISTS idx_item_json_creator',
+            "CREATE INDEX idx_item_json_creator ON item(json_extract(dto_data, '$.creator')) WHERE json_extract(dto_data, '$.creator') IS NOT NULL",
+            'DROP INDEX IF EXISTS idx_item_json_date',
+            "CREATE INDEX idx_item_json_date ON item(json_extract(dto_data, '$.date')) WHERE json_extract(dto_data, '$.date') IS NOT NULL",
+            'DROP INDEX IF EXISTS idx_item_json_contenttype',
+            "CREATE INDEX idx_item_json_contenttype ON item(json_extract(dto_data, '$.contentType')) WHERE json_extract(dto_data, '$.contentType') IS NOT NULL",
+            'DROP INDEX IF EXISTS idx_item_json_language',
+            "CREATE INDEX idx_item_json_language ON item(json_extract(dto_data, '$.language')) WHERE json_extract(dto_data, '$.language') IS NOT NULL",
             'CREATE INDEX IF NOT EXISTS idx_link_left ON link(left_core, left_id)',
             'CREATE INDEX IF NOT EXISTS idx_link_right ON link(right_core, right_id)',
             'CREATE INDEX IF NOT EXISTS idx_term_path ON term(term_set_id, path)',

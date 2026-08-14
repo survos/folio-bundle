@@ -108,7 +108,15 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         // Sort by year (the integer), not the fuzzy date string ("ca. 1920" sorts lexicographically
         // wrong) — but only when the dataset actually has integer years. Many datasets carry only a
         // free-text `date` (never normalised to `year`); offering a no-op "Year" sort there is misleading.
-        if ($this->hasColumnValues($connection, 'year')) {
+        // Deliberately jsonExtract('year'), NOT d.sort_key: sort_key is a VIRTUAL generated column
+        // (uncomputed/unstored), so an existence check against it with no core_id filter can't use
+        // its composite (core_id, sort_key, local_id) index at all and has to recompute the
+        // expression for all 1.2M rows from scratch -- measured ~33s live on wikibase/enslaved,
+        // WORSE than the ~2.4s this replaced. json_extract(dto_data,'$.year') is only fast here
+        // because FolioArchiveService::inflate() now builds idx_item_json_year as a PARTIAL index
+        // (rows WHERE ... IS NOT NULL) -- empty (so this query is instant) for a dataset that
+        // genuinely has no years, unlike a plain index which still holds one entry per NULL row.
+        if ($this->hasNonNullExpression($connection, $this->jsonExtract('year'))) {
             $sorts['year:asc'] = 'Year Old-New';
             $sorts['year:desc'] = 'Year New-Old';
         }
@@ -188,14 +196,18 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
     }
 
     /**
-     * Whether any row carries a non-null value for a dto_data field — used to gate sorts (e.g. only
-     * offer the Year sort when the dataset actually has integer years). LIMIT 1 stops at the first hit,
-     * so it's cheap when the field exists; a full miss scans the core but only runs once per build.
+     * Whether any row carries a non-null value for a real column/expression — used to gate sorts
+     * (e.g. only offer the Year sort when the dataset actually has integer years, via d.sort_key).
+     * LIMIT 1 stops at the first hit, so this is cheap when a match exists; a genuine miss (no row
+     * anywhere has this) still has to rule out every row, so $expression must be backed by an
+     * index that's actually selective for "IS NOT NULL" -- a covering/partial index, not a plain
+     * index over a mostly-NULL json_extract(dto_data, ...) expression (that degrades to a full
+     * index scan on a miss, since a plain index still holds every NULL entry).
      */
-    private function hasColumnValues(Connection $connection, string $field): bool
+    private function hasNonNullExpression(Connection $connection, string $expression): bool
     {
         return (bool) $connection->executeQuery(
-            sprintf('SELECT 1 FROM item d WHERE %s IS NOT NULL LIMIT 1', $this->jsonExtract($field)),
+            sprintf('SELECT 1 FROM item d WHERE %s IS NOT NULL LIMIT 1', $expression),
         )->fetchOne();
     }
 
