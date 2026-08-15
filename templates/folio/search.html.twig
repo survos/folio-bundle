@@ -83,7 +83,7 @@
 
         <div id="ux-search-wrapper" class="container-xl">
             {% do app.request.attributes.set('ux_search_placeholder', 'Search ID, title, description, summary, OCR text') %}
-            <twig:Mezcalito:UxSearch:Layout
+            <twig:Survos:Search:Layout
                 name="folio_row"
                 :options="hitOptions"
                 :fixedFilters="fixedFilters"

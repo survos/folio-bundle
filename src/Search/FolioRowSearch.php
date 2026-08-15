@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Search;
 
 use Doctrine\DBAL\Connection;
-use Mezcalito\UxSearchBundle\Attribute\AsSearch;
-use Mezcalito\UxSearchBundle\Search\AbstractSearch;
-use Mezcalito\UxSearchBundle\Twig\Components\Facet\RangeSlider;
-use Mezcalito\UxSearchBundle\Twig\Components\Facet\RefinementList;
+use Survos\SearchBundle\Attribute\AsSearch;
+use Survos\SearchBundle\Search\AbstractSearch;
+use Survos\SearchBundle\Twig\Components\Facet\RangeSlider;
+use Survos\SearchBundle\Twig\Components\Facet\RefinementList;
 use Survos\FolioBundle\Service\FolioFacetFieldResolver;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\SearchBundle\Search\HitTemplateSearchInterface;

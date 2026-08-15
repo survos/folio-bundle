@@ -8,8 +8,12 @@ use Psr\Log\LoggerInterface;
 
 /**
  * The ONLY code in this codebase allowed to write into folio_archive.storage (an rclone mount of
- * the shared S3 bucket, see zm/mono/harvest's config/packages/flysystem.yaml) -- new archive
- * plumbing must go through archive() below, not fopen()/gzopen()/sqlite `ATTACH` directly on an
+ * the shared S3 bucket, see zm/harvest's config/packages/flysystem.yaml). That mount must be
+ * running on this machine -- setup + the systemd unit that keeps it up across reboots:
+ * showcase/CONVENTIONS.md § "Platform S3 mount (rclone)". Without it, publishToMount() below
+ * throws a RuntimeException pointing back here instead of Flysystem's cryptic dangling-symlink
+ * "Unable to create a directory" error -- new archive plumbing must go through archive() below,
+ * not fopen()/gzopen()/sqlite `ATTACH` directly on an
  * archive path. Every SQLite/gzip step happens in a local staging dir first; publishToMount() is
  * the single, timed, logged copy() that actually crosses to the mount. This is deliberate: a raw
  * write stream (gzopen($mountPath, 'wb') + a loop of gzwrite() calls) left a partial file visible
@@ -147,7 +151,13 @@ final readonly class FolioArchiveService
     {
         $dir = dirname($archivePath);
         if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            throw new \RuntimeException(sprintf('Unable to create archive directory "%s".', $dir));
+            // A dangling symlink (target missing, entry present) means the rclone mount behind
+            // folio_archive.storage isn't running -- mkdir() fails with "File exists" even though
+            // is_dir() says false, which otherwise reads as a confusing, unactionable error.
+            $hint = is_link($dir)
+                ? 'the rclone mount backing folio_archive.storage isn\'t running on this machine -- see showcase/CONVENTIONS.md § "Platform S3 mount (rclone)" to start it'
+                : 'check permissions on this path';
+            throw new \RuntimeException(sprintf('Unable to create archive directory "%s" (%s).', $dir, $hint));
         }
 
         $bytes = filesize($localGz) ?: 0;
