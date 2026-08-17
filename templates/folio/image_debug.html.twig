@@ -1,0 +1,226 @@
+{# Single-item image diagnostics — see FolioImageDebugController. Provider-agnostic:
+   everything here comes from Row/Page/Claim, nothing Smithsonian-specific. #}
+{# Extends the host app's layout directly rather than folio/base.html.twig: that base wires the
+   folio navbar menu and needs a Folio entity in scope, which this diagnostic page (keyed by row
+   id alone) has no reason to load. Same shape as folio/run.html.twig. #}
+{% extends app.request.attributes.get('_layout')|default(folio_base_template()) %}
+
+{% set verdictClass = {
+    image: 'success',
+    unverifiable: 'warning',
+    document: 'warning',
+    not_an_image: 'danger',
+    empty: 'secondary',
+}[verdict.value]|default('secondary') %}
+
+{% block title %}Image debug · {{ row.id }}{% endblock %}
+
+{% block body %}
+<div class="container-xl py-3">
+
+    <h1 class="h3">Image debug</h1>
+    <p class="text-secondary mb-3"><code>{{ row.id }}</code></p>
+
+    <div class="row g-3">
+        <div class="col-md-7">
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h2 class="card-title h5 mb-0">Verdict</h2>
+                    <span class="badge bg-{{ verdictClass }} ms-auto">{{ verdict.label }}</span>
+                </div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Item</dt>
+                        <dd class="col-sm-8">{{ row.label|default('(no label)') }}</dd>
+
+                        <dt class="col-sm-4">Local id</dt>
+                        <dd class="col-sm-8"><code>{{ row.localId }}</code></dd>
+
+                        <dt class="col-sm-4">DTO type</dt>
+                        <dd class="col-sm-8">{{ row.dtoType|default('—') }}</dd>
+
+                        {# The whole point of this page: the value exactly as harvested, unencoded,
+                           so a viewer-config XML or a PDF is visible as itself rather than buried
+                           in an imgproxy base64 segment. #}
+                        <dt class="col-sm-4">Raw source</dt>
+                        <dd class="col-sm-8">
+                            {% if rawSource %}
+                                <a href="{{ rawSource }}" rel="noopener noreferrer" target="_blank"><code class="text-break">{{ rawSource }}</code></a>
+                            {% else %}
+                                <span class="text-secondary">— none —</span>
+                            {% endif %}
+                        </dd>
+
+                        <dt class="col-sm-4">imgproxy URL</dt>
+                        <dd class="col-sm-8">
+                            {% if imgproxyUrl %}
+                                <a href="{{ imgproxyUrl }}" rel="noopener noreferrer" target="_blank"><code class="text-break">{{ imgproxyUrl }}</code></a>
+                            {% else %}
+                                <span class="text-secondary">not generated — source is not renderable</span>
+                            {% endif %}
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h2 class="card-title h5 mb-0">Live fetch</h2>
+                    <button class="btn btn-sm btn-primary ms-auto" id="probe-btn"
+                            data-url="{{ path('survos_folio_image_debug_probe', {rowId: row.id}) }}">
+                        Check now
+                    </button>
+                </div>
+                <div class="card-body">
+                    {# Deliberately not run on page load: this hits a third-party origin, and the
+                       value of the check is that it's current at the moment you press it. #}
+                    <div id="probe-result" class="text-secondary">Not checked yet.</div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><h2 class="card-title h5 mb-0">Thumbnail</h2></div>
+                <div class="card-body text-center">
+                    {% if imgproxyUrl %}
+                        {# onerror, not just a bare <img>: a 403 from the origin would otherwise
+                           render as the browser's broken-image glyph, which is exactly the
+                           ambiguous state this page exists to replace. #}
+                        <img src="{{ imgproxyUrl }}" alt="{{ row.label }}" class="img-fluid rounded" id="thumb"
+                             onerror="this.style.display='none';document.getElementById('thumb-failed').hidden=false">
+                        <div id="thumb-failed" hidden>
+                            <span class="badge bg-danger">Failed to render</span>
+                            <p class="text-secondary small mt-2 mb-0">imgproxy returned an error for this source.</p>
+                        </div>
+                    {% else %}
+                        <span class="badge bg-{{ verdictClass }}">{{ verdict.label }}</span>
+                        <p class="text-secondary small mt-2 mb-0">No imgproxy request is made for this row.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+
+        <div class="col-md-5">
+
+            <div class="card mb-3">
+                <div class="card-header"><h2 class="card-title h5 mb-0">Provenance</h2></div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Provider</dt>
+                        <dd class="col-sm-8"><code>{{ row.provider }}</code></dd>
+
+                        <dt class="col-sm-4">Dataset</dt>
+                        <dd class="col-sm-8"><code>{{ row.dataset }}</code></dd>
+
+                        <dt class="col-sm-4">Core</dt>
+                        <dd class="col-sm-8"><code>{{ row.coreCode }}</code></dd>
+
+                        <dt class="col-sm-4">Folio file</dt>
+                        <dd class="col-sm-8"><code class="text-break small">{{ folioPath|default('—') }}</code></dd>
+
+                        {# Weak upper bound, not a build timestamp — opening the folio touches the
+                           file. See FolioImageDebugController::builtAt(). #}
+                        <dt class="col-sm-4">File mtime</dt>
+                        <dd class="col-sm-8">
+                            {{ builtAt ? builtAt|date('Y-m-d H:i') : '—' }}
+                            <span class="text-secondary small d-block">upper bound; reading the folio touches the file</span>
+                        </dd>
+
+                        <dt class="col-sm-4">Source record</dt>
+                        <dd class="col-sm-8">
+                            {% if sourceUrl %}
+                                <a href="{{ sourceUrl }}" rel="noopener noreferrer" target="_blank">{{ sourceUrl }}</a>
+                            {% else %}
+                                <span class="text-secondary">—</span>
+                            {% endif %}
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h2 class="card-title h5 mb-0">Pages</h2>
+                    <span class="badge bg-secondary ms-auto">{{ pages|length }}</span>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for page in pages %}
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between">
+                                <strong>#{{ page.seq }}</strong>
+                                <span class="text-secondary small">{{ page.type ? page.type.value : '—' }}</span>
+                            </div>
+                            <code class="text-break small d-block">{{ page.url }}</code>
+                            {% if page.denseSummary %}
+                                <p class="small text-secondary mt-2 mb-0">{{ page.denseSummary }}</p>
+                            {% endif %}
+                            {% if page.text %}
+                                <details class="mt-2">
+                                    <summary class="small">OCR text</summary>
+                                    <pre class="small text-wrap mb-0">{{ page.text }}</pre>
+                                </details>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div class="list-group-item text-secondary">No pages.</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h2 class="card-title h5 mb-0">AI claims</h2>
+                    <span class="badge bg-secondary ms-auto">{{ claims|length }}</span>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for claim in claims %}
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between">
+                                <strong>{{ claim.predicate }}</strong>
+                                <span class="badge bg-secondary">{{ claim.source }}</span>
+                            </div>
+                            <div class="small">{{ claim.value }}</div>
+                            <div class="text-secondary small mt-1">
+                                {{ claim.agent|default('—') }}
+                                {%- if claim.confidence is not null %} · confidence {{ claim.confidence }}{% endif -%}
+                                {%- if claim.claimedAt %} · {{ claim.claimedAt|date('Y-m-d') }}{% endif -%}
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="list-group-item text-secondary">No claims.</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('probe-btn')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        const out = document.getElementById('probe-result');
+        btn.disabled = true;
+        out.textContent = 'Checking…';
+        try {
+            const r = await fetch(btn.dataset.url, {method: 'POST'});
+            const d = await r.json();
+            if (d.error) {
+                out.innerHTML = '<span class="badge bg-danger">Failed</span> <code></code>';
+                out.querySelector('code').textContent = d.error;
+            } else {
+                out.innerHTML =
+                    '<span class="badge bg-' + (d.ok ? 'success' : 'danger') + '">HTTP ' + d.status + '</span> ' +
+                    '<span class="ms-2">Content-Type: <code>' + (d.contentType || '(none)') + '</code></span>' +
+                    (d.contentLength ? '<span class="ms-2">Size: ' + d.contentLength.toLocaleString() + ' bytes</span>' : '') +
+                    (d.isImageContentType ? '' : '<div class="text-danger small mt-1">Content-Type is not an image.</div>');
+            }
+        } catch (err) {
+            out.textContent = 'Request failed: ' + err.message;
+        } finally {
+            btn.disabled = false;
+        }
+    });
+</script>
+{% endblock %}

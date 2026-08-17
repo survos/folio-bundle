@@ -12,6 +12,19 @@ import { path } from '@survos/js-twig/generated/fos_routes.js';
  * so both the server-rendered items and these client-fetched ones use it as-is, no JS-side
  * imgproxy call needed.
  */
+
+/*
+ * Kept in sync with ImageUrlVerdict::label() (survos/data-contracts) -- the enum is the
+ * source of truth; these are its client-side strings for rows appended after page 1.
+ */
+const PLACEHOLDER_LABELS = {
+    image: 'Image',
+    unverifiable: 'Unverified (no extension)',
+    document: 'Document (not rasterisable)',
+    not_an_image: 'Not an image',
+    empty: 'No image URL',
+};
+
 export default class extends Controller {
     static targets = ['grid', 'loader', 'timeline', 'search'];
 
@@ -300,6 +313,19 @@ export default class extends Controller {
             img.loading = 'lazy';
             img.decoding = 'async';
             a.appendChild(img);
+        } else {
+            // Mirrors the server-rendered branch in PhotoGrid.html.twig: no renderable image,
+            // so say why instead of leaving an empty tile or requesting a URL imgproxy will
+            // reject (survos-sites/musdig#40). imageVerdict is serialized with the row.
+            const verdict = item.imageVerdict || 'empty';
+            const placeholder = document.createElement('div');
+            placeholder.className = 'folio-photo-grid__placeholder';
+            placeholder.dataset.verdict = verdict;
+            const label = document.createElement('span');
+            label.className = 'folio-photo-grid__placeholder-label';
+            label.textContent = PLACEHOLDER_LABELS[verdict] || PLACEHOLDER_LABELS.empty;
+            placeholder.appendChild(label);
+            a.appendChild(placeholder);
         }
 
         const year = item.dtoData?.year;

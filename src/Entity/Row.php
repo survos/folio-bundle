@@ -14,6 +14,8 @@ use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
+use Survos\DataContracts\Util\ImageUrl;
+use Survos\DataContracts\Util\ImageUrlVerdict;
 use Survos\DataContracts\Vocabulary\ItemField;
 use Survos\FieldBundle\Attribute\EntityMeta;
 use Survos\FieldBundle\Entity\RouteParametersInterface;
@@ -134,8 +136,12 @@ class Row implements RouteParametersInterface
         return $this->canonicalDtoValue(ItemField::CITATION_URL);
     }
 
-    #[Groups(['row:read'])]
-    public function getThumbnailSource(): ?string
+    /**
+     * The image URL exactly as harvested, renderable or not. Only the debug/diagnostic path
+     * should use this — everything user-facing wants {@see getThumbnailSource()}, which filters
+     * out sources imgproxy cannot render.
+     */
+    public function getRawThumbnailSource(): ?string
     {
         $iiif = $this->canonicalDtoValue(ItemField::IIIF_BASE);
         if ($iiif !== null) {
@@ -144,6 +150,32 @@ class Row implements RouteParametersInterface
 
         return $this->canonicalDtoValue(ItemField::LARGE_IMAGE_URL)
             ?? $this->canonicalDtoValue(ItemField::THUMBNAIL_URL);
+    }
+
+    /**
+     * Why this row's image is or isn't renderable, so templates can show an explicit
+     * "unavailable" state instead of emitting an imgproxy request that is certain to fail
+     * (survos-sites/musdig#40).
+     */
+    #[Groups(['row:read'])]
+    public function getImageVerdict(): ImageUrlVerdict
+    {
+        $raw = $this->getRawThumbnailSource();
+
+        return $raw === null ? ImageUrlVerdict::Empty : ImageUrl::classify($raw);
+    }
+
+    /**
+     * The image URL to actually request. Null when the harvested value is a viewer config,
+     * landing page, or document — handing those to imgproxy produces a guaranteed-broken
+     * thumbnail, so callers get an explicit absence to render a placeholder for instead.
+     */
+    #[Groups(['row:read'])]
+    public function getThumbnailSource(): ?string
+    {
+        $raw = $this->getRawThumbnailSource();
+
+        return $raw !== null && ImageUrl::classify($raw)->isRenderable() ? $raw : null;
     }
 
     #[Groups(['row:read'])]
