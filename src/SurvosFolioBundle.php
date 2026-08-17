@@ -14,7 +14,7 @@ use Survos\FolioBundle\Menu\RowMenu;
 use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFacetFieldResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioTermCloudService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowTermsResolver};
+use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFacetFieldResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioTermCloudService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\Kit\AbstractUxBundle;
@@ -214,10 +214,21 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->arg('$baseTemplate', $config['base_template']);
         $services->set(\Survos\FolioBundle\Service\FolioTimelineStats::class)->autowire()->autoconfigure()->public();
         $services->set(\Survos\FolioBundle\Twig\FolioTimelineTwig::class)->autowire()->autoconfigure()->public();
+        // JSON-LD for the row detail page. schema-org-bundle is optional: survos/data-contracts
+        // already annotates its item DTOs with #[SchemaOrg]/#[SchemaProperty], but declares the
+        // bundle as a `suggest` — the attributes are inert without it. Same shape here, so an
+        // app that doesn't want structured data doesn't get the dependency.
+        if (class_exists(\Survos\SchemaOrgBundle\Graph\SchemaOrgGraph::class)) {
+            $services->set(RowSchemaOrgBuilder::class)->autowire()->autoconfigure()->public();
+        }
         if ($config['routes_enabled']) {
-            foreach ([FolioCollectionController::class, FolioController::class, FolioSearchController::class] as $class) {
+            foreach ([FolioCollectionController::class, FolioSearchController::class] as $class) {
                 $services->set($class)->autowire()->autoconfigure()->public();
             }
+            // $rowSchemaOrg null when schema-org-bundle isn't installed (the service above is
+            // then never defined) — rowShow() skips the JSON-LD rather than failing to compile.
+            $services->set(FolioController::class)->autowire()->autoconfigure()->public()
+                ->arg('$rowSchemaOrg', service(RowSchemaOrgBuilder::class)->ignoreOnInvalid());
             // imgproxy-bundle is optional → pass null when absent (controller skips url unwrapping).
             $services->set(FolioAiController::class)->autowire()->autoconfigure()->public()
                 ->arg('$imgproxy', new Reference(ImgproxyUrlBuilder::class, ContainerInterface::NULL_ON_INVALID_REFERENCE));

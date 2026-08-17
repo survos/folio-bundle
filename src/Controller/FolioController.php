@@ -7,7 +7,7 @@ namespace Survos\FolioBundle\Controller;
 use Doctrine\DBAL\Connection;
 use Survos\DataContracts\Dto\Item\BaseItemDto;
 use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Page,Row,Term,TermSet};
-use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioTermCloudService,FolioWordCloudService,RowClaimsResolver,RowTermsResolver};
+use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioTermCloudService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
 use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
@@ -64,6 +64,9 @@ final class FolioController extends AbstractController
         private readonly RowTermsResolver $rowTermsResolver,
         private readonly RowClaimsResolver $rowClaimsResolver,
         private readonly ?ImgproxyUrlBuilder $imgproxy = null,
+        // Null unless the host app also requires survos/schema-org-bundle — see this
+        // bundle's own registration, which only defines the builder when it is installed.
+        private readonly ?RowSchemaOrgBuilder $rowSchemaOrg = null,
     ) {}
 
 
@@ -1380,6 +1383,12 @@ final class FolioController extends AbstractController
         if ($dto !== null && $this->wantsMarkdown($request)) {
             return $this->markdownResponse($dto);
         }
+
+        // Structured data for the page. Deliberately AFTER the markdown bypass above (a
+        // text/markdown response has no <head> to carry JSON-LD) and before the expensive
+        // claims/links/terms queries, so it describes the row itself and never depends on
+        // presentation state the template happens to compute.
+        $this->rowSchemaOrg?->addRow($row, $dto);
 
         $pageTableExists = $this->tableExists($ctx->em->getConnection(), 'page');
         $claims = $this->rowClaimsResolver->resolve($ctx->em->getConnection(), $row->id);

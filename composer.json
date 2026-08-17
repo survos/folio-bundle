@@ -36,6 +36,7 @@
     "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",
     "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios.",
     "survos/settings-bundle": "Lets RowMenu gate OCR/Handwriting behind a per-user beta_features setting instead of only the dev environment.",
+    "survos/schema-org-bundle": "Publishes JSON-LD on the row detail page (RowSchemaOrgBuilder), reading the #[SchemaOrg] attributes survos/data-contracts already puts on the item DTOs. Without it the row page has no structured data.",
     "symfony/ux-twig-component": "Required for the PhotoGrid Twig component.",
     "api-platform/core": "Required for the PhotoGrid Twig component's data source (Row's #[ApiResource])."
   },
