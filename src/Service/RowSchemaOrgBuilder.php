@@ -122,8 +122,11 @@ final readonly class RowSchemaOrgBuilder
         $webPage
             ->identifier($id)
             ->url($canonicalUrl)
-            ->name($dto?->title ?: ($row->label ?: $row->localId))
             ->isPartOf($collection->referenced());
+
+        if (null !== $name = $this->displayName($row, $dto)) {
+            $webPage->name($name);
+        }
 
         return $webPage;
     }
@@ -146,12 +149,13 @@ final readonly class RowSchemaOrgBuilder
         $node = $this->mapper->add($dto, $canonicalUrl . '#item', $siteUrl);
         $node->setProperty('url', $canonicalUrl);
 
-        // $title maps to `name` via #[SchemaProperty], but a great many sources ship no title
-        // at all (Fortepan is the big one: description only). Row::$label is what the page puts
-        // in its <h1> in that case — an AI caption, or the local id — so the node is named the
-        // same thing a reader sees rather than going out untitled.
+        // $title maps to `name` via #[SchemaProperty]; displayName() supplies the Row::$label
+        // fallback for the many sources that ship no title at all, and returns null rather than
+        // inventing one when there is nothing real to say.
         if (null === $dto->title || '' === trim($dto->title)) {
-            $node->setProperty('name', $row->label ?: $row->localId);
+            if (null !== $name = $this->displayName($row, $dto)) {
+                $node->setProperty('name', $name);
+            }
         }
 
         $this->addImage($row, $dto, $node, $canonicalUrl);
@@ -222,6 +226,34 @@ final readonly class RowSchemaOrgBuilder
         if ('' !== $text) {
             $node->conditionsOfAccess($text);
         }
+    }
+
+    /**
+     * A real human-readable name for the row, or null when the data has none.
+     *
+     * Row::$label is what the page shows as its heading, so it is the right fallback when the
+     * source shipped no title — but FolioIngestService sets $label to the localId when there
+     * is nothing better, and that is not a name. Publishing it produced `"name": "1"` on
+     * mus/fortepan rows in production, which is worse than no name at all: it asserts the
+     * photograph is called "1". Anything equal to the localId is therefore treated as absent,
+     * and the caller omits the property.
+     *
+     * Not a numeric check — a legitimately numeric title (a catalogue number that IS the
+     * object's name) stays, as long as it isn't simply the row's own identifier repeated.
+     */
+    private function displayName(Row $row, ?BaseItemDto $dto): ?string
+    {
+        $title = \is_string($dto?->title) ? trim($dto->title) : '';
+        if ('' !== $title) {
+            return $title;
+        }
+
+        $label = \is_string($row->label) ? trim($row->label) : '';
+        if ('' === $label || $label === trim($row->localId)) {
+            return null;
+        }
+
+        return $label;
     }
 
     /** Scheme + host of an absolute URL, with no trailing slash. */
