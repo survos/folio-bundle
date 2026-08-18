@@ -253,6 +253,45 @@ class Row implements RouteParametersInterface
         return 'row';
     }
 
+    /**
+     * The row's heading, or null when the data genuinely has nothing to call it.
+     *
+     * One chain, read by both the detail template's <h1> and RowSchemaOrgBuilder's JSON-LD
+     * `name`, so the page and the structured data can never disagree about what a row is
+     * called. {@see \Survos\DataContracts\Dto\Item\BaseItemDto::label()} expresses the same
+     * idea, but only sees the DTO — it can't consider Row::$label, and its final fallback is
+     * the id, which is the thing this deliberately refuses to return.
+     *
+     * $label is skipped when it is just the localId repeated. FolioIngestService sets it that
+     * way whenever the source gives it nothing better, and for mus/fortepan that is 219,586 of
+     * 219,590 rows — the source ships a Hungarian description and no title, and the AI caption
+     * that would become the label has run on ~0.4% of them. Falling through to the description
+     * gives those pages a real heading instead of "<h1>1</h1>" without spending anything.
+     *
+     * Callers that must render something use `row.displayTitle ?: row.localId`; the id belongs
+     * in the template's last resort, not in the value this returns.
+     */
+    public function displayTitle(): ?string
+    {
+        if (null !== $title = $this->canonicalDtoValue('title')) {
+            return $title;
+        }
+
+        $label = trim((string) $this->label);
+        if ('' !== $label && $label !== trim($this->localId)) {
+            return $label;
+        }
+
+        // Prose, in the order BaseItemDto::mainText() prefers it, trimmed to a heading's worth.
+        foreach (['description', 'sourceCaption', 'denseSummary'] as $field) {
+            if (null !== $text = $this->canonicalDtoValue($field)) {
+                return mb_strimwidth(trim((string) preg_replace('/\s+/u', ' ', $text)), 0, 80, '…');
+            }
+        }
+
+        return null;
+    }
+
     private function canonicalDtoValue(string $property): ?string
     {
         $value = $this->dtoData[$property] ?? null;

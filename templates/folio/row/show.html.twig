@@ -9,7 +9,11 @@
 {# dto is BaseItemDto::fromNormalized($row->dtoData), hydrated by FolioController::rowShow() —
    null only for legacy rows ingested without a dtoType at all (classForType() otherwise always
    resolves, falling back to GenericItemDto). The `else` branch below is that fallback only. #}
-{% set tombstoneTitle = row.label ?: row.localId %}
+{# Row::displayTitle() is the single chain (dto title -> a label that isn't just the localId ->
+   description/sourceCaption/denseSummary, trimmed) shared with RowSchemaOrgBuilder, so this <h1>
+   and the page's JSON-LD `name` can never disagree. It returns null rather than the id, so the
+   localId last resort lives here — a heading has to render something. #}
+{% set tombstoneTitle = row.displayTitle ?: row.localId %}
 {% set tombstoneYear = null %}
 {% set tombstoneCredit = null %}
 {# citationUrl/sourceUrl here name the DTO's REAL properties -- $sourceUrl (citable page) and
@@ -25,7 +29,7 @@
 {% set tombstoneLatitude = null %}
 {% set tombstoneLongitude = null %}
 {% if dto %}
-    {% set tombstoneTitle = dto.title ?: tombstoneTitle %}
+    {# displayTitle() already prefers the DTO title; don't re-apply it and lose the fallbacks. #}
     {% set tombstoneYear = dto.year ?: dto.date %}
     {% set tombstoneCredit = dto.credit %}
     {% set citationUrl = citationUrl ?: dto.sourceUrl %}
