@@ -123,7 +123,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
         foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class, StrRepository::class, StrTranslationRepository::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');
         }
-        $services->set(FolioSchemaManager::class)->autowire()->autoconfigure()->public();
+        // cache.system, not cache.app: the schema fingerprint is build-scoped derived data, so it
+        // belongs in the build dir where cache:clear (i.e. every deploy) wipes it.
+        $services->set(FolioSchemaManager::class)->autowire()->autoconfigure()->public()
+            ->arg('$cache', service('cache.system'));
         $services->set(FolioRegistry::class)->autowire()->autoconfigure()->public()
             // Auto-wire the dataset registry EM only if dataset-bundle is loaded; null otherwise,
             // so a bare app can require folio-bundle, pull a folio, and display it — no dataset infra.

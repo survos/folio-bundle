@@ -6,6 +6,7 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
+use Psr\Cache\CacheItemPoolInterface;
 use Survos\FolioBundle\Entity\{Claim,Core,Doc,Folio,Link,LinkType,Page,Row,SchemaProperty,SchemaTable,Str,StrTranslation,Term,TermSet};
 
 final class FolioSchemaManager
@@ -15,6 +16,10 @@ final class FolioSchemaManager
     /** Memoized per process — the entity schema is constant for a deploy. */
     private ?int $expectedVersion = null;
 
+    public function __construct(private readonly CacheItemPoolInterface $cache)
+    {
+    }
+
     /**
      * Fingerprint of the current entity schema: a checksum of the CREATE SQL the metadata produces.
      * Stored per-folio in SQLite's PRAGMA user_version (the native "schema version" slot), so an open
@@ -22,18 +27,61 @@ final class FolioSchemaManager
      * pre-existing folio wouldn't have to read), no env var to set on deploy (which would drift).
      * Add/rename a column and this value changes; masked to 31 bits so it's always a positive int
      * (user_version is a signed 32-bit int).
+     *
+     * Reading the stored version is one PRAGMA (~0.01ms), but PRODUCING this expected value means
+     * generating the CREATE DDL for all 14 entities and throwing the SQL away — ~10ms warm, ~80ms
+     * in a cold process. The property memo above is per-process, which under PHP-FPM means once per
+     * REQUEST, so every folio page paid it to recompute a value that is constant for the whole
+     * deploy. Hence the second-level cache, keyed on the newest mtime of the entity sources: edit an
+     * entity and the key changes, so it recomputes on its own with no bump-me-by-hand step.
+     *
+     * The gap that leaves: a change to Doctrine *config* rather than the entity files (naming
+     * strategy, a custom type) can alter the generated DDL without moving any mtime, so it needs a
+     * cache:clear to be picked up — which a deploy does anyway.
      */
     public function expectedVersion(EntityManagerInterface $em): int
     {
         if ($this->expectedVersion !== null) {
             return $this->expectedVersion;
         }
+
+        $fingerprint = $this->entitySourcesFingerprint();
+        // No readable entity sources (unexpected) — compute every time rather than cache under a
+        // key that can never change.
+        $item = $fingerprint === null ? null : $this->cache->getItem('survos_folio.schema_version.' . $fingerprint);
+        if ($item?->isHit()) {
+            return $this->expectedVersion = (int) $item->get();
+        }
+
         $mf = $em->getMetadataFactory();
         $metas = array_map(static fn (string $class) => $mf->getMetadataFor($class), self::ENTITIES);
         $sql = (new SchemaTool($em))->getCreateSchemaSql($metas);
         sort($sql);
+        $version = crc32(implode("\n", $sql)) & 0x7fffffff;
 
-        return $this->expectedVersion = crc32(implode("\n", $sql)) & 0x7fffffff;
+        if ($item !== null) {
+            // A read-only build dir just means save() fails and we recompute next process — the
+            // value stays correct either way.
+            $this->cache->save($item->set($version));
+        }
+
+        return $this->expectedVersion = $version;
+    }
+
+    /** Newest mtime across the entity sources, or null when they can't be read. */
+    private function entitySourcesFingerprint(): ?string
+    {
+        $files = glob(dirname(__DIR__) . '/Entity/*.php') ?: [];
+        if ($files === []) {
+            return null;
+        }
+
+        $newest = 0;
+        foreach ($files as $file) {
+            $newest = max($newest, (int) filemtime($file));
+        }
+
+        return $newest === 0 ? null : (string) $newest;
     }
 
     /** True when the folio's stored schema version matches the deployed entity schema. */
