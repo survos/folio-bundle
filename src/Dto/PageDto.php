@@ -19,6 +19,15 @@ final readonly class PageDto
     public const string FILENAME = 'page.jsonl';
 
     /**
+     * The stream's stem, as the stage pipeline names cores.
+     *
+     * Not a {@see \Survos\DataContracts\Vocabulary\Core} constant — a page is never browsed as a
+     * core (no /folio/{…}/page/ URL); it is the imagery *of* a row. But normalize, enrich and
+     * folio:build all address it positionally the way they address obj/doc, so it needs a stem.
+     */
+    public const string CORE = 'page';
+
+    /**
      * @param array<string,mixed>|null $ledger
      * @param array<string,mixed>|null $layout
      * @param list<array{speaker: ?string, text: string, startMs: ?int, endMs: ?int}>|null $dialogue
@@ -38,6 +47,15 @@ final readonly class PageDto
         public ?array $dialogue = null,
         public ?int $width = null,
         public ?int $height = null,
+        /**
+         * Where the image originally came from, when $url no longer says so.
+         *
+         * $url is what the viewer fetches — our archived S3 copy once mediary has one. That
+         * rewrite would otherwise destroy the provenance the citation needs, so the origin moves
+         * here rather than being overwritten. Null means $url is still the origin (nothing has
+         * been archived for this page yet, or the dataset is deliberately not archived).
+         */
+        public ?string $sourceUrl = null,
         /**
          * Exif-like objective facts known from the catalog (date, city, country, …) — the "known"
          * half of observation (what's objectively true), distinct from the "seen" pixels. Always

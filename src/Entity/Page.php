@@ -61,9 +61,20 @@ class Page
     public ?PageType $type = null;
 
     #[ORM\Column(type: Types::TEXT)]
-    #[ApiProperty('Page image / source URL — the viewer uses url + pageIndex / IIIF')]
+    #[ApiProperty('Page image URL the viewer fetches — our archived S3 copy once one exists, else the origin')]
     #[Groups(['page:read'])]
     public string $url;
+
+    /**
+     * Provenance, kept separate from $url because the two stopped being the same thing once
+     * mediary began archiving masters to S3. $url answers "what do I fetch"; $sourceUrl answers
+     * "where did this come from" — the citation, and the key MediaIdentity derives the media id
+     * from. Null while nothing has been archived, i.e. while $url is still the origin itself.
+     */
+    #[ORM\Column(name: 'source_url', type: Types::TEXT, nullable: true)]
+    #[ApiProperty('Original upstream image URL (provenance) when url points at our archived copy')]
+    #[Groups(['page:read'])]
+    public ?string $sourceUrl = null;
 
     #[ORM\Column(name: 'media_id', length: 32, nullable: true)]
     #[ApiProperty('xxh3(url): central media id — joins to media-bundle + its S3 AI sidecars')]
