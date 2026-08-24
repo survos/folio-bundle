@@ -9,7 +9,8 @@
 {% endblock %}
 
 {% block page_subtitle %}
-    {{ folios|length|number_format }} portable databases registered from dataset artifacts
+    {{ total|number_format }} portable databases registered from dataset artifacts
+    {%- if query %} matching "{{ query }}"{% endif %}
 {% endblock %}
 
 {% block title %}Folios{% endblock %}
@@ -17,6 +18,26 @@
 {% block body %}
     <div class="card">
         <div class="card-body">
+            {# Server-side search. The datatable's own box is switched off below: it can only
+               filter the rows already on the page, so with real pagination it would silently
+               search 50 of 1,564 folios and look like the rest had vanished. #}
+            <form method="get" class="mb-3">
+                <div class="input-group">
+                    <input
+                        type="search"
+                        name="q"
+                        value="{{ query }}"
+                        class="form-control"
+                        placeholder="Search folios by name, key or aggregator…"
+                        aria-label="Search folios"
+                    >
+                    <button class="btn" type="submit">Search</button>
+                    {% if query %}
+                        <a class="btn btn-outline-secondary" href="{{ path('survos_folio_collection') }}">Clear</a>
+                    {% endif %}
+                </div>
+            </form>
+
             <twig:simple_datatables
                 :data="folios"
                 :columns="[
@@ -29,8 +50,8 @@
                     'updated',
                     {name: 'actions', title: ''},
                 ]"
-                :perPage="25"
-                :search="true"
+                :perPage="perPage"
+                :search="false"
             >
                 {% block dataset %}
                     {% set datasetKey = row.dataset.datasetKey %}
@@ -80,7 +101,11 @@
                 {% endblock %}
 
                 {% block size %}
-                    {% set bytes = row.liveSize ?: row.sizeBytes %}
+                    {# row.sizeBytes, NOT row.liveSize: liveSize is a property hook doing
+                       clearstatcache() + filesize() on the /platform mount every time it is read,
+                       which in a list is one stat storm per render. The recorded column is what a
+                       listing wants; liveSize belongs on a detail/verify view. #}
+                    {% set bytes = row.sizeBytes %}
 
                     {% if bytes %}
                         {{ (bytes / 1024 / 1024)|number_format(1) }} MB
@@ -117,5 +142,45 @@
                 {% endblock %}
             </twig:simple_datatables>
         </div>
+
+        {% if lastPage > 1 %}
+            <div class="card-footer d-flex align-items-center">
+                <p class="m-0 text-muted">
+                    Showing <strong>{{ ((page - 1) * perPage + 1)|number_format }}</strong>
+                    to <strong>{{ min(page * perPage, total)|number_format }}</strong>
+                    of <strong>{{ total|number_format }}</strong>
+                </p>
+
+                <ul class="pagination m-0 ms-auto">
+                    <li class="page-item {{ page <= 1 ? 'disabled' }}">
+                        <a rel="nofollow" class="page-link" href="{{ path('survos_folio_collection', {page: page - 1, q: query ?: null}) }}">
+                            prev
+                        </a>
+                    </li>
+
+                    {# A window around the current page: 1,564 folios is 32 pages, and every page
+                       number rendered is another link a crawler will follow.
+
+                       Every pagination link is rel="nofollow": these are the expensive pages and
+                       they hold no content of their own. Bots should reach item pages from the
+                       sitemap -- which is cheap, cacheable, complete, and already carries the
+                       schema.org markup -- not by walking listings, which is what took the origin
+                       down in survos-sites/zm#22. #}
+                    {% for p in max(1, page - 2)..min(lastPage, page + 2) %}
+                        <li class="page-item {{ p == page ? 'active' }}">
+                            <a rel="nofollow" class="page-link" href="{{ path('survos_folio_collection', {page: p, q: query ?: null}) }}">
+                                {{ p }}
+                            </a>
+                        </li>
+                    {% endfor %}
+
+                    <li class="page-item {{ page >= lastPage ? 'disabled' }}">
+                        <a rel="nofollow" class="page-link" href="{{ path('survos_folio_collection', {page: page + 1, q: query ?: null}) }}">
+                            next
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        {% endif %}
     </div>
 {% endblock %}
