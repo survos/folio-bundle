@@ -1,56 +1,73 @@
 {
-  "name": "survos/folio-bundle",
-  "description": "Portable SQLite folios for normalized museum dataset rows.",
-  "type": "symfony-bundle",
-  "license": "MIT",
-  "prefer-stable": true,
-  "require": {
-    "php": "^8.5",
-    "doctrine/dbal": "^4.4",
-    "doctrine/doctrine-bundle": "^2.14|^3.0",
-    "doctrine/orm": "^3.4",
-    "league/commonmark": "^2.4",
-    "survos/babel-bundle": "^2.10",
-    "survos/dataset-bundle": "^2.5",
-    "survos/data-contracts": "^2.5",
-    "survos/field-bundle": "^2.5",
-    "survos/jsonl-bundle": "^2.5",
-    "survos/search-bundle": "^2.5",
-    "zenstruck/bytes": "^1.1",
-    "symfony/ai-agent": "^0.12",
-    "symfony/config": "^8.1",
-    "symfony/console": "^8.1",
-    "symfony/http-client": "^8.1",
-    "symfony/dependency-injection": "^8.1",
-    "symfony/framework-bundle": "^8.1",
-    "symfony/http-kernel": "^8.1",
-    "symfony/intl": "^8.1",
-    "symfony/routing": "^8.1",
-    "twig/twig": "^3.24|^4.0",
-    "voku/stop-words": "^2.0",
-    "ext-sqlite3": "*",
-    "ext-pdo_sqlite": "*",
-    "tacman/gcf-php": "^1.0"
-  },
-  "suggest": {
-    "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",
-    "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios.",
-    "survos/settings-bundle": "Lets RowMenu gate OCR/Handwriting behind a per-user beta_features setting instead of only the dev environment.",
-    "survos/schema-org-bundle": "Publishes JSON-LD on the row detail page (RowSchemaOrgBuilder), reading the #[SchemaOrg] attributes survos/data-contracts already puts on the item DTOs. Without it the row page has no structured data.",
-    "symfony/ux-twig-component": "Required for the PhotoGrid Twig component.",
-    "api-platform/core": "Required for the PhotoGrid Twig component's data source (Row's #[ApiResource])."
-  },
-  "autoload": { "psr-4": { "Survos\\FolioBundle\\": "src/" } },
-  "autoload-dev": { "psr-4": { "Survos\\FolioBundle\\Tests\\": "tests/" } },
-  "extra": { "symfony": { "allow-contrib": true, "require": "^8.1" } },
-  "require-dev": {
-    "phpstan/phpstan": "^2.1",
-    "api-platform/core": "^4.3",
-    "symfony/ux-chartjs": "^3.0",
-    "survos/fetch-bundle": "^2.5",
-    "survos/tabler-bundle": "^2.5",
-    "survos/imgproxy-bundle": "^2.5",
-    "survos/iiif-bundle": "^2.5"
-  },
-  "keywords": ["symfony-ux", "ux"]
+    "name": "survos/folio-bundle",
+    "description": "Portable SQLite folios for normalized museum dataset rows.",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "prefer-stable": true,
+    "require": {
+        "php": "^8.5",
+        "doctrine/dbal": "^4.4",
+        "doctrine/doctrine-bundle": "^2.14|^3.0",
+        "doctrine/orm": "^3.4",
+        "league/commonmark": "^2.4",
+        "survos/babel-bundle": "^2.10",
+        "survos/dataset-bundle": "^2.5",
+        "survos/data-contracts": "^2.5",
+        "survos/field-bundle": "^2.5",
+        "survos/jsonl-bundle": "^2.5",
+        "survos/search-bundle": "^2.5",
+        "zenstruck/bytes": "^1.1",
+        "symfony/ai-agent": "^0.12",
+        "symfony/config": "^8.1",
+        "symfony/console": "^8.1",
+        "symfony/http-client": "^8.1",
+        "symfony/dependency-injection": "^8.1",
+        "symfony/framework-bundle": "^8.1",
+        "symfony/http-kernel": "^8.1",
+        "symfony/intl": "^8.1",
+        "symfony/routing": "^8.1",
+        "twig/twig": "^3.24|^4.0",
+        "voku/stop-words": "^2.0",
+        "ext-sqlite3": "*",
+        "ext-pdo_sqlite": "*",
+        "tacman/gcf-php": "^1.0",
+        "presta/sitemap-bundle": "^4.3"
+    },
+    "suggest": {
+        "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",
+        "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios.",
+        "survos/settings-bundle": "Lets RowMenu gate OCR/Handwriting behind a per-user beta_features setting instead of only the dev environment.",
+        "survos/schema-org-bundle": "Publishes JSON-LD on the row detail page (RowSchemaOrgBuilder), reading the #[SchemaOrg] attributes survos/data-contracts already puts on the item DTOs. Without it the row page has no structured data.",
+        "symfony/ux-twig-component": "Required for the PhotoGrid Twig component.",
+        "api-platform/core": "Required for the PhotoGrid Twig component's data source (Row's #[ApiResource])."
+    },
+    "autoload": {
+        "psr-4": {
+            "Survos\\FolioBundle\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Survos\\FolioBundle\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "symfony": {
+            "allow-contrib": true,
+            "require": "^8.1"
+        }
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.1",
+        "api-platform/core": "^4.3",
+        "symfony/ux-chartjs": "^3.0",
+        "survos/fetch-bundle": "^2.5",
+        "survos/tabler-bundle": "^2.5",
+        "survos/imgproxy-bundle": "^2.5",
+        "survos/iiif-bundle": "^2.5"
+    },
+    "keywords": [
+        "symfony-ux",
+        "ux"
+    ]
 }

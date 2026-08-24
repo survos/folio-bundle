@@ -15,6 +15,8 @@ use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,F
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
 use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFacetFieldResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioTermCloudService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
+use Survos\FolioBundle\Sitemap\FolioSitemapPopulator;
+use Survos\FolioBundle\Sitemap\FolioSitemapRegistry;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\Kit\AbstractUxBundle;
@@ -224,6 +226,11 @@ final class SurvosFolioBundle extends AbstractUxBundle
         if (class_exists(\Survos\SchemaOrgBundle\Graph\SchemaOrgGraph::class)) {
             $services->set(RowSchemaOrgBuilder::class)->autowire()->autoconfigure()->public();
         }
+
+        // src/Sitemap/ is not one of the kit base's auto-scanned directories (src/Command/ is,
+        // which is where FolioSitemapCommand lives), so these two are wired by hand.
+        $services->set(FolioSitemapRegistry::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioSitemapPopulator::class)->autowire()->autoconfigure()->public();
         if ($config['routes_enabled']) {
             foreach ([FolioCollectionController::class, FolioSearchController::class] as $class) {
                 $services->set($class)->autowire()->autoconfigure()->public();
