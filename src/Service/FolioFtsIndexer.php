@@ -11,6 +11,9 @@ use Symfony\Component\String\Slugger\SluggerInterface;
 
 final class FolioFtsIndexer
 {
+    /** @var array<string,string>|null */
+    private ?array $termSetFieldMap = null;
+
     public function __construct(
         private readonly SluggerInterface $slugger = new AsciiSlugger(),
     ) {
@@ -302,19 +305,19 @@ final class FolioFtsIndexer
      */
     private function termSetFieldMap(): array
     {
-        static $map = null;
-        if ($map !== null) {
-            return $map;
-        }
-
-        $map = [];
-        foreach (TermSetBinding::fields() as $setCode => $fields) {
-            foreach ($fields as $field) {
-                $map[$field] = $setCode;
+        // An instance property, not `static $map`: a function-static survives everything --
+        // services_resetter, a kernel clone, the whole FrankenPHP worker process -- and there is
+        // no reason to reach past the service's own lifetime for a map this cheap to rebuild.
+        return $this->termSetFieldMap ??= (static function (): array {
+            $map = [];
+            foreach (TermSetBinding::fields() as $setCode => $fields) {
+                foreach ($fields as $field) {
+                    $map[$field] = $setCode;
+                }
             }
-        }
 
-        return $map;
+            return $map;
+        })();
     }
 
     /**

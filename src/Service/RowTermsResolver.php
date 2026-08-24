@@ -7,6 +7,7 @@ namespace Survos\FolioBundle\Service;
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\FolioBundle\Entity\Term;
+use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * Resolves a row's tags/keywords into per-term-set label+link data. Extracted from
@@ -16,7 +17,7 @@ use Survos\FolioBundle\Entity\Term;
  * source of truth: #[VocabTerm(termSet:true, sourceFields:…)] on MuseumVocab), so what's
  * resolved here matches what exists.
  */
-final class RowTermsResolver
+final class RowTermsResolver implements ResetInterface
 {
     // Keyed by the full "$folioCode:$setCode:$code" term id. resolve() runs once per rendered
     // item on pages that list many rows (e.g. the "Most Results" facet-value panel), and the
@@ -24,6 +25,12 @@ final class RowTermsResolver
     // `find(Term::class, ...)` queries for one id on a single search page. $em->find() should
     // hit Doctrine's identity map on repeat calls, but each item's context() call can land on a
     // fresh/cleared EM (see FolioService::switch()), defeating it -- so cache here too.
+    //
+    // These are managed Doctrine entities, so the cache must not outlive the request: under
+    // FrankenPHP worker mode the service survives the response, and every cached Term would be
+    // both a permanent retention and a *detached* entity the moment the EM is cleared. reset()
+    // (services_resetter, start of each request) keeps the within-request behaviour above and
+    // drops everything at the boundary.
     /** @var array<string, ?Term> */
     private array $termCache = [];
 
@@ -99,5 +106,10 @@ final class RowTermsResolver
         $code = trim($code, '-');
 
         return $code !== '' ? $code : hash('xxh128', $label);
+    }
+
+    public function reset(): void
+    {
+        $this->termCache = [];
     }
 }

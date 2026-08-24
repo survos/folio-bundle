@@ -10,7 +10,12 @@ use Survos\DatasetBundle\Service\DataPaths;
 use Survos\FolioBundle\DBAL\FolioConnectionWrapper;
 use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Model\FolioContext;
+use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 
+// Not ResetInterface: reset() here already means "wipe a folio and restore it from the
+// bootstrap template" (a destructive ingest helper), and renaming that is an API break across
+// the ecosystem. Point the kernel.reset tag at a distinct method instead.
+#[Autoconfigure(tags: [['name' => 'kernel.reset', 'method' => 'resetRequestState']])]
 final class FolioService
 {
     public ?string $currentFolioCode = null;
@@ -249,5 +254,20 @@ final class FolioService
             $conn->currentPath = '';
         }
         $this->folioEntityManager->clear();
+    }
+
+    /**
+     * Both properties are request-scoped: $requestContentLocale is written by
+     * FolioRouteAttributeListener on folio routes only, and $currentFolioCode by switch().
+     * Under FrankenPHP worker mode the service outlives the response, so without this a folio
+     * request would leave its locale behind for the *next* request — which, if that one is not
+     * a folio route, never overwrites it and silently renders in the previous visitor's
+     * language. Deliberately does NOT close the SQLite connection: reusing an open handle
+     * across requests is a worker-mode win, and switch() already re-points it by path.
+     */
+    public function resetRequestState(): void
+    {
+        $this->currentFolioCode = null;
+        $this->requestContentLocale = null;
     }
 }

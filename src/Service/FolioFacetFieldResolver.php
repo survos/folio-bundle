@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Doctrine\DBAL\Connection;
+use Survos\FolioBundle\DBAL\FolioConnectionWrapper;
 use Symfony\Contracts\Translation\TranslatorInterface;
+use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * The exact field-selection Survos\FolioBundle\Search\FolioRowSearch uses to decide what appears
@@ -14,22 +16,29 @@ use Symfony\Contracts\Translation\TranslatorInterface;
  * precisely the same fields the sidebar does, not an approximation that can silently drift out of
  * sync as the sidebar's own selection logic evolves.
  */
-final class FolioFacetFieldResolver
+final class FolioFacetFieldResolver implements ResetInterface
 {
     private const MAX_FACETS = 8;
 
-    // Keyed by spl_object_id($connection) . ':' . field -- this resolver is invoked once per
+    // Keyed by connectionKey($connection) . ':' . field -- this resolver is invoked once per
     // rendered item on pages that list many rows (e.g. the "Most Results" facet-value panel),
     // and schema_property/item_facet_count never change mid-request, so re-querying per item
     // was pure waste (seen live: 320+ identical `item_facet_count` COUNT queries for one field
     // on a single search page). tableExists() and hasUsableFacetValues() share this cache.
+    //
+    // The key MUST NOT be spl_object_id($connection), which is what it used to be. The folio
+    // connection is ONE FolioConnectionWrapper re-pointed at a different SQLite file by
+    // FolioService::switch(), so its object id is identical for every folio -- meaning folio B
+    // was served folio A's facet list. Wrong within a single request that spans folios (a
+    // FolioSet pooled search), and wrong for the whole process life under FrankenPHP worker
+    // mode. Key on the open database path instead, and reset() between requests.
     /** @var array<string, bool> */
     private array $tableExistsCache = [];
 
     /** @var array<string, bool> */
     private array $usableFacetValuesCache = [];
 
-    /** @var array<int, list<array{name: string, label: string, type: string}>> */
+    /** @var array<string, list<array{name: string, label: string, type: string}>> */
     private array $facetFieldNamesCache = [];
 
     private const NEVER_FACET = [
@@ -60,7 +69,7 @@ final class FolioFacetFieldResolver
         // Results" facet-value panel, in particular) -- schema_property/item_facet_count are
         // immutable for the lifetime of the request, so re-deriving the field list per item was
         // pure N+1 waste. Cache by connection identity + limit + core.
-        $cacheKey = spl_object_id($connection) . ':' . ($limit ?? 'null') . ':' . ($coreCode ?? 'all');
+        $cacheKey = $this->connectionKey($connection) . ':' . ($limit ?? 'null') . ':' . ($coreCode ?? 'all');
         if (isset($this->facetFieldNamesCache[$cacheKey])) {
             return $this->facetFieldNamesCache[$cacheKey];
         }
@@ -187,7 +196,7 @@ final class FolioFacetFieldResolver
             return true;
         }
 
-        $cacheKey = spl_object_id($connection) . ':' . $field;
+        $cacheKey = $this->connectionKey($connection) . ':' . $field;
         if (isset($this->usableFacetValuesCache[$cacheKey])) {
             return $this->usableFacetValuesCache[$cacheKey];
         }
@@ -200,7 +209,7 @@ final class FolioFacetFieldResolver
 
     private function tableExists(Connection $connection, string $table): bool
     {
-        $cacheKey = spl_object_id($connection) . ':' . $table;
+        $cacheKey = $this->connectionKey($connection) . ':' . $table;
         if (isset($this->tableExistsCache[$cacheKey])) {
             return $this->tableExistsCache[$cacheKey];
         }
@@ -216,5 +225,30 @@ final class FolioFacetFieldResolver
         $label = preg_replace('/(?<!^)[A-Z]/', ' $0', str_replace(['_', ':'], ' ', $field)) ?? $field;
 
         return str_replace([' Uri', ' Url'], [' URI', ' URL'], ucwords($label));
+    }
+
+    /**
+     * Identity of the database this connection is *currently* pointed at. For the folio
+     * connection that is the .folio file path, which changes under the same object as
+     * FolioService::switch() walks folios; every other connection is stable for the life of
+     * its EntityManager, so its object id is a fine key.
+     */
+    private function connectionKey(Connection $connection): string
+    {
+        return $connection instanceof FolioConnectionWrapper
+            ? $connection->currentPath
+            : (string) spl_object_id($connection);
+    }
+
+    /**
+     * Under FrankenPHP worker mode the container survives the response, so these
+     * per-request caches would otherwise accumulate one entry per (folio, field) for the life
+     * of the process. Called by services_resetter at the start of each request.
+     */
+    public function reset(): void
+    {
+        $this->tableExistsCache = [];
+        $this->usableFacetValuesCache = [];
+        $this->facetFieldNamesCache = [];
     }
 }
