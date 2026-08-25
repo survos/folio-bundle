@@ -6,12 +6,14 @@ namespace Survos\FolioBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
+use Survos\FolioBundle\Event\FolioInvalidatedEvent;
 use Survos\FolioBundle\Service\FolioService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Target;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Walk every folio file on disk, open each one, and report what is wrong with the ones that are.
@@ -31,6 +33,19 @@ use Symfony\Component\DependencyInjection\Attribute\Target;
  * Sequential on purpose: these are SQLite files sharing one disk, and the migration takes a write
  * lock on each. Parallelism would buy little and would reintroduce exactly the contention this
  * command exists to clear.
+ *
+ * Without --fix nothing is destroyed and no event fires: it reports, and it migrates (which is
+ * idempotent self-healing, not a change of intent). --fix does two separable things — it deletes
+ * the files that are provably garbage, and it announces EVERY invalid folio via
+ * {@see FolioInvalidatedEvent} so the app can decide what a rebuild means.
+ *
+ * Deletion is deliberately narrower than invalidity. Only two cases are ever removed: a 0-byte
+ * file, which SQLite could not have written, and an orphan with no dataset behind it. A folio with
+ * 0 rows is invalid but NOT deleted, because it is usually an honest reflection of an empty
+ * upstream stage rather than a damaged file -- on 2026-08-25, 474 of 477 zero-row folios were euro
+ * datasets whose norm/ never produced a per.jsonl, so deleting them would have 404'd ~474 live
+ * pages while changing nothing about the cause. Report it, emit the event, let the pipeline fix
+ * the input.
  */
 final class FolioValidateCommand
 {
@@ -42,6 +57,7 @@ final class FolioValidateCommand
 
     public function __construct(
         private readonly FolioService $folios,
+        private readonly EventDispatcherInterface $dispatcher,
         /**
          * Optional exactly as in {@see \Survos\FolioBundle\Service\FolioRegistry}: a bare app that
          * only pulls and displays folios has no dataset registry, and must still be able to run the
@@ -58,7 +74,7 @@ final class FolioValidateCommand
         SymfonyStyle $io,
         #[Option('Restrict to one provider directory, e.g. euro')]
         ?string $provider = null,
-        #[Option('Actually delete the files reported as removable. Irreversible; off by default.')]
+        #[Option('Act on the findings: delete removable files and announce every invalid folio via FolioInvalidatedEvent. Off by default, so a plain run is read-only.')]
         bool $fix = false,
         #[Option('Stop after this many files; 0 means every one')]
         int $limit = 0,
@@ -93,6 +109,7 @@ final class FolioValidateCommand
         $problems = [];
         $counts = ['ok' => 0, 'migrated' => 0];
         $removable = [];
+        $invalid = [];
 
         foreach ($files as $file) {
             $result = $this->validate($file, $known);
@@ -100,6 +117,7 @@ final class FolioValidateCommand
 
             if (!in_array($result['status'], ['ok', 'migrated'], true)) {
                 $problems[] = [$result['status'], $this->relative($file, $root), $result['detail']];
+                $invalid[] = [$file, $result];
                 if ($result['removable']) {
                     $removable[] = $file;
                 }
@@ -112,16 +130,42 @@ final class FolioValidateCommand
             $io->table(['status', 'file', 'detail'], $problems);
         }
 
-        $deleted = 0;
+        $deleted = [];
         if ($removable !== [] && $fix) {
             foreach ($removable as $file) {
-                $deleted += $this->remove($file) ? 1 : 0;
+                if ($this->remove($file)) {
+                    $deleted[$file] = true;
+                }
             }
-            $io->success(sprintf('Removed %d file(s).', $deleted));
+            $io->success(sprintf('Removed %d file(s).', count($deleted)));
         } elseif ($removable !== []) {
             $io->warning(sprintf(
                 '%d file(s) can be removed. Re-run with --fix to delete them.',
                 count($removable),
+            ));
+        }
+
+        // Announce every invalid folio, deleted or not: a 0-row folio is just as much a "this
+        // dataset needs to go back through the pipeline" signal as a file we removed, and the app
+        // is the only thing that knows which stage that means. Dispatched after the deletions so
+        // $deleted is accurate for listeners that care.
+        if ($fix && $invalid !== []) {
+            foreach ($invalid as [$file, $result]) {
+                [$folioCode, $locale] = $this->parse($file);
+                $this->dispatcher->dispatch(new FolioInvalidatedEvent(
+                    datasetKey: $folioCode,
+                    reason: $result['status'],
+                    detail: $result['detail'],
+                    path: $file,
+                    locale: $locale,
+                    deleted: isset($deleted[$file]),
+                ));
+            }
+            $io->note(sprintf('Announced %d invalid folio(s) via FolioInvalidatedEvent.', count($invalid)));
+        } elseif ($invalid !== []) {
+            $io->note(sprintf(
+                '%d invalid folio(s) found. Re-run with --fix to announce them via FolioInvalidatedEvent.',
+                count($invalid),
             ));
         }
 
