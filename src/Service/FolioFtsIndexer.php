@@ -171,6 +171,24 @@ final class FolioFtsIndexer
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_core_sort ON item(core_id, sort_key, local_id)');
     }
 
+    /**
+     * Index the page → row link, which imagery resolution now depends on.
+     *
+     * Since Row::getRawThumbnailSource() and FolioRowSearch source every thumbnail from the row's
+     * first page, "first page for this row" went from a rare lookup to something asked once per
+     * rendered row. `page` had no index on row_id at all -- only the primary key -- so that lookup
+     * planned as a full SCAN of page plus a temp B-tree for the ORDER BY, once per row. On
+     * mus/fortepan (219,590 rows, 180,500 pages) that is a non-starter.
+     *
+     * (row_id, seq) rather than (row_id): the seq column is what makes it a COVERING index for the
+     * ORDER BY, so the plan becomes a plain SEARCH with no sort step (verified with EXPLAIN QUERY
+     * PLAN, 2026-08-25).
+     */
+    public static function ensurePageIndex(\PDO $pdo): void
+    {
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_page_row_seq ON page(row_id, seq)');
+    }
+
     private function rebuildFacetCounts(\PDO $pdo): void
     {
         $pdo->exec('DROP TABLE IF EXISTS item_facet_count');

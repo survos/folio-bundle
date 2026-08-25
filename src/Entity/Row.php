@@ -21,7 +21,6 @@ use Survos\FieldBundle\Attribute\EntityMeta;
 use Survos\FieldBundle\Entity\RouteParametersInterface;
 use Survos\FolioBundle\Repository\RowRepository;
 use Survos\FolioBundle\State\FolioRowProvider;
-use Survos\IiifBundle\Service\IiifUrl;
 use Symfony\Component\Intl\Countries;
 use Symfony\Component\Serializer\Attribute\Groups;
 
@@ -140,16 +139,33 @@ class Row implements RouteParametersInterface
      * The image URL exactly as harvested, renderable or not. Only the debug/diagnostic path
      * should use this — everything user-facing wants {@see getThumbnailSource()}, which filters
      * out sources imgproxy cannot render.
+     *
+     * Imagery comes from PAGES ONLY. dto_data's iiifBase/largeImageUrl/thumbnailUrl are
+     * housekeeping — provenance about where the row came from — and are deliberately NOT consulted
+     * here, because the two disagree and the dto_data copy is the stale one.
+     *
+     * mus/rijk is the worked example: every one of its 10 object rows carries BOTH
+     * page.url = s3://museado/orig/… (mediary's archived copy, written by enrich once the asset
+     * reached a terminal place) AND dto_data.thumbnailUrl = https://fsn1.your-objectstorage.com/…
+     * (the pre-S3-refactor public URL). Reading dto_data meant every thumbnail on a correctly built
+     * folio still went out as a remote HTTP fetch, silently bypassing the S3 path the refactor
+     * exists to establish — and doing it in a way that kept working, so nothing ever surfaced it.
+     *
+     * There is no dto_data fallback on purpose. A fallback would keep rendering the exact rows this
+     * is meant to catch, so "no page" now means no thumbnail, and that is the intended signal:
+     * a row with imagery and no page did not complete the dispatch → mediary → enrich path, and the
+     * fix belongs in the pipeline, not in a reader working around it. Measured 2026-08-25 against
+     * the pre-purge corpus, 26.4% of rows had a page (1,436,725 of 5,433,864) and 228 folios had
+     * none at all — those go imageless until they are rebuilt through the gated workflow.
      */
     public function getRawThumbnailSource(): ?string
     {
-        $iiif = $this->canonicalDtoValue(ItemField::IIIF_BASE);
-        if ($iiif !== null) {
-            return IiifUrl::imageUrl($iiif);
-        }
+        $page = $this->pages->first();
 
-        return $this->canonicalDtoValue(ItemField::LARGE_IMAGE_URL)
-            ?? $this->canonicalDtoValue(ItemField::THUMBNAIL_URL);
+        // Page::$url is non-nullable and is defined as "what do I fetch" (its $sourceUrl holds the
+        // provenance), so it is exactly the value imgproxy should be handed. Empty is treated as
+        // absent so getImageVerdict() reports Empty rather than classifying a blank string.
+        return $page instanceof Page && $page->url !== '' ? $page->url : null;
     }
 
     /**

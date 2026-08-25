@@ -148,9 +148,19 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 "json_extract(d.dto_data, '$.citationUrl') AS citationUrl",
                 "json_extract(d.dto_data, '$.description') AS description",
                 "json_extract(d.dto_data, '$.\"ai:denseSummary\"') AS denseSummary",
-                "json_extract(d.dto_data, '$.iiifBase') AS iiifBase",
-                "json_extract(d.dto_data, '$.thumbnailUrl') AS thumbnailUrl",
-                "json_extract(d.dto_data, '$.largeImageUrl') AS largeImageUrl",
+                // Imagery comes from the row's first PAGE, never from dto_data. dto_data's
+                // iiifBase/thumbnailUrl/largeImageUrl are housekeeping — where the row came from —
+                // and on a correctly built folio they hold the pre-S3-refactor public URL while
+                // page.url holds mediary's archived copy. Reading them here meant the search page
+                // fed imgproxy remote HTTP URLs even for folios that had been mirrored properly
+                // (mus/rijk: 10 rows, both values present, the stale one winning).
+                //
+                // NULL for iiifBase deliberately: it is provenance, and leaving it populated just
+                // gives the templates a way to fall back into the value this is removing. Needs
+                // idx_page_row_seq — see FolioFtsIndexer::ensurePageIndex().
+                'NULL AS iiifBase',
+                "(SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) AS thumbnailUrl",
+                "(SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) AS largeImageUrl",
                 "json_extract(d.dto_data, '$.pageCount') AS pageCount",
                 "json_extract(d.dto_data, '$.imageCount') AS imageCount",
                 "json_extract(d.dto_data, '$.itemCount') AS itemCount",

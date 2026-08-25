@@ -327,6 +327,7 @@ final class FolioSchemaManager
         // to; update() creates the table below and the next open ensures the column.
         try {
             FolioFtsIndexer::ensurePrimarySortColumn($native);
+            FolioFtsIndexer::ensurePageIndex($native);
         } catch (\Throwable) {
             // Never let this break opening a folio: sorting by year degrades, everything else
             // works, and the alternative is a folio that cannot be read at all.
