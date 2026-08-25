@@ -30,8 +30,7 @@
         "voku/stop-words": "^2.0",
         "ext-sqlite3": "*",
         "ext-pdo_sqlite": "*",
-        "tacman/gcf-php": "^1.0",
-        "presta/sitemap-bundle": "^4.3"
+        "tacman/gcf-php": "^1.0"
     },
     "suggest": {
         "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",
@@ -39,7 +38,8 @@
         "survos/settings-bundle": "Lets RowMenu gate OCR/Handwriting behind a per-user beta_features setting instead of only the dev environment.",
         "survos/schema-org-bundle": "Publishes JSON-LD on the row detail page (RowSchemaOrgBuilder), reading the #[SchemaOrg] attributes survos/data-contracts already puts on the item DTOs. Without it the row page has no structured data.",
         "symfony/ux-twig-component": "Required for the PhotoGrid Twig component.",
-        "api-platform/core": "Required for the PhotoGrid Twig component's data source (Row's #[ApiResource])."
+        "api-platform/core": "Required for the PhotoGrid Twig component's data source (Row's #[ApiResource]).",
+        "presta/sitemap-bundle": "For folio:sitemap \u2014 static per-folio XML sitemaps of item pages."
     },
     "autoload": {
         "psr-4": {

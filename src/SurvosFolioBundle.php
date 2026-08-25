@@ -15,6 +15,7 @@ use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,F
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
 use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFacetFieldResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioTermCloudService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
+use Survos\FolioBundle\Command\FolioSitemapCommand;
 use Survos\FolioBundle\Sitemap\FolioSitemapPopulator;
 use Survos\FolioBundle\Sitemap\FolioSitemapRegistry;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
@@ -227,10 +228,22 @@ final class SurvosFolioBundle extends AbstractUxBundle
             $services->set(RowSchemaOrgBuilder::class)->autowire()->autoconfigure()->public();
         }
 
-        // src/Sitemap/ is not one of the kit base's auto-scanned directories (src/Command/ is,
-        // which is where FolioSitemapCommand lives), so these two are wired by hand.
-        $services->set(FolioSitemapRegistry::class)->autowire()->autoconfigure()->public();
-        $services->set(FolioSitemapPopulator::class)->autowire()->autoconfigure()->public();
+        // Sitemaps need presta/sitemap-bundle. It is a `require` of this bundle, but that is NOT
+        // enough to assume it is present: every consuming app resolves vendor/survos/folio-bundle
+        // to a symlink into ~/sites/mono, so it runs this code against ITS OWN vendor tree and
+        // never installs our composer requirements. harvest, ssai and fotostory all link this
+        // bundle and none of them have presta -- so registering these unconditionally takes their
+        // containers down at compile time with "cannot autowire $dumper".
+        //
+        // src/Sitemap/ is wired by hand, so it is enough not to register it. src/Command/ is
+        // auto-scanned by the kit base (already done by parent::loadExtension() above), so
+        // FolioSitemapCommand has to be actively removed instead.
+        if (interface_exists(\Presta\SitemapBundle\Service\DumperInterface::class)) {
+            $services->set(FolioSitemapRegistry::class)->autowire()->autoconfigure()->public();
+            $services->set(FolioSitemapPopulator::class)->autowire()->autoconfigure()->public();
+        } elseif ($builder->hasDefinition(FolioSitemapCommand::class)) {
+            $builder->removeDefinition(FolioSitemapCommand::class);
+        }
         if ($config['routes_enabled']) {
             foreach ([FolioCollectionController::class, FolioSearchController::class] as $class) {
                 $services->set($class)->autowire()->autoconfigure()->public();
