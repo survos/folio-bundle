@@ -106,6 +106,20 @@ final class FolioSchemaManager
      */
     public function update(EntityManagerInterface $em): void
     {
+        // BEFORE the isCurrent() early-return, deliberately. sort_key is a SQLite GENERATED
+        // column, not a Doctrine-mapped one, so the metadata-driven pass below can never create
+        // it -- and PRAGMA user_version knows nothing about it either. A folio can therefore be
+        // "schema-current" by version and still lack the column, which is exactly the state
+        // folio:build leaves behind: it is only ever added by FolioFtsIndexer, so a folio that
+        // was built but not FTS-rebuilt has no sort_key at all.
+        //
+        // That combination is nastier than it sounds. Nothing fails at build time; the folio
+        // opens, and gallery and map render normally. It only blows up when something sorts by
+        // year -- FolioController's 'year' => 'd.sort_key' -- so it presents as one broken folio
+        // rather than a missing build step, and it has cost real debugging time more than once.
+        // Ensuring it here means every folio self-heals on first open, with no rebuild.
+        $this->ensureGeneratedColumns($em);
+
         if ($this->isCurrent($em)) {
             return;
         }
@@ -163,5 +177,26 @@ final class FolioSchemaManager
 
         // Stamp the new schema version so subsequent opens are a cheap no-op.
         $conn->executeStatement(sprintf('PRAGMA user_version = %d', $this->expectedVersion($em)));
+    }
+
+    /**
+     * Columns that exist in SQL but not in Doctrine's metadata, so update()'s metadata diff cannot
+     * see them. Cheap enough to run on every open: one PRAGMA when the column is already there.
+     */
+    private function ensureGeneratedColumns(EntityManagerInterface $em): void
+    {
+        $native = $em->getConnection()->getNativeConnection();
+        if (!$native instanceof \PDO) {
+            return;
+        }
+
+        // A folio that has no `item` table yet (a fresh bootstrap) has nothing to add the column
+        // to; update() creates the table below and the next open ensures the column.
+        try {
+            FolioFtsIndexer::ensurePrimarySortColumn($native);
+        } catch (\Throwable) {
+            // Never let this break opening a folio: sorting by year degrades, everything else
+            // works, and the alternative is a folio that cannot be read at all.
+        }
     }
 }
