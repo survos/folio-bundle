@@ -47,6 +47,12 @@ final class FolioService
         return $this->dataPaths->folioRootDir;
     }
 
+    /** The configured folio file extension, without the dot (default "folio"). */
+    public function fileExtension(): string
+    {
+        return $this->extension;
+    }
+
     /** Path to the index-free distributable archive, e.g. <root>/folio-archive/<provider>/<code>.folio.gz. */
     public function archivePath(string $folioCode, bool $createDirectory = false, ?string $locale = null): string
     {
