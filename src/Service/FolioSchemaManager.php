@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Doctrine\Common\EventManager;
+use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
 use Psr\Cache\CacheItemPoolInterface;
+use Psr\Log\LoggerInterface;
+use Survos\FolioBundle\Exception\FolioMigrationInProgressException;
 use Survos\FolioBundle\Entity\{Claim,Core,Doc,Folio,Link,LinkType,Page,Row,SchemaProperty,SchemaTable,Str,StrTranslation,Term,TermSet};
 
 final class FolioSchemaManager
@@ -16,8 +20,44 @@ final class FolioSchemaManager
     /** Memoized per process — the entity schema is constant for a deploy. */
     private ?int $expectedVersion = null;
 
-    public function __construct(private readonly CacheItemPoolInterface $cache)
+    /** @see schemaTool() — memoized because building one creates a metadata factory. */
+    private ?SchemaTool $schemaTool = null;
+
+    public function __construct(
+        private readonly CacheItemPoolInterface $cache,
+        private readonly ?LoggerInterface $logger = null,
+    ) {
+    }
+
+    /**
+     * A SchemaTool bound to a THROWAWAY EntityManager that shares this one's connection and
+     * configuration but has an EMPTY EventManager -- so nothing it does can dispatch Doctrine's
+     * postGenerateSchema/postGenerateSchemaTable events.
+     *
+     * This is not a micro-optimization, it is a correctness fix. Symfony registers its messenger /
+     * lock / cache / session schema listeners against EVERY entity manager, and each one reacts to
+     * postGenerateSchema by calling getIsSameDatabaseChecker(), which CREATEs a scratch table named
+     * `schema_subscriber_check_` in the event manager's connection, INSERTs a row, then DROPs it
+     * again. For the folio EM that connection is a folio file -- so every stale-folio open wrote
+     * ~170 CREATE/INSERT/DELETE/DROP cycles into a read-mostly SQLite database that Symfony has no
+     * business writing to at all (measured on wikibase/enslaved, 2026-08-25: 1044 of the request's
+     * 1625 queries, against a 2.4 GB file).
+     *
+     * Worse, it is not concurrency-safe: two overlapping requests on the same stale folio interleave
+     * their create/drop cycles, and one drops the scratch table between the other's CREATE and its
+     * INSERT. That surfaced as "no such table: schema_subscriber_check_", which update()'s caller
+     * then reported as "schema is out of date, re-import required" -- a completely wrong diagnosis
+     * of a transient race, on a folio that was fine.
+     *
+     * SchemaTool only ever needs the connection (for the platform) and the configuration (for
+     * metadata + naming strategy); it has no legitimate use for app event listeners here. Giving it
+     * an EM with no listeners removes the entire class of problem rather than working around it.
+     */
+    private function schemaTool(EntityManagerInterface $em): SchemaTool
     {
+        return $this->schemaTool ??= new SchemaTool(
+            new EntityManager($em->getConnection(), $em->getConfiguration(), new EventManager()),
+        );
     }
 
     /**
@@ -29,11 +69,17 @@ final class FolioSchemaManager
      * (user_version is a signed 32-bit int).
      *
      * Reading the stored version is one PRAGMA (~0.01ms), but PRODUCING this expected value means
-     * generating the CREATE DDL for all 14 entities and throwing the SQL away — ~10ms warm, ~80ms
-     * in a cold process. The property memo above is per-process, which under PHP-FPM means once per
-     * REQUEST, so every folio page paid it to recompute a value that is constant for the whole
-     * deploy. Hence the second-level cache, keyed on the newest mtime of the entity sources: edit an
-     * entity and the key changes, so it recomputes on its own with no bump-me-by-hand step.
+     * generating the CREATE DDL for all 14 entities and throwing the SQL away. The property memo
+     * above is per-process, which under PHP-FPM means once per REQUEST, so every folio page paid it
+     * to recompute a value that is constant for the whole deploy. Hence the second-level cache,
+     * keyed on the newest mtime of the entity sources: edit an entity and the key changes, so it
+     * recomputes on its own with no bump-me-by-hand step.
+     *
+     * Note the pool this lands in is cache.system (that is what CacheItemPoolInterface autowires
+     * to), so it is wiped by every container rebuild, not just by a deploy — the first request after
+     * any cache:clear pays full price. That was survivable only because schemaTool() stopped the DDL
+     * generation from dispatching Doctrine's schema events; before that, this one call also fanned
+     * out into a dozen CREATE/DROP round-trips against the folio file.
      *
      * The gap that leaves: a change to Doctrine *config* rather than the entity files (naming
      * strategy, a custom type) can alter the generated DDL without moving any mtime, so it needs a
@@ -55,7 +101,7 @@ final class FolioSchemaManager
 
         $mf = $em->getMetadataFactory();
         $metas = array_map(static fn (string $class) => $mf->getMetadataFor($class), self::ENTITIES);
-        $sql = (new SchemaTool($em))->getCreateSchemaSql($metas);
+        $sql = $this->schemaTool($em)->getCreateSchemaSql($metas);
         sort($sql);
         $version = crc32(implode("\n", $sql)) & 0x7fffffff;
 
@@ -84,7 +130,15 @@ final class FolioSchemaManager
         return $newest === 0 ? null : (string) $newest;
     }
 
-    /** True when the folio's stored schema version matches the deployed entity schema. */
+    /**
+     * True when the folio's stored schema version matches the deployed entity schema.
+     *
+     * Impure by design: it reads PRAGMA user_version from the file every call, so a second call can
+     * legitimately disagree with the first — that is exactly what update() relies on when it
+     * re-checks after waiting on the migration lock and finds another process already did the work.
+     *
+     * @phpstan-impure
+     */
     public function isCurrent(EntityManagerInterface $em): bool
     {
         return (int) $em->getConnection()->fetchOne('PRAGMA user_version') === $this->expectedVersion($em);
@@ -124,10 +178,78 @@ final class FolioSchemaManager
             return;
         }
 
+        // Serialize migration per folio FILE, not per process. Two overlapping web requests on the
+        // same stale folio used to each run the whole migration concurrently; the ALTERs tolerate
+        // that (see the "duplicate column" catch below) but nothing else here was designed for it,
+        // and it is pure duplicated work. The loser waits ~25 ms, re-checks, and finds the folio
+        // already current.
+        $path = (string) ($em->getConnection()->getParams()['path'] ?? '');
+        $handle = $path === '' ? null : $this->lockForMigration($path);
+
+        try {
+            // Re-check under the lock: whoever held it may have just done our work for us.
+            if ($handle !== null && $this->isCurrent($em)) {
+                return;
+            }
+            $this->applySchema($em);
+        } finally {
+            if ($handle !== null) {
+                flock($handle, LOCK_UN);
+                fclose($handle);
+            }
+        }
+    }
+
+    /**
+     * Exclusive advisory lock on a sidecar `<folio>.lock`, polled rather than blocking so a stuck
+     * holder can never hang a web request indefinitely. A sidecar file rather than the folio itself
+     * because SQLite already uses fcntl byte-range locks on that file — mixing the two mechanisms
+     * on one inode is legal on Linux but needlessly hard to reason about.
+     *
+     * @throws FolioMigrationInProgressException when the holder outlasts the wait window
+     */
+    private function lockForMigration(string $path, int $waitMs = 2000): mixed
+    {
+        $handle = @fopen($path . '.lock', 'c');
+        if ($handle === false) {
+            // An unwritable folio dir is a deployment problem, not a reason to refuse to open a
+            // folio that may not even need migrating. Proceed unlocked, as before this existed.
+            $this->logger?->warning('Folio migration lock unavailable; proceeding unserialized', ['path' => $path]);
+
+            return null;
+        }
+
+        $deadline = microtime(true) + $waitMs / 1000;
+        do {
+            if (flock($handle, LOCK_EX | LOCK_NB)) {
+                return $handle;
+            }
+            usleep(20_000);
+        } while (microtime(true) < $deadline);
+
+        fclose($handle);
+
+        throw new FolioMigrationInProgressException($path, $waitMs);
+    }
+
+    /** The actual DDL pass. Always called with the migration lock held (when one could be taken). */
+    private function applySchema(EntityManagerInterface $em): void
+    {
         $conn = $em->getConnection();
         $platform = $conn->getDatabasePlatform();
         $mf = $em->getMetadataFactory();
-        $schemaTool = new SchemaTool($em);
+        $schemaTool = $this->schemaTool($em);
+
+        // A migration that reaches here is the ONE thing on the folio read path that both writes
+        // and can be slow, so it is the one thing worth timing. Without this an in-place migration
+        // is invisible in the logs -- it either succeeds (and looks like a slow page) or fails (and
+        // gets reported as "re-import required"), with nothing to say which migrations are cheap
+        // enough to keep doing inline on a web request and which belong on a queue.
+        $startedAt = microtime(true);
+        $from = (int) $conn->fetchOne('PRAGMA user_version');
+        $to = $this->expectedVersion($em);
+        $addedColumns = [];
+        $createdTables = [];
 
         foreach (self::ENTITIES as $class) {
             $meta = $mf->getMetadataFor($class);
@@ -144,6 +266,7 @@ final class FolioSchemaManager
                 foreach ($schemaTool->getCreateSchemaSql([$meta]) as $sql) {
                     $conn->executeStatement($sql);
                 }
+                $createdTables[] = $table;
                 continue;
             }
 
@@ -162,6 +285,7 @@ final class FolioSchemaManager
                         $quotedTable,
                         $platform->getColumnDeclarationSQL($column->getObjectName()->toSQL($platform), $columnOptions),
                     ));
+                    $addedColumns[] = $table . '.' . $column->getObjectName()->toString();
                 } catch (\Throwable $e) {
                     // Tolerate a concurrent open that already added it (auto-migrate on open can race).
                     if (!str_contains($e->getMessage(), 'duplicate column')) {
@@ -176,7 +300,16 @@ final class FolioSchemaManager
         }
 
         // Stamp the new schema version so subsequent opens are a cheap no-op.
-        $conn->executeStatement(sprintf('PRAGMA user_version = %d', $this->expectedVersion($em)));
+        $conn->executeStatement(sprintf('PRAGMA user_version = %d', $to));
+
+        $this->logger?->info('Folio schema migrated in place', [
+            'path' => $conn->getParams()['path'] ?? null,
+            'from' => $from,
+            'to' => $to,
+            'ms' => round((microtime(true) - $startedAt) * 1000, 1),
+            'addedColumns' => $addedColumns,
+            'createdTables' => $createdTables,
+        ]);
     }
 
     /**

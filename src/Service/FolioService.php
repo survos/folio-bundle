@@ -201,14 +201,29 @@ final class FolioService
         try {
             $this->schemaManager->update($em);
         } catch (\Throwable $e) {
-            $this->logger?->error('Folio schema auto-migrate failed — re-import required', [
+            // Report what actually failed, including the exception class and the root cause. The
+            // previous wording asserted "re-import required" for ANY throwable, which sent real
+            // debugging down the wrong path: a transient error from a concurrent open was
+            // indistinguishable from a genuinely incompatible folio, and the suggested remedy
+            // (re-import a multi-GB folio) was wrong for the former.
+            $root = $e;
+            while ($root->getPrevious() !== null) {
+                $root = $root->getPrevious();
+            }
+
+            $this->logger?->error('Folio schema auto-migrate failed', [
                 'folio' => $folioCode,
-                'error' => $e->getMessage(),
+                'path' => $this->path($folioCode, locale: $locale),
+                'exception' => $e::class,
+                'rootCause' => $root::class,
+                'error' => $root->getMessage(),
             ]);
+
             throw new \RuntimeException(sprintf(
-                'Folio "%s" schema is out of date and could not be migrated in place (re-import required): %s',
+                'Folio "%s" could not be opened: its schema is out of date and the in-place migration failed with %s: %s',
                 $folioCode,
-                $e->getMessage(),
+                $root::class,
+                $root->getMessage(),
             ), 0, $e);
         }
 
