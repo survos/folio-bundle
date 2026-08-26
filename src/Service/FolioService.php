@@ -104,9 +104,65 @@ final class FolioService
     }
 
     /**
+     * Finish with the active folio on the SUCCESS path: commit, drop the file out of WAL mode, and
+     * close. The counterpart to {@see closeActive()}, which is abort-shaped — it rolls back, so
+     * calling it after a good build would silently discard the build.
+     *
+     * The journal_mode flip is the point. {@see FolioConnectionWrapper::applyPragmas()} asserts WAL
+     * on every connect, which is right during ingest (concurrent readers + a writer) and wrong for
+     * a finished artifact, which has no writer at all. WAL then buys nothing and costs two sidecar
+     * files, so a `.folio` stops being a single self-contained file — and on read-only media a
+     * lingering `-wal` makes SQLite attempt recovery and refuse to open. Flipping on the way out
+     * leaves DELETE mode in the header and removes -wal/-shm. It is idempotent: the next open
+     * re-asserts WAL, and the next finalize() puts it back.
+     *
+     * See survos/mono#50.
+     */
+    public function finalize(): void
+    {
+        $conn = $this->folioEntityManager->getConnection();
+        if (!$conn instanceof FolioConnectionWrapper || !$conn->isConnected()) {
+            return;
+        }
+
+        try {
+            // Unlike closeActive() this COMMITS: an open transaction here is finished work that
+            // just has not been flushed, not something to throw away.
+            if ($conn->isTransactionActive()) {
+                $conn->commit();
+            }
+        } catch (\Throwable $e) {
+            $this->logger?->warning('Folio finalize could not commit', [
+                'path' => $conn->currentPath,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        try {
+            // Requires no other connection to the file; we hold the only one and close immediately.
+            $conn->executeStatement('PRAGMA journal_mode = DELETE');
+        } catch (\Throwable $e) {
+            // A read-only mount cannot be flipped. Not fatal — the close below still checkpoints.
+            $this->logger?->debug('Folio finalize could not set journal_mode=DELETE', [
+                'path' => $conn->currentPath,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        try {
+            $conn->close(); // a clean close checkpoints + removes the -wal/-shm
+        } catch (\Throwable) {
+            // best effort — we are tearing down
+        }
+        $conn->currentPath = '';
+    }
+
+    /**
      * Abort the active folio connection: roll back any in-flight ingest transaction and close the
      * file cleanly so a killed build leaves no half-written WAL behind. Safe to call from a signal
      * handler. Uncommitted work is intentionally discarded — a reset + rebuild restores it.
+     *
+     * For the success path use {@see finalize()} instead, which commits rather than rolls back.
      */
     public function closeActive(): void
     {

@@ -79,6 +79,11 @@ final class FolioValidateCommand
         #[Option('Stop after this many files; 0 means every one')]
         int $limit = 0,
     ): int {
+        // NOTE: no --root option on purpose, though it looks like it should be easy. The glob below
+        // would honour one, but validate() re-opens each folio through FolioService::context(),
+        // which resolves a *dataset code* against the CONFIGURED root — so an arbitrary root would
+        // list files from one directory and migrate same-named files from another. Supporting it
+        // needs a path-based open on FolioService first. See survos/mono#50.
         $root = $this->folios->rootPath();
         if (!is_dir($root)) {
             $io->error(sprintf('Folio root "%s" does not exist.', $root));
@@ -113,6 +118,13 @@ final class FolioValidateCommand
 
         foreach ($files as $file) {
             $result = $this->validate($file, $known);
+
+            // Close what validate() opened, before touching the next file. Two reasons, and the
+            // second is the one that bites: each open folio holds file descriptors, and leaving
+            // the connection open leaves the -wal/-shm behind on every folio we just inspected.
+            // finalize() rather than closeActive() because a completed migration is work to keep.
+            $this->folios->finalize();
+
             $counts[$result['status']] = ($counts[$result['status']] ?? 0) + 1;
 
             if (!in_array($result['status'], ['ok', 'migrated'], true)) {
@@ -300,11 +312,20 @@ final class FolioValidateCommand
         return $keys;
     }
 
-    /** PRAGMA user_version read through a standalone handle, so the shared connection is untouched. */
+    /**
+     * PRAGMA user_version read through a standalone handle, so the shared connection is untouched.
+     *
+     * immutable=1 is load-bearing, not a tidy-up: merely OPENING a WAL-mode database creates its
+     * -wal/-shm, and this runs on every file we visit — including ones we go on to delete. Without
+     * it, the command that exists to find problems leaves 2 files behind per folio inspected.
+     * Verified to return the same user_version as a plain open (survos/mono#50).
+     */
     private function userVersion(string $file): int
     {
         try {
-            return (int) (new \PDO('sqlite:' . $file))->query('PRAGMA user_version')->fetchColumn();
+            return (int) (new \PDO('sqlite:file:' . $file . '?mode=ro&immutable=1'))
+                ->query('PRAGMA user_version')
+                ->fetchColumn();
         } catch (\Throwable) {
             return -1;
         }
