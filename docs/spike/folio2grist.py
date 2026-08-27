@@ -3,8 +3,9 @@
 
 This is the throwaway script that proved the projection described in
 ../plan-record-store-projection.md. It is kept because the plan cites its exact
-behavior and measurements; the real implementation is PHP in folio-bundle on top
-of survos/record-store-bundle contracts.
+behavior and measurements; the real implementation is PHP in folio-bundle,
+calling survos/grist-bundle (which already covers schema, SQL, forms, webhooks
+and attachments) over survos/record-store-bundle's portable contracts.
 
 Verified against real artifacts on 2026-08-26:
     dc/0p096w19r.folio       21,069 rows / 3 tables / 13k links  in 12.8s

@@ -1,6 +1,10 @@
 # Plan: projecting folio artifacts into record stores (Grist / Quickbase)
 
-Status: **proposed**, with a working spike. Written 2026-08-26.
+Status: **proposed**. Written 2026-08-26, **reconciled the same day against
+`survos/grist-bundle`**, which landed independently while this was being drafted
+(`d438b3eb`..`28dc44c1`) and already implements a large part of what the first
+draft proposed building. Sections below marked *(covered)* describe work that no
+longer needs doing.
 
 ## Why
 
@@ -41,30 +45,63 @@ because `link` is core-to-core (`left_core`/`right_core`). A photograph and a
 document both live in `obj` and are told apart by a `dtoType` column. That is
 also exactly what folio's own `row_<core>` schema tables already model.
 
-## Where the code goes
+## The landscape after grist-bundle
 
-The abstraction already exists — `survos/record-store-bundle` is
-provider-neutral, with `survos/quickbase-bundle` supplying the Quickbase adapter.
-So:
+Three bundles now, layered:
 
-- **`record-store-bundle`** gains the schema-mutation contract and multi-valued
-  field support. It learns nothing about folio.
-- **`folio-bundle`** gets the projection command, depending on the *contracts*
-  rather than on Grist. Consequence worth stating plainly: the same command can
-  target Quickbase. The mapping logic — `schema_property` → `FieldType`,
-  `link_type` → multi-reference, `reverse_code` → the inverse — is folio
-  knowledge and provider-agnostic.
+| | owns |
+|---|---|
+| `record-store-bundle` | portable contracts, `FieldType`, Grist + Quickbase adapters (read + upsert) |
+| `grist-bundle` | Grist specifics: schema, SQL, forms, webhooks, attachments — as services *and* MCP tools |
+| `quickbase-bundle` | Quickbase adapter, QBL |
 
-Per the one-class-per-feature convention, this is a `FolioRecordStoreService`
-with `#[AsCommand]` methods, not a class per command.
+`grist-bundle`'s stated purpose is that a curation surface should be **declared
+and reconciled** rather than clicked together. That is a different mode from what
+this plan needs, and the difference is the main open question — see
+"Declared vs generated" below.
 
-## Required contract changes
+### Already covered by grist-bundle *(delete from scope)*
 
-These are cheap now and expensive once the adapters have more callers.
+The first draft proposed building all of these. They exist:
 
-### 1. Cardinality is currently lost (this is a live defect)
+- **listing / describing tables and columns** — `GristSchemaManager::tables()`,
+  `describeTable()`
+- **adding columns** — `GristSchemaManager::addColumns()`. Passes an arbitrary
+  `fields` array straight through, so `Choice`, `ChoiceList`, `Ref:Other` and
+  `widgetOptions` all work without the projection needing an escape hatch.
+- **read-only SQL** — `GristQueryRunner`, parameterized
+- **forms** — `GristFormManager`, including the `layoutSpec` + `shareOptions`
+  publish sequence. Worth noting because that was the single most expensive thing
+  to work out from the API alone: a form section created without a `layoutSpec`
+  renders every field and **cannot be submitted**, since the Submit button is a
+  node inside that spec.
+- **attachments** — `GristAttachmentManager`, including moving the byte store to
+  object storage
+- **webhooks** — `GristWebhookManager`
 
-Both adapters flatten multi-valued fields, in different places:
+So the old "what stays provider-specific — use `GristClientInterface` as the
+escape hatch" section is obsolete. There is now a real bundle there instead of a
+raw client, and the projection should call it.
+
+### Deliberately *not* covered, and correctly so
+
+`addColumns()` is **additive only — it never drops or retypes**. The first draft
+proposed an `alterField()`; that trap is better read as *justification for
+grist-bundle's policy* than as a method to write:
+
+> Grist's column-type `PATCH` does **not** convert existing data. It redeclares
+> the column and leaves the previous value as a Python-`marshal` blob
+> (`b'u\x03\x00\x00\x00120'` decodes to `'120'`). The REST API keeps reporting a
+> clean value, so it is invisible until something reads the SQLite file directly.
+
+A projection rebuilds into a fresh document, so it never needs to retype anything.
+Keep it that way.
+
+## What is still missing
+
+### 1. Cardinality is lost in both adapters (unchanged, still live)
+
+`grist-bundle` sits above this and does not fix it:
 
 ```php
 // GristAdapter
@@ -75,48 +112,65 @@ str_starts_with($nativeType, 'Ref:') || 'RefList:' => FieldType::Reference,
 'text', 'text-multiple-choice', 'multitext' => FieldType::Text,
 ```
 
-A portable read→write round-trip therefore degrades a multi-select into a scalar
-with no way to detect it. This is not hypothetical for folio: `?array` + `facet`
-is genuinely multi-valued (fortepan's `subjects` had 37 distinct values), and
-`link` is many-to-many, i.e. `RefList:`.
+A portable read→write round-trip degrades a multi-select to a scalar with no way
+to detect it. Not hypothetical for folio: `?array` + `facet` is genuinely
+multi-valued (fortepan's `subjects` had 37 distinct values), and `link` is
+many-to-many, i.e. `RefList:`.
 
-**Fix:** add `public bool $multiple = false` to `FieldSchema` rather than
-expanding the enum. `Choice + multiple` then covers Grist `ChoiceList` and
-Quickbase `text-multiple-choice`; `Reference + multiple` covers `RefList:` and
-Quickbase multi-reference. No new enum cases, and it composes.
+**Fix:** `public bool $multiple = false` on `FieldSchema`, not new enum cases.
+`Choice + multiple` covers Grist `ChoiceList` and Quickbase
+`text-multiple-choice`; `Reference + multiple` covers `RefList:` and Quickbase
+multi-reference.
 
-### 2. Schema mutation
+### 2. Nothing creates a document or a table
 
-The README defers this deliberately, which was right for proving the read
-contract — but a projection is *entirely* schema mutation. Add it as a separate
-opt-in interface so adapters choose to implement it:
+`grist-bundle` adds columns to a table that already exists, in an application
+already declared in YAML. Nothing in any of the three bundles does
+`CreateTable`, and nothing creates a document. A projection needs both, per
+folio, at runtime.
 
-```php
-interface SchemaWriterInterface
-{
-    public function createTable(ApplicationReference $app, TableSchema $table): TableReference;
-    public function addFields(TableReference $table, FieldSchema ...$fields): void;
-    public function alterField(TableReference $table, FieldSchema $field): void;
-}
-```
+This is the largest remaining gap and it belongs in `grist-bundle` next to
+`addColumns()`, not in the portable layer — see "Declared vs generated".
 
-with `ProviderCapability::SchemaWrite` advertising it, matching the existing
-capability design. Do **not** widen `RecordStoreAdapterInterface`.
+### 3. Batching is still unaddressed
 
-**Trap to encode in `alterField`:** Grist's column-type `PATCH` does *not*
-convert existing data. It redeclares the column and leaves the previous value as
-a Python-`marshal` blob (`b'u\x03\x00\x00\x00120'` decodes to `'120'`). The REST
-API keeps reporting a clean value, so this is invisible until something reads the
-SQLite file directly. `alterField` should convert explicitly or refuse.
+`UpsertRecordsTool` iterates records and hands them over; `RecordWriterInterface`
+does the same. Grist returns **413 well below 500 rows** once rows carry anything
+large — hit on the first real run, with `denseSummary` present. Row *count* is the
+wrong unit; the practical ceiling is near 900 KB per request.
 
-### 3. Batching must be byte-aware, inside the adapter
+This will bite whoever first pushes real folio rows through the MCP tools, not
+just the projection.
 
-`upsert()` currently passes the whole record array to `addRecords`. Grist returns
-**413 well below 500 rows** once rows carry anything large — this was hit on the
-first real run with `denseSummary` present. Row *count* is the wrong unit.
+### 4. Links have no home
 
-Each adapter should carry its own payload budget and chunk internally; callers
-should not have to know. Grist's practical ceiling sits near 900 KB per request.
+`Ref:Other` is a documented column type in `AddColumnsTool`, but nothing
+populates a `RefList` or derives the reverse. Both are needed; see Mapping.
+
+## Declared vs generated — the real design question
+
+`grist-bundle` resolves an application by **name**, from
+`survos_record_store.applications`, with its tables enumerated in YAML.
+`GristApplicationLocator` is built on that assumption throughout.
+
+A folio projection cannot work that way. There are 2,096 folios; their tables are
+discovered from `schema_table` at runtime, and the document does not exist until
+the projection creates it. Writing a YAML block per folio is not viable.
+
+Three ways out, in preference order:
+
+1. **A dynamic application reference.** Let `GristApplicationLocator` accept a
+   constructed reference (connection + document id) rather than only a
+   config key. Smallest change; keeps every existing tool working unchanged and
+   makes them usable against generated documents.
+2. **The projection registers its document** in the record-store registry at
+   runtime, so the rest of grist-bundle sees a normal application.
+3. **The projection bypasses grist-bundle** and drives the client directly.
+   Fastest to write, and wrong — it would duplicate `addColumns()` and the
+   attachment/SQL work within a month.
+
+Option 1 is the one to argue for, and it is worth raising as a grist-bundle issue
+independently of folio: any generated-document use case hits the same wall.
 
 ## Mapping
 
@@ -125,102 +179,109 @@ should not have to know. Grist's practical ceiling sits near 900 KB per request.
 folio's PHP type vocabulary is small and closed, which is what makes this
 tractable:
 
-| `schema_property.type` | flags | `FieldType` |
-|---|---|---|
-| `?string`, `string` | `facet`, distinct ≤ 200 | `Choice` |
-| `?string`, `string` | otherwise | `Text` |
-| `?int` | | `Integer` |
-| `?float` | | `Decimal` |
-| `?bool` | | `Boolean` |
-| `?array` | `facet`, distinct ≤ 500 | `Choice` + `multiple` |
-| `?array` | otherwise | `Text` (JSON-encoded) |
+| `schema_property.type` | flags | `FieldType` | Grist |
+|---|---|---|---|
+| `?string`, `string` | `facet`, distinct ≤ 200 | `Choice` | `Choice` |
+| `?string`, `string` | otherwise | `Text` | `Text` |
+| `?int` | | `Integer` | `Int` |
+| `?float` | | `Decimal` | `Numeric` |
+| `?bool` | | `Boolean` | `Bool` |
+| `?array` | `facet`, distinct ≤ 500 | `Choice` + `multiple` | `ChoiceList` |
+| `?array` | otherwise | `Text` (JSON-encoded) | `Text` |
 
 The cardinality probe is a `count(distinct …)` over `json_extract` (and
 `json_each` for arrays) — cheap, and it is what keeps a 20k-row `city` column
 from becoming a useless 5,000-option dropdown.
 
 `schema_property` also carries `label`, `description`, and
-`visible`/`searchable`/`filterable`/`sortable`. Those map onto column labels,
-descriptions, and visibility directly. **folio already knows more about its own
+`visible`/`searchable`/`filterable`/`sortable`, which map onto column labels,
+descriptions and visibility directly. **folio already knows more about its own
 shape than the target needs** — the projection is a translation, not a guess.
 
 ### Links → references
 
-Each `link_type` becomes a `Reference + multiple` column on the left table.
-`link_type.reverse_code` already names the inverse, so the reverse direction is
-free on Grist as a formula column:
+Each `link_type` becomes a `Reference + multiple` column on the left table
+(`RefList:Other` in Grist). `link_type.reverse_code` already names the inverse,
+so the reverse is free on Grist as a formula column:
 
 ```
 Left.lookupRecords(ColName=CONTAINS($id))
 ```
 
-That formula is **Grist-only**. Quickbase needs a real reverse relationship or a
-report; see "stays provider-specific" below.
+That formula is **Grist-only**; Quickbase needs a real reverse relationship or a
+report. Since `addColumns()` passes `fields` through verbatim, a formula column
+needs no new API — just `isFormula` and `formula` in the spec.
 
 ### Identity
 
 Keep folio's natural keys as ordinary columns — `FolioId` (`item.id`) and
-`LocalId` (`item.local_id`). Never hash or synthesise a row identity: the record
+`LocalId` (`item.local_id`). Never hash or synthesise a row identity; the record
 store's own integer row ids are an implementation detail of the projection and
-must not leak back into folio.
+must not leak back into folio. `LocalId` is also the natural upsert key for
+`grist_upsert_records`.
 
-## What stays provider-specific
+### Images
 
-Do not invent portable abstractions for these. They belong behind
-`GristClientInterface` (which already exists as the escape hatch, and the
-record-store README already has the right instinct here):
+**Grist will not render an image from a URL in a cell** — its Markdown widget
+passes `![](url)` through as literal text. Two options, and for folio the second
+is right because the images are already hosted and `page.url` is the source:
 
-- formula columns, including the reverse-link lookup above
-- custom widgets (Image viewer, Map, QR) and page layouts
-- Grist's read-only `/sql` endpoint
-- attachments-vs-URL semantics: **Grist will not render an image from a URL in a
-  cell** (its Markdown widget passes `![](url)` through as literal text). Images
-  are either an `Attachments` column with uploaded bytes, or a URL column plus
-  the Image viewer widget. For folio the widget is correct — the images are
-  already hosted, and `page.url` is the source.
+- an `Attachments` column with uploaded bytes (`GristAttachmentManager`)
+- a URL column plus the Image viewer custom widget, cursor-linked to the grid
 
-## Build hygiene (independent of this plan, but adjacent)
+Wiring that widget is undocumented and easy to get wrong: the column mapping
+lives *inside* `customDef`, and the value is a **scalar** colRef, not a list,
+unless the widget declares `allowMultiple`. The mapping key comes from the
+widget's own `grist.ready({columns})` source, not from the widget manifest.
 
-Found while gathering fixtures, and worth fixing regardless of how artifacts are
-distributed:
+## Build hygiene (adjacent, partly fixed)
 
-- **2,092 of 2,096 `.folio` files carry orphaned `-wal` / `-shm`.** Every WAL is
-  0 bytes, so no data was lost. Tracked as
-  [survos/mono#50](https://github.com/survos/mono/issues/50): `closeActive()`
-  already does the right thing but isn't called after the last dataset, and
-  read-only probes (`isInflated()`, `FolioValidateCommand`) reopen the file
-  without `immutable=1` and recreate the sidecars.
-- **Ship `journal_mode=DELETE`, not WAL.** A distributed `.folio` is a read-only
-  artifact with no concurrent writers; WAL buys nothing and costs two sidecars.
-  A lingering `-wal` on read-only media (S3-backed mount, read-only volume) can
-  make SQLite attempt recovery and refuse to open.
-- **Readers should open `file:x.folio?mode=ro&immutable=1`** — that leaves no
-  sidecars behind at all.
+- **`.folio` sidecars** — [survos/mono#50](https://github.com/survos/mono/issues/50).
+  `FolioService::finalize()` now ships finished artifacts in `journal_mode=DELETE`
+  (`19908651`), which is what makes a `.folio` a single self-contained file and
+  safe on read-only media.
+- **zm should open folios read-only** —
+  [survos/mono#51](https://github.com/survos/mono/issues/51). Under FrankenPHP
+  workers the connection outlives the request, pinning the file open. Read-only
+  alone is not enough: measured with a handle held open, a WAL folio still
+  creates sidecars and a DELETE folio does not. Both halves are needed.
+- **Readers**: `mode=ro` for anything long-lived; `immutable=1` only for one-shot
+  CLI probes, since it promises the file never changes. Note it also *misreports*
+  `journal_mode` as `delete` regardless of the header — verify via header bytes
+  18/19 (2 = WAL).
 
 ## Phases
 
-1. `FieldSchema.multiple` + adapter type-map corrections, both providers. Small,
-   and it fixes a real defect independent of everything else.
-2. `SchemaWriterInterface` + `ProviderCapability::SchemaWrite`, Grist adapter
-   only. Byte-aware chunking in `upsert()`.
-3. `FolioRecordStoreService` in folio-bundle: cores → tables, properties →
-   fields, rows → records. Port the spike.
-4. Links → multi-reference, plus the Grist-only reverse formula behind a
-   capability check.
-5. Quickbase adapter implements `SchemaWriterInterface`; run phase 3 against it
-   unchanged. This is the real test of whether the abstraction holds.
+1. `FieldSchema.multiple` + adapter type-map corrections, both providers. Fixes a
+   live defect independent of everything else.
+2. Byte-aware chunking on the write path, in `record-store-bundle`'s adapters so
+   both the tools and the projection inherit it.
+3. Dynamic application references in `grist-bundle` (option 1 above), plus
+   `createDocument` / `createTable` alongside `addColumns()`.
+4. `FolioRecordStoreService` in folio-bundle: cores → tables, properties →
+   fields, rows → records, calling grist-bundle rather than the raw client. Port
+   the spike.
+5. Links → `RefList` + the reverse formula.
+6. Quickbase: run phase 4 against it unchanged. The real test of the abstraction —
+   and the point at which a portable schema-write contract earns its place. Not
+   before.
 
 ## Open decisions
 
 - **Reverse direction (record store → folio) is not designed and not built.** It
   forces the question of what is authoritative, since a `.folio` is a build
   artifact a pipeline regenerates. Unnecessary for the debugging use case; it is
-  the entire point for PGSC-style curation. Decide which one is actually wanted
-  before either bundle grows a writer.
-- **Fixture distribution.** Six small artifacts were copied to `data/folio/` for
-  development and are deliberately **not committed** (folio-bundle ships via
-  Packagist; they total 9.3 MB). They are excluded via `.git/info/exclude`.
-  A fetch-on-demand mechanism is preferred and is being designed separately.
+  the entire point for PGSC-style curation — which is now also grist-bundle's
+  stated use case, so this should be decided with that bundle rather than for
+  folio alone.
+- **Whether the portable layer ever needs a schema-write contract.** The first
+  draft assumed yes. With grist-bundle owning Grist schema work, the honest
+  answer is: not until Quickbase needs the same thing. Deferring it costs
+  nothing and avoids designing an abstraction from one implementation.
+- **Fixture distribution.** Six small artifacts sit in `data/folio/` for
+  development, deliberately **not committed** (folio-bundle ships via Packagist;
+  9.3 MB total), excluded via `.git/info/exclude`. Fetch-on-demand preferred, and
+  being designed separately.
 - **Scale ceiling.** Per-doc SQLite plus a per-doc Python engine makes Grist
   excellent for many small independent projections and wrong for one large
   corpus. `wikibase/enslaved.folio` (2.4 GB) is out of scope; the 12k–21k row
