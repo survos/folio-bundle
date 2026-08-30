@@ -15,9 +15,6 @@ use Survos\FolioBundle\Model\FolioContext;
 use Symfony\AI\Agent\AgentInterface;
 use Symfony\AI\Platform\Message\Message;
 use Symfony\AI\Platform\Message\MessageBag;
-use Symfony\AI\Platform\Result\Stream\Delta\TextDelta;
-use Symfony\AI\Platform\Result\StreamResult;
-use Symfony\AI\Platform\Result\TextResult;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 final readonly class FolioChatService
@@ -104,7 +101,7 @@ final readonly class FolioChatService
             $this->holder->set(null);
         }
 
-        $answer = $result instanceof TextResult ? $result->getContent() : $result->getContent();
+        $answer = $result->getContent();
         if (!\is_string($answer) || trim($answer) === '') {
             $answer = 'I could not produce a useful Scholar response from the available context.';
         }
@@ -154,26 +151,18 @@ final readonly class FolioChatService
                 ['stream' => true],
             );
 
-            if ($result instanceof StreamResult) {
-                foreach ($result->getContent() as $delta) {
-                    if (!$delta instanceof TextDelta) {
-                        continue;
-                    }
-
-                    $text = $delta->getText();
-                    if ($text === '') {
-                        continue;
-                    }
-
-                    $answer .= $text;
-                    $onText($text);
+            // 0.13: the agent hands back a lazy Execution, never a StreamResult, so the old
+            // `instanceof StreamResult` gate never matched and streaming fell through to the
+            // buffered branch. asTextStream() yields the TextDeltas directly; it throws if the
+            // "stream" option above ever goes away, which the catch below already reports.
+            foreach ($result->asTextStream() as $delta) {
+                $text = $delta->getText();
+                if ($text === '') {
+                    continue;
                 }
-            } else {
-                $content = $result instanceof TextResult ? $result->getContent() : $result->getContent();
-                $answer = \is_string($content) ? $content : '';
-                if ($answer !== '') {
-                    $onText($answer);
-                }
+
+                $answer .= $text;
+                $onText($text);
             }
         } catch (\Throwable $e) {
             $this->logger?->error('Streaming scoped folio Scholar call failed.', [

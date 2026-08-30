@@ -17,7 +17,7 @@
         "survos/jsonl-bundle": "^2.5",
         "survos/search-bundle": "^2.5",
         "zenstruck/bytes": "^1.1",
-        "symfony/ai-agent": "^0.12",
+        "symfony/ai-agent": "^0.13",
         "symfony/config": "^8.1",
         "symfony/console": "^8.1",
         "symfony/http-client": "^8.1",
