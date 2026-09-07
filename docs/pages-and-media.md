@@ -32,7 +32,7 @@ content-addressed key, never by a Doctrine association.
 
 ## The shared identity: `MediaIdentity`
 
-`Survos\MediaBundle\Util\MediaIdentity::idFromOriginalUrl($url)` returns
+`Survos\DataContracts\Util\MediaIdentity::idFromOriginalUrl($url)` returns
 `hash('xxh3', trim($url), false)` — a **16-char** lowercase hex string. mediary's
 `Asset` already uses this (from `vendor/survos/media-bundle`); media-bundle's
 `BaseMedia` uses it directly. folio must use **the same function** so that, for a
