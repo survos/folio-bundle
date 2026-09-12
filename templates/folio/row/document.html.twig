@@ -28,4 +28,20 @@
             </a>
         </p>
     {% endif %}
+    {% if row.extras.pageAssets is defined %}
+        <details class="mt-3">
+            <summary>Source page downloads and metadata</summary>
+            <ul class="mt-2">
+            {% for asset in row.extras.pageAssets %}
+                <li>Page {{ asset.pageIndex + 1 }}:
+                {% for file in asset.files %}
+                    {% if file.url is defined and file.mimetype in ['application/pdf', 'image/jp2', 'text/xml'] %}
+                        <a href="{{ file.url }}" class="me-2">{{ file.mimetype == 'application/pdf' ? 'PDF' : (file.mimetype == 'text/xml' ? 'ALTO XML' : 'JP2 image') }}</a>
+                    {% endif %}
+                {% endfor %}
+                <a href="{{ asset.iiifInfo }}">Image service metadata</a></li>
+            {% endfor %}
+            </ul>
+        </details>
+    {% endif %}
 {% endblock %}
