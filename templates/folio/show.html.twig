@@ -23,6 +23,10 @@
 {% block title %}{{ folioLabel }}{% endblock %}
 
 {% block body %}
+    {% set readerUrl = folio_reader_url(ctx.folioCode) %}
+    {% if readerUrl %}
+        <div class="mb-3"><a class="btn btn-primary" href="{{ readerUrl }}">Read in Ink</a></div>
+    {% endif %}
     {% if timeline %}
         {% set controllerName = 'survos--folio-bundle--slideshow' %}
 

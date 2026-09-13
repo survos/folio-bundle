@@ -58,6 +58,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('Base URL of the live folio site — hosts the full folio UX and the folio archive API. Used for browse links and as the default folio:pull source (GET <server>/folio/list.json).')
                 ->defaultValue('https://zm.survos.com')
             ->end()
+            ->scalarNode('reader_server')->defaultNull()
+                ->info('Optional specialist reader exposing /folios.json; only available folios receive reader links.')
+            ->end()
+            ->scalarNode('reader_proxy')->defaultNull()->end()
             ->scalarNode('folio_server_route_prefix')
                 ->info('The REMOTE folio_server\'s own route_prefix (e.g. zm\'s "/f") — used only to build folio:build\'s browse/search links. Deliberately separate from this app\'s own `route_prefix`: a producer app (folio_server set, routes_enabled false) has no reliable way to know the remote host\'s prefix from its own config, and the two are not guaranteed to match. Null falls back to this app\'s own `route_prefix`, which is only correct when folio_server\'s prefix happens to be the same.')
                 ->defaultNull()
@@ -213,11 +217,17 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // routes keep working unchanged.
         $services->set(FolioRouteAttributeListener::class)->autowire()->autoconfigure()->public()
             ->arg('$slugResolver', service(FolioSlugResolverInterface::class)->ignoreOnInvalid());
+        $services->set(\Survos\FolioBundle\Twig\FolioReaderCatalog::class)->autowire()->autoconfigure()
+            ->arg('$server', $config['reader_server'])
+            ->arg('$proxy', $config['reader_proxy']);
         $services->set(\Survos\FolioBundle\Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public()
             ->arg('$searchRoute', $config['search_route'])
             ->arg('$searchProviderParam', $config['search_provider_param'])
             ->arg('$bookmarksEnabled', $config['bookmark_class'] !== null && $config['folder_class'] !== null)
-            ->arg('$baseTemplate', $config['base_template']);
+            ->arg('$baseTemplate', $config['base_template'])
+            ->arg('$folioServer', $config['folio_server'])
+            ->arg('$folioRoutePrefix', $config['folio_server_route_prefix'] ?? $config['route_prefix'])
+            ->arg('$folioLocalePrefix', $config['folio_server_locale_prefix']);
         $services->set(\Survos\FolioBundle\Service\FolioTimelineStats::class)->autowire()->autoconfigure()->public();
         $services->set(\Survos\FolioBundle\Twig\FolioTimelineTwig::class)->autowire()->autoconfigure()->public();
         // JSON-LD for the row detail page. schema-org-bundle is optional: survos/data-contracts

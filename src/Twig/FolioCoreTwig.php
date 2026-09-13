@@ -61,6 +61,9 @@ final class FolioCoreTwig
         /** survos_folio.base_template — the layout folio-bundle pages extend; null uses 'base.html.twig'. */
         private readonly ?string $baseTemplate = null,
         private readonly ?TranslatorInterface $translator = null,
+        private readonly ?string $folioServer = null,
+        private readonly string $folioRoutePrefix = '',
+        private readonly ?string $folioLocalePrefix = null,
     ) {}
 
     /**
@@ -152,6 +155,21 @@ final class FolioCoreTwig
      * search route is configured (so the breadcrumb falls back to plain text). Keeps the shared
      * bundle template free of any app-specific route name.
      */
+    #[AsTwigFunction('folio_browse_url')]
+    public function browseUrl(string $folioCode): ?string
+    {
+        if ($this->folioServer !== null && $this->folioServer !== '') {
+            $locale = $this->folioLocalePrefix ? '/'.rawurlencode($this->folioLocalePrefix) : '';
+            $code = implode('/', array_map(rawurlencode(...), explode('/', $folioCode)));
+            return rtrim($this->folioServer, '/').$locale.(trim($this->folioRoutePrefix, '/') !== '' ? '/'.trim($this->folioRoutePrefix, '/') : '').'/'.$code;
+        }
+        try {
+            return $this->urlGenerator?->generate('survos_folio_show', ['folioCode' => $folioCode]);
+        } catch (RouteNotFoundException) {
+            return null;
+        }
+    }
+
     #[AsTwigFunction('folio_provider_url')]
     public function providerUrl(string $provider): ?string
     {
