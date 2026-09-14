@@ -99,7 +99,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->defaultNull()
             ->end()
             ->booleanNode('local_passthrough')
-                ->info('folio:pull (and tenants:load, which delegates to it): when the target .folio already exists at the local Artifact path, skip the HTTP/storage fetch entirely — even under --force/--refresh. Opt-in: only correct when this app and the folio-building app share APP_DATA_DIR on the same filesystem (e.g. openfoto + md both mounting the same /platform volume); on a genuinely separate deployment a stale/wrong local file would silently never refresh.')
+                ->info('folio:pull (and tenants:load, which delegates to it): when the target .folio already exists at the local Artifact path, skip the HTTP/storage fetch entirely — even under --force/--refresh. Opt-in: only correct when this app and the folio-building app share APP_DATA_DIR on the same filesystem (e.g. fotostory + md both mounting the same /platform volume); on a genuinely separate deployment a stale/wrong local file would silently never refresh.')
                 ->defaultFalse()
             ->end()
             ->scalarNode('reviewed_translations_dir')
