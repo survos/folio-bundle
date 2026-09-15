@@ -21,6 +21,7 @@ const PLACEHOLDER_LABELS = {
     image: 'Image',
     unverifiable: 'Unverified (no extension)',
     document: 'Document (not rasterisable)',
+    audio: 'Audio',
     not_an_image: 'Not an image',
     empty: 'No image URL',
 };
