@@ -4,10 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
-use Doctrine\DBAL\ArrayParameterType;
 use Survos\DatasetBundle\Repository\DatasetInfoRepository;
-use Survos\FolioBundle\Service\FolioMeiliDocumentBuilder;
-use Survos\FolioBundle\Service\FolioService;
 use Survos\MeiliBundle\Service\IndexNameResolver;
 use Survos\MeiliBundle\Service\MeiliNdjsonUploader;
 use Survos\MeiliBundle\Service\MeiliServerKeyService;
@@ -23,28 +20,15 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * set of common fields. Generalises {@see \Survos\FolioBundle\Service\FolioMeiliIndexer}
  * (single folio) to N folios plus a field-projection step.
  *
- * Rows stream straight from each folio's SQLite into
+ * Rows stream straight from each folio's SQLite ({@see FolioDocumentStream}) into
  * {@see MeiliNdjsonUploader::uploadDocuments()} (chunked NDJSON POSTs) — no
  * intermediate file is written.
  */
 #[AsCommand('folio:meili:build-set', 'Index common fields from several folios into one combined index.')]
 final class FolioMeiliBuildSetCommand
 {
-    /** Identity/routing keys always carried over from the built document. */
-    private const IDENTITY = ['id', 'folioCode', 'provider', 'dataset', 'coreCode', 'localId', 'dtoType', 'label', 'rp'];
-
-    /** Media/thumbnail + outbound-link keys carried over verbatim when present (used by the hit template). */
-    private const MEDIA = ['thumbnailUrl', 'largeImageUrl', 'iiifBase', 'sourceUrl', 'citationUrl'];
-
-    /** Whitelisted field -> candidate source keys (first non-empty wins). Normalises ai:-prefixed keys. */
-    private const SOURCES = [
-        'caption' => ['ai:caption', 'caption'],
-        'denseSummary' => ['ai:denseSummary', 'denseSummary', 'searchSummary'],
-    ];
-
     public function __construct(
-        private readonly FolioService $folios,
-        private readonly FolioMeiliDocumentBuilder $documentBuilder,
+        private readonly FolioDocumentStream $stream,
         private readonly MeiliService $meili,
         private readonly MeiliNdjsonUploader $uploader,
         private readonly IndexNameResolver $indexNameResolver,
@@ -176,14 +160,15 @@ final class FolioMeiliBuildSetCommand
             ? array_values(array_filter(array_map('trim', explode(',', $contentTypes)), static fn (string $t): bool => $t !== ''))
             : null;
 
-        $count = 0;
-        $perFolio = [];
-        $failed = [];
+        $report = new FolioDocumentStreamReport();
         $taskUid = $this->uploader->uploadDocuments(
             $index,
-            $this->documents($folioCodes, $core, $keep, $count, $perFolio, $failed, $openLocale, $allFields, $contentTypeList, $extraKeys),
+            $this->stream->documents($folioCodes, $core, $allFields ? null : $keep, $openLocale, $contentTypeList, $extraKeys, $report),
             $pk,
         );
+        $count = $report->count;
+        $perFolio = $report->perFolio;
+        $failed = $report->failed;
 
         if ($wait && $taskUid !== null) {
             $task = $this->meili->waitForTask((int) $taskUid);
@@ -219,179 +204,5 @@ final class FolioMeiliBuildSetCommand
         ));
 
         return Command::SUCCESS;
-    }
-
-    /**
-     * @param list<string>          $folioCodes
-     * @param list<string>          $keep
-     * @param array<string,int>     $perFolio      filled with per-folio row counts
-     * @param array<string,string>  $failed        filled with folioCode => error message for folios that couldn't be read
-     * @param list<string>|null     $contentTypes  when set, scans every core and filters by dtoData.contentType instead of a fixed --core
-     * @param list<string>          $extraKeys     extras keys lifted onto the document (see --extras)
-     * @return \Generator<array<string,mixed>>
-     */
-    private function documents(array $folioCodes, string $core, array $keep, int &$count, array &$perFolio, array &$failed, ?string $openLocale, bool $allFields, ?array $contentTypes, array $extraKeys = []): \Generator
-    {
-        // Core code is schema/table naming, not a content signal — the same folio can file real
-        // objects and scanned text-document pages under the same core (see NARA). $contentTypes
-        // filters on the item's actual dtoData.contentType across every core in the folio instead.
-        $sql = $contentTypes !== null
-            ? <<<'SQL'
-SELECT i.id, i.local_id, i.label, i.dto_type, i.dto_data, i.extras, c.code AS core_code
-FROM item i
-JOIN core c ON c.id = i.core_id
-WHERE json_extract(i.dto_data, '$.contentType') IN (:contentTypes)
-ORDER BY i.id
-SQL
-            : <<<'SQL'
-SELECT i.id, i.local_id, i.label, i.dto_type, i.dto_data, i.extras, c.code AS core_code
-FROM item i
-JOIN core c ON c.id = i.core_id
-WHERE c.code = :core
-ORDER BY i.id
-SQL;
-
-        // At the scale folio:meili:build-all runs this at (thousands of independently-built
-        // folios), a single stale/moved/schema-drifted file is expected, not exceptional — one
-        // bad folio must not abort the whole streamed upload. Skip and keep going.
-        foreach ($folioCodes as $folioCode) {
-            $perFolio[$folioCode] = 0;
-
-            try {
-                $connection = $this->folios->context($folioCode, locale: $openLocale)->em->getConnection();
-                $result = $contentTypes !== null
-                    ? $connection->executeQuery($sql, ['contentTypes' => $contentTypes], ['contentTypes' => ArrayParameterType::STRING])
-                    : $connection->executeQuery($sql, ['core' => $core]);
-
-                while (($row = $result->fetchAssociative()) !== false) {
-                    $doc = $this->documentBuilder->build(
-                        $folioCode,
-                        (string) $row['core_code'],
-                        (string) $row['id'],
-                        (string) $row['local_id'],
-                        $row['label'] !== null ? (string) $row['label'] : null,
-                        $row['dto_type'] !== null ? (string) $row['dto_type'] : null,
-                        $this->decodeJson($row['dto_data'] ?? null),
-                        null, // common-field index: drop source-specific extras (we lift only source_tags below)
-                    );
-
-                    $extras = $this->decodeJson($row['extras'] ?? null);
-                    // The raw fortepan tags live in extras.source_tags; expose them as `tags`.
-                    if (is_array($extras) && ($extras['source_tags'] ?? null)) {
-                        $doc['tags'] = $extras['source_tags'];
-                    }
-                    // Anything else the caller named. Scalars and lists only: extras also holds
-                    // whole sub-documents (a newspaper article's `segments` carries every word of
-                    // it, with boxes) and pooling those would multiply the index by the thing it
-                    // is meant to be an index of.
-                    foreach ($extraKeys as $key) {
-                        $value = is_array($extras) ? ($extras[$key] ?? null) : null;
-                        if ($value === null || $value === '' || $value === []) {
-                            continue;
-                        }
-                        if (is_scalar($value) || (is_array($value) && $value === array_filter($value, 'is_scalar'))) {
-                            $doc[$key] = $value;
-                        }
-                    }
-
-                    $count++;
-                    $perFolio[$folioCode]++;
-                    yield $this->project($doc, $keep, $allFields);
-                }
-            } catch (\Throwable $e) {
-                $failed[$folioCode] = $e->getMessage();
-            }
-        }
-    }
-
-    /**
-     * @param array<string,mixed> $doc
-     * @param list<string>        $keep
-     * @return array<string,mixed>
-     */
-    private function project(array $doc, array $keep, bool $allFields): array
-    {
-        $doc = $this->normalizeAliases($doc);
-        $out = $allFields ? $doc : $this->projectWhitelist($doc, $keep);
-
-        // The row id is a composite "folioCode:coreCode:localId" (e.g. "mus/fortepan:obj:1"),
-        // whose "/" and ":" are illegal in a Meili document id. Keep the original as rowId and
-        // use a sanitised, still-unique id as the primary key.
-        if (isset($out['id'])) {
-            $out['rowId'] = $out['id'];
-            $out['id'] = preg_replace('/[^A-Za-z0-9_-]/', '_', (string) $out['id']);
-        }
-
-        return $out;
-    }
-
-    /**
-     * Lift ai:-prefixed (and other aliased) keys onto their canonical field name in place, so
-     * both the whitelist and allFields paths see e.g. `caption` regardless of which source key
-     * the folio actually populated.
-     *
-     * @param array<string,mixed> $doc
-     * @return array<string,mixed>
-     */
-    private function normalizeAliases(array $doc): array
-    {
-        foreach (self::SOURCES as $field => $candidates) {
-            if (($doc[$field] ?? null) !== null && $doc[$field] !== '' && $doc[$field] !== []) {
-                continue;
-            }
-            foreach ($candidates as $src) {
-                $value = $doc[$src] ?? null;
-                if ($value !== null && $value !== '' && $value !== []) {
-                    $doc[$field] = $value;
-                    break;
-                }
-            }
-        }
-
-        return $doc;
-    }
-
-    /**
-     * @param array<string,mixed> $doc
-     * @param list<string>        $keep
-     * @return array<string,mixed>
-     */
-    private function projectWhitelist(array $doc, array $keep): array
-    {
-        $out = [];
-        foreach (self::IDENTITY as $k) {
-            if (array_key_exists($k, $doc)) {
-                $out[$k] = $doc[$k];
-            }
-        }
-
-        // Thumbnail/image URLs for the hit template — kept verbatim when present.
-        foreach (self::MEDIA as $k) {
-            if (($doc[$k] ?? null) !== null && $doc[$k] !== '') {
-                $out[$k] = $doc[$k];
-            }
-        }
-
-        foreach ($keep as $field) {
-            if (($doc[$field] ?? null) !== null && $doc[$field] !== '' && $doc[$field] !== []) {
-                $out[$field] = $doc[$field];
-            }
-        }
-
-        return $out;
-    }
-
-    /** @return array<string,mixed>|null */
-    private function decodeJson(mixed $value): ?array
-    {
-        if (is_array($value)) {
-            return $value;
-        }
-        if (!is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        $decoded = json_decode($value, true);
-        return is_array($decoded) ? $decoded : null;
     }
 }

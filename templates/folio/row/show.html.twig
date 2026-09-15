@@ -568,21 +568,22 @@
                             <div class="card-body">
                                 <div class="row g-2">
                                     {% for page in pages|slice(0, 60) %}
-                                        {% set src = page.url %}
-                                        {% set thumb = src %}
-                                        {% guard filter imgproxy %}
-                                            {% set thumb = src|imgproxy('thumb') %}
-                                        {% endguard %}
-
                                         <div class="col-4 col-md-3 col-lg-2">
                                             <a href="#" class="js-osd-page" data-page-index="{{ loop.index0 }}" title="p. {{ page.seq }}">
-                                                <img
-                                                    src="{{ thumb }}"
-                                                    alt="p. {{ page.seq }}"
-                                                    class="img-fluid rounded border"
-                                                    style="aspect-ratio: 1; object-fit: cover"
-                                                    loading="lazy"
-                                                >
+                                                {% if pdfUrl %}
+                                                    <canvas data-pdf-thumbnail-page="{{ page.pageIndex + 1 }}"
+                                                            data-pdf-thumbnail-url="{{ pdfUrl }}"
+                                                            role="img" aria-label="p. {{ page.seq }}"
+                                                            class="img-fluid rounded border" style="width:100%"></canvas>
+                                                {% else %}
+                                                    {% set thumb = page.url %}
+                                                    {% guard filter imgproxy %}
+                                                        {% set thumb = page.url|imgproxy('thumb') %}
+                                                    {% endguard %}
+                                                    <img src="{{ thumb }}" alt="p. {{ page.seq }}"
+                                                         class="img-fluid rounded border"
+                                                         style="aspect-ratio: 1; object-fit: cover" loading="lazy">
+                                                {% endif %}
                                             </a>
                                         </div>
                                     {% endfor %}
@@ -884,7 +885,7 @@
                 }
 
                 function setActiveThumb(pageIndex) {
-                    document.querySelectorAll('.js-osd-page img').forEach((img) => {
+                    document.querySelectorAll('.js-osd-page :is(img, canvas)').forEach((img) => {
                         img.classList.remove('border-primary');
                     });
 

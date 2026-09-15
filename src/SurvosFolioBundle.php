@@ -164,8 +164,11 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $services->set(FolioAiPromptBuilder::class)->autowire()->autoconfigure()->public();
         $services->set(FolioAiBatchPreparer::class)->autowire()->autoconfigure()->public();
         $services->set(FolioAiClaimImporter::class)->autowire()->autoconfigure()->public();
+        // Engine-neutral: the Meili commands below and an app's Elasticsearch search both read
+        // folio rows through FolioDocumentStream.
+        $services->set(FolioMeiliDocumentBuilder::class)->autowire()->autoconfigure()->public();
+        $services->set(\Survos\FolioBundle\Service\FolioDocumentStream::class)->autowire()->autoconfigure()->public();
         if (class_exists(\Survos\MeiliBundle\Service\MeiliService::class)) {
-            $services->set(FolioMeiliDocumentBuilder::class)->autowire()->autoconfigure()->public();
             $services->set(FolioMeiliIndexer::class)->autowire()->autoconfigure()->public();
             // $datasets nullable/optional -- same "erroring clearly at runtime, not a container
             // compile failure" pattern as FolioTranslateCommand's own registration below, for an
