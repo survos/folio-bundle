@@ -588,12 +588,47 @@ final class FolioIngestService
         // media id and write the whole array to page.layout once — the viewer renders it as the
         // structured "pretty" layout (falling back to flat page.text when a page has no blocks).
         $layoutByMedia = [];
+        // A PDF asset owns multiple indexed page claims. Its combined transcript
+        // must never be applied to every physical page sharing that asset id.
+        $pdfMedia = [];
+        foreach (JsonlReader::open($claimsFile) as $data) {
+            if (($data['predicate'] ?? null) === 'ai:ocrPage' && is_string($data['subjectId'] ?? null)) {
+                $pdfMedia[$data['subjectId']] = true;
+            }
+        }
 
         $count = 0;
         foreach (JsonlReader::open($claimsFile) as $data) {
             $predicate = is_scalar($data['predicate'] ?? null) ? (string) $data['predicate'] : '';
             $mediaId = is_scalar($data['subjectId'] ?? null) ? (string) $data['subjectId'] : '';
             if ($mediaId === '' || !isset($pageMedia[$mediaId])) {
+                continue;
+            }
+
+            if ($predicate === 'ai:ocrPage') {
+                $raw = $data['value'] ?? null;
+                $page = is_array($raw) ? $raw : (is_string($raw) ? json_decode($raw, true) : null);
+                if (!is_array($page) || !isset($page['index'], $page['markdown'])
+                    || !is_int($page['index']) || $page['index'] < 0 || !is_string($page['markdown'])) {
+                    throw new \UnexpectedValueException('Invalid indexed PDF OCR claim for ' . $mediaId);
+                }
+                $count += $conn->executeStatement(
+                    'UPDATE page SET text = ? WHERE media_id = ? AND page_index = ?',
+                    [$page['markdown'], $mediaId, $page['index']],
+                );
+                continue;
+            }
+            if ($predicate === 'ai:ocrText' && isset($pdfMedia[$mediaId])) {
+                $text = $data['value'] ?? null;
+                if (!is_string($text)) {
+                    throw new \UnexpectedValueException('Invalid PDF transcript for ' . $mediaId);
+                }
+                // Row transcript is a search/chat projection of the same OCR run.
+                // The indexed page claims above remain the reader's page text.
+                $conn->executeStatement(
+                    "UPDATE item SET dto_data = json_set(dto_data, '$.ocrText', ?) WHERE id IN (SELECT row_id FROM page WHERE media_id = ?)",
+                    [$text, $mediaId],
+                );
                 continue;
             }
 
