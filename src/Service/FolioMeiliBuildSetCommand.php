@@ -121,6 +121,7 @@ final class FolioMeiliBuildSetCommand
         #[Option('Skip the --fields whitelist and index every dtoData key (still normalises ai:-prefixed aliases)')] bool $allFields = false,
         #[Option('Which per-folio file variant to open — independent of --locale (which only names the index). Null opens each folio\'s default/source file; a value opens that locale\'s translated build. This is how one --locale index can be filled by two calls: natively-in-locale folios with --open-locale omitted, translated folios with --open-locale=<locale>.')] ?string $openLocale = null,
         #[Option('Comma-separated dtoData.contentType allowlist (e.g. object,photograph,drawing,painting,print,sculpture). When set, scans EVERY core in the folio instead of just --core and filters per-item by this field — a provider\'s core code is schema/table naming, not a reliable content signal (e.g. NARA files real objects AND scanned text-document pages under the same "doc" core; contentType tells them apart). Omit to keep the legacy single-core behavior.')] ?string $contentTypes = null,
+        #[Option('Comma-separated extras keys to lift onto each document and make filterable, e.g. issueId,articleTier,recordKind. A pooled index otherwise carries dtoData only, and anything a DTO does not declare — which for newspaper articles is the issue they belong to and whether they are a stitched article or a single block — falls into extras and is dropped, leaving hits that cannot be linked to or faceted.')] ?string $extras = null,
     ): int {
         if ($folioCodes === []) {
             $io->error('Provide at least one folio code.');
@@ -128,6 +129,11 @@ final class FolioMeiliBuildSetCommand
         }
 
         $keep = array_values(array_filter(array_map('trim', explode(',', $fields)), static fn (string $f): bool => $f !== ''));
+        $extraKeys = $extras !== null
+            ? array_values(array_filter(array_map('trim', explode(',', $extras)), static fn (string $k): bool => $k !== ''))
+            : [];
+        // Lifted extras are content, so they survive the --fields whitelist as well as --all-fields.
+        $keep = array_values(array_unique(array_merge($keep, $extraKeys)));
 
         // isMultiLingual: true forces the "<base>_<locale>" uid unconditionally — this command's
         // caller always wants one physical index per locale, regardless of the app-wide
@@ -155,7 +161,9 @@ final class FolioMeiliBuildSetCommand
         $sortable[] = 'localId';
         $settingsPayload = [
             'searchableAttributes' => array_values(array_unique($searchable)),
-            'filterableAttributes' => array_merge(['provider', 'dataset', 'folioCode', 'coreCode'], $facetable),
+            'filterableAttributes' => array_values(array_unique(
+                array_merge(['provider', 'dataset', 'folioCode', 'coreCode'], $facetable, $extraKeys),
+            )),
             'sortableAttributes' => $sortable,
         ];
         $localizedAttributes = $this->resolveLocalizedAttributes($locale, $folioCodes);
@@ -173,7 +181,7 @@ final class FolioMeiliBuildSetCommand
         $failed = [];
         $taskUid = $this->uploader->uploadDocuments(
             $index,
-            $this->documents($folioCodes, $core, $keep, $count, $perFolio, $failed, $openLocale, $allFields, $contentTypeList),
+            $this->documents($folioCodes, $core, $keep, $count, $perFolio, $failed, $openLocale, $allFields, $contentTypeList, $extraKeys),
             $pk,
         );
 
@@ -219,9 +227,10 @@ final class FolioMeiliBuildSetCommand
      * @param array<string,int>     $perFolio      filled with per-folio row counts
      * @param array<string,string>  $failed        filled with folioCode => error message for folios that couldn't be read
      * @param list<string>|null     $contentTypes  when set, scans every core and filters by dtoData.contentType instead of a fixed --core
+     * @param list<string>          $extraKeys     extras keys lifted onto the document (see --extras)
      * @return \Generator<array<string,mixed>>
      */
-    private function documents(array $folioCodes, string $core, array $keep, int &$count, array &$perFolio, array &$failed, ?string $openLocale, bool $allFields, ?array $contentTypes): \Generator
+    private function documents(array $folioCodes, string $core, array $keep, int &$count, array &$perFolio, array &$failed, ?string $openLocale, bool $allFields, ?array $contentTypes, array $extraKeys = []): \Generator
     {
         // Core code is schema/table naming, not a content signal — the same folio can file real
         // objects and scanned text-document pages under the same core (see NARA). $contentTypes
@@ -266,10 +275,23 @@ SQL;
                         null, // common-field index: drop source-specific extras (we lift only source_tags below)
                     );
 
-                    // The raw fortepan tags live in extras.source_tags; expose them as `tags`.
                     $extras = $this->decodeJson($row['extras'] ?? null);
+                    // The raw fortepan tags live in extras.source_tags; expose them as `tags`.
                     if (is_array($extras) && ($extras['source_tags'] ?? null)) {
                         $doc['tags'] = $extras['source_tags'];
+                    }
+                    // Anything else the caller named. Scalars and lists only: extras also holds
+                    // whole sub-documents (a newspaper article's `segments` carries every word of
+                    // it, with boxes) and pooling those would multiply the index by the thing it
+                    // is meant to be an index of.
+                    foreach ($extraKeys as $key) {
+                        $value = is_array($extras) ? ($extras[$key] ?? null) : null;
+                        if ($value === null || $value === '' || $value === []) {
+                            continue;
+                        }
+                        if (is_scalar($value) || (is_array($value) && $value === array_filter($value, 'is_scalar'))) {
+                            $doc[$key] = $value;
+                        }
                     }
 
                     $count++;
