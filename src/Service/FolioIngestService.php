@@ -371,17 +371,28 @@ final class FolioIngestService
             // broken. Pick the lowest-seq page that isn't audio/video (type IS NULL is treated as
             // image-like — most providers never set a page type at all); if a row has no such page,
             // it simply gets no thumbnailUrl backfill, same as any other row with no images.
+            //
+            // Through a temp table keyed by row_id, never an UPDATE ... FROM (subquery). This runs
+            // while deferSecondaryIndexes() has dropped idx_page_row, and SQLite re-evaluated the
+            // subquery for every item row: a scan of the page table per item. Measured on fsn1 with the
+            // Rappahannock News 1952-54 build (21,221 rows, 22,614 pages): the correlated form never
+            // finished (2.7 GB/s of WAL re-reads, killed), a GROUP BY form took 317 s, and this takes
+            // under a second -- the cause of the folio "inflate cliff" between 51 and 155 issues.
+            $conn->executeStatement('DROP TABLE IF EXISTS temp.first_page');
+            $conn->executeStatement('CREATE TEMP TABLE first_page (row_id TEXT PRIMARY KEY, url TEXT) WITHOUT ROWID');
             $conn->executeStatement(
-                "UPDATE item SET dto_data = json_set(dto_data, '$.thumbnailUrl', p.url) "
-                . 'FROM ('
-                . '    SELECT row_id, url FROM page AS p1'
-                . "    WHERE seq = (SELECT MIN(seq) FROM page AS p2 WHERE p2.row_id = p1.row_id AND (p2.type IS NULL OR p2.type NOT IN ('audio', 'video')))"
-                . ') p '
-                . "WHERE item.id = p.row_id "
+                'INSERT INTO temp.first_page (row_id, url) '
+                // SQLite returns the bare column from the row holding MIN(seq): the first image-like page.
+                . "SELECT row_id, url FROM (SELECT row_id, url, MIN(seq) FROM page WHERE type IS NULL OR type NOT IN ('audio', 'video') GROUP BY row_id)"
+            );
+            $conn->executeStatement(
+                "UPDATE item SET dto_data = json_set(dto_data, '$.thumbnailUrl', (SELECT url FROM temp.first_page f WHERE f.row_id = item.id)) "
+                . 'WHERE item.id IN (SELECT row_id FROM temp.first_page) '
                 . "AND json_extract(dto_data, '$.iiifBase') IS NULL "
                 . "AND json_extract(dto_data, '$.largeImageUrl') IS NULL "
                 . "AND json_extract(dto_data, '$.thumbnailUrl') IS NULL"
             );
+            $conn->executeStatement('DROP TABLE temp.first_page');
         }
 
         return ['count' => $count, 'skipped' => $skipped + $pages->skipped()];
