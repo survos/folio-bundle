@@ -68,6 +68,17 @@ final class FolioRowProvider implements ProviderInterface
             $q = trim($filters['q']);
         }
 
+        // Periodical article records carry their kind (article, advertisement, obituary) in extras,
+        // not in the DTO, so it is matched there. One value or several (recordKind[]=...).
+        $recordKinds = [];
+        if (isset($filters['recordKind'])) {
+            foreach ((array) $filters['recordKind'] as $kind) {
+                if (is_string($kind) && trim($kind) !== '') {
+                    $recordKinds[] = trim($kind);
+                }
+            }
+        }
+
         $request      = $this->requestStack->getCurrentRequest();
         $page         = max(1, (int) ($request?->query->get('page', 1) ?? 1));
         $itemsPerPage = max(1, (int) ($request?->query->get('itemsPerPage', 50) ?? 50));
@@ -93,6 +104,14 @@ final class FolioRowProvider implements ProviderInterface
         if ($yearMin !== null) {
             $where[] = 'sort_key >= :yearMin';
             $params['yearMin'] = $yearMin;
+        }
+        if ($recordKinds !== []) {
+            $placeholders = [];
+            foreach (array_values($recordKinds) as $i => $kind) {
+                $placeholders[] = ':recordKind' . $i;
+                $params['recordKind' . $i] = $kind;
+            }
+            $where[] = sprintf("json_extract(extras, '$.recordKind') IN (%s)", implode(', ', $placeholders));
         }
         if ($q !== null) {
             $where[] = '(label LIKE :q OR dto_data LIKE :q)';
