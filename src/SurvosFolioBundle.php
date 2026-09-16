@@ -14,7 +14,7 @@ use Survos\FolioBundle\Menu\RowMenu;
 use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFacetFieldResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioTermCloudService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
+use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioElasticBuildSetCommand,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFacetFieldResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioTermCloudService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
 use Survos\FolioBundle\Command\FolioSitemapCommand;
 use Survos\FolioBundle\Sitemap\FolioSitemapPopulator;
 use Survos\FolioBundle\Sitemap\FolioSitemapRegistry;
@@ -55,8 +55,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->scalarNode('extension')->defaultValue('folio')->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
             ->scalarNode('folio_server')
-                ->info('Base URL of the live folio site — hosts the full folio UX and the folio archive API. Used for browse links and as the default folio:pull source (GET <server>/folio/list.json).')
-                ->defaultValue('https://zm.survos.com')
+                ->info('Base URL of the live folio site — hosts the full folio UX and the folio archive API. Used for browse links and, when set, as folio:pull\'s preferred source (GET <server>/folio/list.json). Null by default so folio:pull reads the folio_archive storage, which is where the archives actually live (S3, via the folio-archive mount); an app that really does have a folio API sets this itself.')
+                ->defaultNull()
             ->end()
             ->scalarNode('reader_server')->defaultNull()
                 ->info('Optional specialist reader exposing /folios.json; only available folios receive reader links.')
@@ -178,6 +178,11 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 '$datasets' => service(\Survos\DatasetBundle\Repository\DatasetInfoRepository::class)->ignoreOnInvalid(),
             ]);
         }
+        // The Elasticsearch twin, registered unconditionally: it talks to the cluster over plain
+        // HTTP through the bundle's existing symfony/http-client, so unlike the Meili commands it
+        // needs no engine client installed and nothing to guard on. It errors clearly when
+        // ELASTICSEARCH_DSN is unset, which is the right failure for an app that has no cluster.
+        $services->set(FolioElasticBuildSetCommand::class)->autowire()->autoconfigure()->public();
         // The 'folio_row' search this bundle's own search.html.twig already assumes exists
         // (hardcodes name: 'folio_row' + hitTemplate: 'search/hits/folio_row.html.twig') --
         // shared here rather than every host app hand-writing an identical class. Requires the

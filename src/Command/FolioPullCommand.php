@@ -67,6 +67,9 @@ final class FolioPullCommand
         #[Option('Pull over HTTP from a folio API base URL (e.g. https://zm.example) instead of storage')]
         ?string $api = null,
 
+        #[Option('Pull from the folio_archive storage, ignoring any configured folio API')]
+        bool $storage = false,
+
         #[Option('Pull from Hugging Face instead of the folio_archive storage')]
         bool $hf = false,
 
@@ -74,11 +77,27 @@ final class FolioPullCommand
         string $repo = 'museado/folios',
     ): int {
         if (!$hf) {
-            // Default to the folio API (folio_server) unless --api overrides it; storage is the fallback.
+            // Default to the folio API (folio_server) unless --api overrides it; storage is the
+            // fallback. --storage skips the API outright, for a machine whose FOLIO_SERVER points
+            // at an app that does not serve folios (or is simply not up).
             $apiBase = ($api !== null && $api !== '') ? $api : $this->folioServer;
-            if ($apiBase !== null && $apiBase !== '') {
-                return $this->pullFromApi($io, $apiBase, $dataset, $provider, $all, $force);
+            if (!$storage && $apiBase !== null && $apiBase !== '') {
+                try {
+                    return $this->pullFromApi($io, $apiBase, $dataset, $provider, $all, $force);
+                } catch (\Throwable $e) {
+                    // An unreachable or non-folio API is a reason to try the archive storage, not
+                    // to fail: the archives live in S3 (reached through the folio-archive mount)
+                    // and are the same artifacts the API would have served. Previously this threw
+                    // "Could not resolve host" / "Syntax error for .../folio/list.json" and stopped,
+                    // so a laptop could not pull at all without unsetting FOLIO_SERVER by hand.
+                    if ($this->archiveStorage === null) {
+                        throw $e;
+                    }
+                    $io->warning(sprintf('Folio API %s unusable (%s); falling back to folio_archive storage.',
+                        $apiBase, $e->getMessage()));
+                }
             }
+
             return $this->pullFromStorage($io, $dataset, $provider, $all, $force);
         }
 
@@ -286,7 +305,15 @@ final class FolioPullCommand
     private function pullFromStorage(SymfonyStyle $io, ?string $dataset, ?string $provider, bool $all, bool $force): int
     {
         if ($this->archiveStorage === null) {
-            $io->error('No folio_archive.storage configured. Add a flysystem storage named "folio_archive.storage", or pass --hf.');
+            $io->error([
+                'No folio_archive.storage configured, so there is nothing to pull from.',
+                'Folios are produced by the harvest-side app, which has that storage (a local'
+                    .' directory that is an rclone mount of the shared S3 bucket) — pull there, and'
+                    .' a reader app just reads the folio root.',
+                'Otherwise add a flysystem storage named "folio_archive.storage", pass --api with a'
+                    .' host that really serves /folio/list.json, or pass --hf.',
+            ]);
+
             return Command::FAILURE;
         }
 
