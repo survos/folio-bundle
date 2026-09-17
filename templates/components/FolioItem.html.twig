@@ -27,6 +27,24 @@
     {% set downloadFilename = dataset ~ '-' ~ row.localId ~ '.jpg' %}
     {% set downloadCitation = [tombstoneTitle, tombstoneCredit, citationUrl]|filter(v => v is not empty)|join(' — ') %}
 
+    {# Alt text for the photo itself. tombstoneTitle is the old value and is very often just the
+       localId (mus/fpus has no title field at all), which a screen reader reads out digit by
+       digit -- "F-I-zero-zero-zero-three-three-four-two" -- while the real description sits in
+       the sidebar two inches away. WAVE scores an alt of the ID as a pass, so this was invisible
+       to the automated check (2026-09-17). Prefer description, then the source caption, and fall
+       back to the title only when neither exists. Place and year are appended when the
+       description doesn't already carry them, since "where and when" is most of what a
+       vernacular photo is about. #}
+    {% set altBase = ((tombstoneDescription ?: sourceCaption ?: tombstoneTitle) ~ '')|striptags|trim %}
+    {% set altParts = [altBase] %}
+    {% if tombstoneLocation and tombstoneLocation not in altBase %}
+        {% set altParts = altParts|merge([tombstoneLocation]) %}
+    {% endif %}
+    {% if tombstoneYear and (tombstoneYear ~ '') not in altBase %}
+        {% set altParts = altParts|merge([tombstoneYear]) %}
+    {% endif %}
+    {% set imageAlt = altParts|filter(v => v is not empty)|join('. ')|u.truncate(250, '…', false) %}
+
     {# Same OSD (OpenSeadragon) viewer detail.html.twig uses for its images -- compact toolbar,
        real zoom/pan, and it works on plain (non-IIIF) source images too, not just true IIIF
        endpoints (imgproxy stands in for image tiling/info.json). Falls back to a plain <img>
@@ -63,7 +81,7 @@
         <div class="fp-detail">
             <div class="fp-detail__image">
                 {% if imageSource %}
-                    <img src="{{ imageSource|imgproxy('display') }}" alt="{{ tombstoneTitle }}" loading="eager">
+                    <img src="{{ imageSource|imgproxy('display') }}" alt="{{ imageAlt }}" loading="eager">
                 {% endif %}
                 {# On-image prev/next -- the old text links tucked at the bottom of the 280px
                    sidebar needed a scroll to even see (2026-08-04 feedback); arrows over the
@@ -236,7 +254,7 @@
                    sized that way specifically for OSD's deep-zoom -- without a viewer, that was
                    downloading the full-res source into a plain <img> and made the page feel slow.
                    'display' is small for now on purpose; revisit sizing once zoom comes back. #}
-                <img src="{{ imageSource|imgproxy('display') }}" alt="{{ tombstoneTitle }}" loading="eager">
+                <img src="{{ imageSource|imgproxy('display') }}" alt="{{ imageAlt }}" loading="eager">
             {% endif %}
         </div>
 
