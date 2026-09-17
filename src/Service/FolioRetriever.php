@@ -71,7 +71,7 @@ final class FolioRetriever
 
         $hits = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
-            $hits[] = $this->hitFromRow($row);
+            $hits[] = $this->hitFromRow($row, $matchQuery);
         }
 
         return $hits;
@@ -117,9 +117,16 @@ final class FolioRetriever
     /**
      * @param array<string, mixed> $row
      */
-    private function hitFromRow(array $row): FolioChatHit
+    private function hitFromRow(array $row, string $matchQuery = ''): FolioChatHit
     {
         [$provider, $dataset, $rowCoreCode] = $this->splitCoreId((string) $row['coreId']);
+        // A contentless FTS table (text-heavy folios) returns no snippet; build it from the row.
+        if (!is_string($row['snippet'] ?? null) || $row['snippet'] === '') {
+            $data = $this->decodeJson($row['dtoData'] ?? null) + $this->decodeJson($row['extras'] ?? null);
+            $text = implode(' ', array_filter(array_map(static fn ($v) => is_string($v) ? $v : null,
+                [$data['ocrText'] ?? null, $data['description'] ?? null, $data['text'] ?? null, $row['label'] ?? null])));
+            $row['snippet'] = FolioSnippet::fromText($text, $matchQuery);
+        }
 
         return new FolioChatHit(
             provider: $provider,

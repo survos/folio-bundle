@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\DataContracts\Vocabulary\ItemField;
+use Survos\FolioBundle\Entity\Folio;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Symfony\Component\String\Slugger\AsciiSlugger;
 use Symfony\Component\String\Slugger\SluggerInterface;
@@ -55,7 +56,12 @@ final class FolioFtsIndexer
         // ("documents", "songs") that must match the singular/root forms stored in the rows
         // ("document", "song"). Without stemming, prefix queries like "documents*" miss "document"
         // entirely, so chat retrieval returned nothing. Porter stems both the index and the query.
-        $pdo->exec("CREATE VIRTUAL TABLE item_fts USING fts5(body, tokenize='porter unicode61')");
+        //
+        // A folio that opts into contentless FTS (Folio::FTS_CONTENT_NONE, set from its dataset meta)
+        // keeps only the index: its rows already hold every word, and the stored copy was the
+        // largest table in a newspaper folio. snippet() then returns null; see FolioSnippet.
+        $contentless = self::ftsContent($pdo) === Folio::FTS_CONTENT_NONE;
+        $pdo->exec(sprintf("CREATE VIRTUAL TABLE item_fts USING fts5(body, %stokenize='porter unicode61')", $contentless ? "content='', " : ''));
         $pdo->exec('DROP TABLE IF EXISTS item_vocab');
         $pdo->exec("CREATE VIRTUAL TABLE item_vocab USING fts5vocab('item_fts', 'row')");
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_core_dto_type ON item(core_id, dto_type)');
@@ -93,6 +99,18 @@ final class FolioFtsIndexer
         $this->rebuildFacetCounts($pdo);
 
         return ['rows' => $rows, 'bytes' => $bytes];
+    }
+
+    /** The folio's FTS content mode; `stored` for a folio built before the setting existed. */
+    public static function ftsContent(\PDO $pdo): string
+    {
+        try {
+            $mode = $pdo->query('SELECT fts_content FROM folio LIMIT 1')?->fetchColumn();
+        } catch (\PDOException) {
+            return Folio::FTS_CONTENT_STORED;
+        }
+
+        return $mode === Folio::FTS_CONTENT_NONE ? Folio::FTS_CONTENT_NONE : Folio::FTS_CONTENT_STORED;
     }
 
     public function drop(string $dbFile): void

@@ -86,7 +86,11 @@ class Page
     #[ApiProperty('Plain OCR text for this page (folded from the media sidecar)')]
     #[Groups(['page:read'])]
     #[Field(searchable: true)]
-    public ?string $text = null;
+    public ?string $text = null {
+        // A page may store its text once, inside its layout blocks (harvest's newspaper pages do):
+        // the flat text is then their text in reading order. Stored text always wins.
+        get => $this->text ?? self::layoutText($this->layout);
+    }
 
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     #[ApiProperty('Handwriting-annotated OCR (htr_annotate): pre-printed form text bare, handwritten entries wrapped <hw>…</hw>, uncertain reads flagged <?> — the viewer renders handwriting in italics')]
@@ -103,6 +107,28 @@ class Page
     #[ApiProperty('Structured ledger extraction (ledger-bundle): records mined from this page')]
     #[Groups(['page:read'])]
     public ?array $ledger = null;
+
+    /**
+     * The flat text of a page's layout blocks, or null when there are none with text.
+     *
+     * @param array<mixed>|null $layout either {blocks: list<{text?: string}>} or a bare block list
+     */
+    public static function layoutText(?array $layout): ?string
+    {
+        if ($layout === null) {
+            return null;
+        }
+        $blocks = array_is_list($layout) ? $layout : ($layout['blocks'] ?? []);
+        $texts = [];
+        foreach (is_array($blocks) ? $blocks : [] as $block) {
+            $text = is_array($block) ? trim((string) ($block['text'] ?? '')) : '';
+            if ($text !== '') {
+                $texts[] = $text;
+            }
+        }
+
+        return $texts === [] ? null : implode("\n\n", $texts);
+    }
 
     #[ORM\Column(type: Types::JSON, nullable: true)]
     #[ApiProperty('Per-page layout blocks (type + bbox) for region highlighting in the viewer')]

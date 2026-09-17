@@ -121,6 +121,9 @@ final class FolioIngestService
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
         $folio->label = $dataset->label;
         $folio->datasetKey = $dataset->datasetKey;
+        $extras = is_array($dataset->meta['extras'] ?? null) ? $dataset->meta['extras'] : [];
+        $folio->contentType = is_string($extras['contentType'] ?? null) ? $extras['contentType'] : null;
+        $folio->ftsContent = ($extras['ftsContent'] ?? null) === Folio::FTS_CONTENT_NONE ? Folio::FTS_CONTENT_NONE : Folio::FTS_CONTENT_STORED;
         $ctx->em->flush();
 
         // #2: drop non-unique secondary indexes for the duration of the load. Maintaining them per-row
