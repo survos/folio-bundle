@@ -9,6 +9,7 @@ use Psr\Log\LoggerInterface;
 use Survos\DatasetBundle\Service\DataPaths;
 use Survos\FolioBundle\DBAL\FolioConnectionWrapper;
 use Survos\FolioBundle\Entity\Folio;
+use Survos\FolioBundle\Exception\FolioNotFoundException;
 use Survos\FolioBundle\Model\FolioContext;
 use Symfony\Component\DependencyInjection\Attribute\Autoconfigure;
 
@@ -235,7 +236,7 @@ final class FolioService
 
         $target = $this->path($folioCode, locale: $locale);
         if (!is_file($target)) {
-            throw new \RuntimeException(sprintf('Folio file not found: %s. Run folio:migrate first.', $target));
+            throw new FolioNotFoundException($folioCode, $target);
         }
         if ($conn->currentPath !== $target) {
             try { $em->flush(); } catch (\Throwable) {}

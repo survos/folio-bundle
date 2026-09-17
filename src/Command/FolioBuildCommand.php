@@ -334,6 +334,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
                     ],
                     code: $buildLocale ?? Artifact::CODE_DEFAULT,
                 );
+                $this->finishWorkingFolio($workingPath, $io);
             } elseif (is_file($workingPath)) {
                 unlink($workingPath);
             }
@@ -356,6 +357,35 @@ final class FolioBuildCommand implements SignalableCommandInterface
     }
 
     /** COUNT(*) for a folio table, or 0 if the table is absent. Cheap, once per build. */
+    /**
+     * Take a built folio out of WAL mode, as the last step of its build.
+     *
+     * The folio connection re-asserts WAL on every open (right while ingesting), and nothing on
+     * this path ever called {@see FolioService::finalize()}, so every workflow-built folio was left
+     * WAL in its header (bytes 18-19 = 2). A read-only mount (a reader app's snapshot source) must
+     * create a -shm beside a WAL database, cannot, and fails with SQLite's "not an error".
+     * Measured on news/rappnews4909 (2026-09-17): every build needed a manual finalize.
+     *
+     * finalize() first, so the bundle's own connection is committed and closed; then a plain PDO
+     * connection flips the header, which needs to be the only connection to the file.
+     */
+    private function finishWorkingFolio(string $workingPath, SymfonyStyle $io): void
+    {
+        $this->folios->finalize();
+        try {
+            $pdo = new \PDO('sqlite:' . $workingPath);
+            $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+            $pdo->exec('PRAGMA busy_timeout = 30000');
+            $mode = (string) $pdo->query('PRAGMA journal_mode = DELETE')->fetchColumn();
+            $pdo = null;
+        } catch (\Throwable $e) {
+            $mode = $e->getMessage();
+        }
+        if (strtolower($mode) !== 'delete') {
+            $io->warning(sprintf('%s is still in WAL mode (%s): another connection holds it open. Readers on a read-only mount cannot open it until it is finalized.', $workingPath, $mode));
+        }
+    }
+
     private function tableCount(string $dbFile, string $table): int
     {
         try {
