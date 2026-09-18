@@ -33,6 +33,19 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
     ) {
     }
 
+    /**
+     * Whether this folio is a newspaper or magazine, from the folio's own contentType (written at
+     * build time from the dataset's meta). An older folio without the column is simply not one.
+     */
+    private function isPeriodical(Connection $connection): bool
+    {
+        try {
+            return in_array($connection->fetchOne('SELECT content_type FROM folio LIMIT 1'), ['newspaper', 'periodical'], true);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     public function build(array $options = []): void
     {
         // addFacet()/addAvailableSort() (below and in AbstractSearch) APPEND rather than
@@ -121,11 +134,28 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             $sorts['year:asc'] = 'Year Old-New';
             $sorts['year:desc'] = 'Year New-Old';
         }
+        // A newspaper or magazine is read in date order, and its titles are the worst possible
+        // default: an article's title is raw OCR, so "Title A-Z" opened the Daily Dispatch on
+        // "! ! ' I i tun -i i) night Hi." -- punctuation sorts first, and that is what OCR noise is
+        // made of.
+        //
+        // Date order is the year sort already, served by the primary sort index: idx_item_core_sort
+        // is (core_id, sort_key, local_id), so within a year rows come back in local-id order, and a
+        // periodical's local ids begin with the ISO date (sn84024738-1860-01-02-ed-1-a01). Checked
+        // on the Daily Dispatch: 228,024 articles, no date out of order, 13 ms. A json_extract(date)
+        // sort gave the same order in ~1 s through a temp B-tree; there is no reason for a second
+        // mechanism. So a periodical's year sort is labelled Date, and it leads.
+        $periodical = $this->isPeriodical($connection);
+        if ($periodical && isset($sorts['year:asc'])) {
+            unset($sorts['year:asc'], $sorts['year:desc']);
+            $sorts = ['year:asc' => 'Date Old-New', 'year:desc' => 'Date New-Old'] + $sorts;
+        }
         // AbstractSearch::search() picks current($this->availableSorts) as the default -- whichever
         // sort was added FIRST -- so move the configured default to the front of the list rather
         // than needing a separate "set default" API. Silently falls back to natural order if the
         // configured key isn't in $sorts (e.g. defaultSort=year:asc but this dataset has no years).
-        if ($this->defaultSort !== null && isset($sorts[$this->defaultSort])) {
+        // The app-wide default applies to everything but a periodical, whose Date sort already leads.
+        if (!$periodical && $this->defaultSort !== null && isset($sorts[$this->defaultSort])) {
             $sorts = [$this->defaultSort => $sorts[$this->defaultSort]] + $sorts;
         }
         foreach ($sorts as $key => $label) {
