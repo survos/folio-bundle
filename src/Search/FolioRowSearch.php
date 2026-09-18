@@ -159,7 +159,15 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 // gives the templates a way to fall back into the value this is removing. Needs
                 // idx_page_row_seq — see FolioFtsIndexer::ensurePageIndex().
                 'NULL AS iiifBase',
-                "(SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) AS thumbnailUrl",
+                // One exception: a thumbnailUrl that is a IIIF *region* request ("/x,y,w,h/") is a
+                // crop of the record's own box — a newspaper article is a region of a page, and
+                // harvest writes that crop. It is strictly more specific than the page and it is
+                // never the provenance leftover the rule above guards against (those are whole
+                // images), so it wins. Without it every article card showed its whole broadsheet
+                // page, and a results list was a column of identical grey rectangles.
+                "CASE WHEN json_extract(d.dto_data, '$.thumbnailUrl') GLOB '*/[0-9]*,[0-9]*,[0-9]*,[0-9]*/*/*' "
+                    . "THEN json_extract(d.dto_data, '$.thumbnailUrl') "
+                    . "ELSE (SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) END AS thumbnailUrl",
                 "(SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) AS largeImageUrl",
                 "json_extract(d.dto_data, '$.pageCount') AS pageCount",
                 "json_extract(d.dto_data, '$.imageCount') AS imageCount",
