@@ -35,6 +35,7 @@ final class FolioService
         private readonly DataPaths $dataPaths,
         private readonly string $extension = 'folio',
         private readonly ?LoggerInterface $logger = null,
+        private readonly bool $readOnly = false,
     ) {}
 
     /** Pass $locale for a localized build, e.g. <code>.en.folio instead of <code>.folio. */
@@ -239,9 +240,11 @@ final class FolioService
             throw new FolioNotFoundException($folioCode, $target);
         }
         if ($conn->currentPath !== $target) {
-            try { $em->flush(); } catch (\Throwable) {}
+            if (!$this->readOnly) {
+                try { $em->flush(); } catch (\Throwable) {}
+            }
             $em->clear();
-            $conn->selectDatabase($target);
+            $conn->selectDatabase($target, $this->readOnly);
             $conn->executeQuery('SELECT 1')->fetchOne();
             $this->logger?->info('Folio database selected', ['folio' => $folioCode, 'path' => $target]);
         }
@@ -255,6 +258,9 @@ final class FolioService
     public function context(string $folioCode, bool $ensureSchema = false, ?string $locale = null): FolioContext
     {
         $em = $this->switch($folioCode, $locale);
+        if ($this->readOnly) {
+            return new FolioContext($folioCode, $this->path($folioCode, locale: $locale), $em);
+        }
 
         // Self-healing schema: update() is a cheap PRAGMA-version check that no-ops when the folio
         // already matches the deployed entity schema, and ALTERs in new columns when it's stale — so

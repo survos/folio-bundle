@@ -9,6 +9,7 @@ use Doctrine\DBAL\{Configuration,Connection,Driver};
 final class FolioConnectionWrapper extends Connection
 {
     public string $currentPath;
+    private bool $readOnly = false;
 
     public function __construct(array $params, Driver $driver, ?Configuration $config = null)
     {
@@ -17,9 +18,9 @@ final class FolioConnectionWrapper extends Connection
         $this->currentPath = (string) ($params['path'] ?? $params['dbname'] ?? '');
     }
 
-    public function selectDatabase(string $path): void
+    public function selectDatabase(string $path, bool $readOnly = false): void
     {
-        if ($this->currentPath === $path) {
+        if ($this->currentPath === $path && $this->readOnly === $readOnly) {
             return;
         }
         if ($this->isConnected()) {
@@ -30,7 +31,10 @@ final class FolioConnectionWrapper extends Connection
         $params = $this->getParams();
         unset($params['url'], $params['dbname']);
         $params['driver'] ??= 'pdo_sqlite';
-        $params['path'] = $this->currentPath = $path;
+        $this->currentPath = $path;
+        $this->readOnly = $readOnly;
+        $params['readOnly'] = $readOnly;
+        $params['path'] = $readOnly ? 'file:'.str_replace('%2F', '/', rawurlencode($path)).'?mode=ro' : $path;
         /** @phpstan-ignore method.internal */
         parent::__construct($params, $this->getDriver(), $this->_config);
 
@@ -45,6 +49,11 @@ final class FolioConnectionWrapper extends Connection
      */
     private function applyPragmas(): void
     {
+        if ($this->readOnly) {
+            $this->executeStatement('PRAGMA query_only = ON');
+            $this->executeStatement('PRAGMA busy_timeout = 30000');
+            return;
+        }
         $this->executeStatement('PRAGMA journal_mode = WAL');
         $this->executeStatement('PRAGMA busy_timeout = 30000');
         $this->executeStatement('PRAGMA synchronous = NORMAL');

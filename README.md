@@ -46,3 +46,22 @@ select id, type, audience, body from docs order by position;
 
 - Add fieldSet support to the api-grid spreadsheet view to avoid displaying every DTO field at once.
 - Rebuild views/docs on restore, not only FTS, if the archive was packaged without them.
+
+
+### Catalog consumers and published shared folios
+
+`survos_folio.read_only: true` opens FolioService contexts using SQLite `mode=ro`, disables
+schema auto-migration/folio-row creation and avoids WAL mode changes. DatasetBundle's SQLite
+middleware must also include read-only parameter support. Publish a compatible, completed,
+checkpointed folio before sharing; the reader will not upgrade it. Explicit archive restore
+and inflate commands still write their selected local targets.
+
+`archive_api_prefix` defaults to `/folio` and controls `folio:pull` listing/fallback download
+URLs independently of this app's `route_prefix` or a remote `/f` browse prefix. Download URLs
+returned by the catalog remain authoritative. `local_passthrough: true` skips already-present
+shared folios even with `--force`.
+
+`PeriodicalCoverageService::compute()` preserves periodical block/article/ad distinctions
+and returns counts plus per-issue details. It scans folio rows: run it offline when recording
+catalog summaries, never as a directory-page cache-miss fallback. zm's publisher command
+persists the compact versioned summary in its registry; Ink consumes that recorded API data.

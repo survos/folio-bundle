@@ -52,6 +52,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->booleanNode('build_archive')->defaultFalse()
                 ->info('Also build the compressed .folio.gz archive + register the FOLIO_ARCHIVE artifact on inline workflow builds (set true on publishing/prod hosts; off locally — the .gz is slow and unused for browsing).')
             ->end()
+            ->booleanNode('read_only')->defaultFalse()->info('Open published folios without schema updates, writes or journal-mode changes.')->end()
+            ->scalarNode('archive_api_prefix')->defaultValue('/folio')->info('Remote archive API prefix, independent of browse routes.')->end()
             ->scalarNode('extension')->defaultValue('folio')->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
             ->scalarNode('folio_server')
@@ -120,10 +122,9 @@ final class SurvosFolioBundle extends AbstractUxBundle
         parent::loadExtension($config, $container, $builder);
         $this->captureRouteConfig($config);
         $builder->setParameter('survos_folio.folio_server', $config['folio_server']);
-        // Expose the route prefix so client URL-builders (folio:pull download/list.json URLs,
-        // folio:build browse/search links) match the SERVED routes instead of hardcoding "/folio".
-        // zm configures this to "/f"; a mismatch 404s folio:pull.
+        // Local browse routes and remote archive API routes are independent.
         $builder->setParameter('survos_folio.route_prefix', $config['route_prefix']);
+        $builder->setParameter('survos_folio.archive_api_prefix', $config['archive_api_prefix']);
         $builder->setParameter('survos_folio.local_passthrough', $config['local_passthrough']);
         $builder->setParameter('survos_folio.reviewed_translations_dir', $config['reviewed_translations_dir']);
         $services = $container->services();
@@ -196,9 +197,11 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 '$defaultSort' => $config['search_default_sort'],
             ]);
         }
+        $services->set(\Survos\FolioBundle\Service\PeriodicalCoverageService::class)->autowire()->autoconfigure();
         $services->set(FolioService::class)->autowire()->autoconfigure()->public()->args([
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
             '$extension' => $config['extension'],
+            '$readOnly' => $config['read_only'],
         ]);
         $services->set(FolioBuildCommand::class)->autowire()->autoconfigure()->public()->args([
             '$folioServer' => $config['folio_server'],

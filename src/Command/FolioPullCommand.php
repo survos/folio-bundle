@@ -19,14 +19,11 @@ use Symfony\Component\DependencyInjection\Attribute\Target;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Zenstruck\Bytes;
 
-#[AsCommand('folio:pull', 'Download folio archives from the folio_archive storage (or Hugging Face) and inflate')]
 final class FolioPullCommand
 {
     public function __construct(
-        // The served route prefix (zm: "/f"); builds list.json + download URLs so the client matches
-        // the server instead of hardcoding "/folio". Required + wired from %survos_folio.route_prefix%
-        // (config always sets it) — no silent default to mask a misconfiguration.
-        #[Autowire('%survos_folio.route_prefix%')]
+        // Archive API routes are independent of the local and remote browse prefixes.
+        #[Autowire('%survos_folio.archive_api_prefix%')]
         private readonly string $routePrefix,
         private readonly FolioService $folios,
         private readonly FolioArchiveService $archiveService,
@@ -49,6 +46,7 @@ final class FolioPullCommand
         private readonly ?LoggerInterface $logger = null,
     ) {}
 
+    #[AsCommand('folio:pull', 'Download folio archives from the folio_archive storage (or Hugging Face) and inflate')]
     public function __invoke(
         SymfonyStyle $io,
 
