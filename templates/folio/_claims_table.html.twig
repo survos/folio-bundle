@@ -34,8 +34,11 @@
                                         {% endif %}
                                         <div class="text-muted small {{ loop.last ? 'mt-1' : 'mb-2 pb-2 border-bottom' }}">
                                             <span class="badge text-bg-light border">{{ c.source }}</span>
-                                            {% if c.confidence is not null %}
-                                                <span title="confidence">{{ (c.confidence * 100)|round }}%</span>
+                                            {# Confidence as a word (MetadataResult's high/medium/low), not a
+                                               second number beside a score. 1.0 is the default for tasks that
+                                               report none -- e.g. curation scores -- so it is not shown. #}
+                                            {% if c.confidence is not null and c.confidence < 1 %}
+                                                <span title="confidence {{ (c.confidence * 100)|round }}%">{{ c.confidence >= 0.8 ? 'high' : (c.confidence >= 0.5 ? 'medium' : 'low') }} confidence</span>
                                             {% endif %}
                                             {% if c.agent %}
                                                 <span class="mx-1">&middot;</span><span class="font-monospace">{{ c.agent }}</span>
