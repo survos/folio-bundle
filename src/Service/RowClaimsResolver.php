@@ -21,10 +21,25 @@ final class RowClaimsResolver
             return [];
         }
 
-        return $conn->executeQuery(
-            'SELECT predicate, value, source, confidence, agent, claimed_at, run_id FROM claim WHERE item_id = ? ORDER BY source, predicate',
+        // Folios built before claim.meta existed have no such column; select NULL instead.
+        $hasMeta = in_array('meta', array_map(
+            static fn (\Doctrine\DBAL\Schema\Column $c): string => strtolower($c->getName()),
+            $conn->createSchemaManager()->introspectTableColumnsByUnquotedName('claim'),
+        ), true);
+        $metaColumn = $hasMeta ? 'meta' : 'NULL AS meta';
+        $rows = $conn->executeQuery(
+            'SELECT predicate, value, source, confidence, agent, claimed_at, run_id, ' . $metaColumn . ' FROM claim WHERE item_id = ? ORDER BY source, predicate',
             [$itemId],
         )->fetchAllAssociative();
+
+        // meta is the claim's provenance JSON; its `basis` is why the claim was made (e.g. the
+        // evidence behind each fortepan curation score) and the claims panel shows it.
+        return array_map(static function (array $row): array {
+            $meta = is_string($row['meta'] ?? null) ? json_decode($row['meta'], true) : null;
+            $row['meta'] = is_array($meta) ? $meta : null;
+
+            return $row;
+        }, $rows);
     }
 
     /**

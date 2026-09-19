@@ -1,5 +1,5 @@
-{# Shared claims card — predicate/value/source/confidence/agent — used by both row/show.html.twig
-   and ai.html.twig (the task-runner page shows the same claims the row's own page does, so what's
+{# Shared claims card — predicate/value/basis/source/confidence/agent — used by row/show.html.twig,
+   folio/detail.html.twig and ai.html.twig (the task-runner page shows the same claims the row's own page does, so what's
    already known about the item is visible right where you're about to add to it).
    Usage: {{ include('@SurvosFolioBundle/folio/_claims_table.html.twig', {claims: claims}) }} #}
 {% if claims|default([]) is not empty %}
@@ -29,6 +29,9 @@
                                 <td>
                                     {% for c in claims|filter(c => c.predicate == claim.predicate) %}
                                         <div style="white-space: pre-wrap; word-break: break-word;">{{ c.value }}</div>
+                                        {% if c.meta.basis|default(null) %}
+                                            <div class="small text-secondary fst-italic mt-1" style="white-space: pre-wrap;">{{ c.meta.basis }}</div>
+                                        {% endif %}
                                         <div class="text-muted small {{ loop.last ? 'mt-1' : 'mb-2 pb-2 border-bottom' }}">
                                             <span class="badge text-bg-light border">{{ c.source }}</span>
                                             {% if c.confidence is not null %}
