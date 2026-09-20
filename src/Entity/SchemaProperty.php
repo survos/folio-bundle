@@ -41,6 +41,9 @@ class SchemaProperty
     #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Profiler stats from jsonl-bundle'])]
     public ?array $stats = null;
 
+    #[ORM\Column(length: 80, nullable: true, options: ['comment' => "Sidebar grouping from the DTO field's #[Field(group:)] (Merit, Admin, ...)"])]
+    public ?string $group = null;
+
     #[ORM\Column(options: ['default' => 0, 'comment' => 'Display order'])]
     public int $position = 0;
 

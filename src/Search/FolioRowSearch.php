@@ -109,7 +109,14 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             // Integer/float fields (e.g. year) render as a range slider; everything else is a
             // refinement list. The field's schema type is the single source of truth — no per-field config.
             $isNumeric = (bool) preg_match('/\b(int|integer|float|double|number|numeric)\b/i', $field['type']);
-            $this->addFacet($field['name'], $this->translatedFacetLabel($field['name'], $field['label']), $isNumeric ? RangeSlider::class : RefinementList::class);
+            $group = $field['group'] ?? null;
+            // Inside a group block the group's own name is the heading, so "Merit: Historical
+            // Significance" reads as "Historical Significance" there.
+            $label = $this->translatedFacetLabel($field['name'], $field['label']);
+            if ($group !== null && preg_match('/^' . preg_quote($group, '/') . '\s*[:–-]\s*(.+)$/i', $label, $m) === 1) {
+                $label = $m[1];
+            }
+            $this->addFacet($field['name'], $label, $isNumeric ? RangeSlider::class : RefinementList::class, group: $group);
             $facetColumns[$field['name']] = $this->jsonExtract($field['name']);
         }
 

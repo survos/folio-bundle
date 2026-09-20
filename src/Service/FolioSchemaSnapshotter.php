@@ -112,6 +112,7 @@ final readonly class FolioSchemaSnapshotter
                         $property['description'] ?? null,
                         $property['declaringClass'] ?? null,
                         is_array($stats) ? $stats : null,
+                        $property['group'] ?? null,
                     );
                 }
             }
@@ -175,9 +176,9 @@ final readonly class FolioSchemaSnapshotter
         ]);
     }
 
-    private function insertProperty(\PDO $pdo, string $tableId, string $name, int $position, bool $searchable, bool $filterable, bool $facet, bool $sortable, bool $visible = true, ?string $type = null, ?string $label = null, ?string $description = null, ?string $declaringClass = null, ?array $stats = null): int
+    private function insertProperty(\PDO $pdo, string $tableId, string $name, int $position, bool $searchable, bool $filterable, bool $facet, bool $sortable, bool $visible = true, ?string $type = null, ?string $label = null, ?string $description = null, ?string $declaringClass = null, ?array $stats = null, ?string $group = null): int
     {
-        $stmt = $pdo->prepare('INSERT OR IGNORE INTO schema_property(id, table_id, name, label, description, type, declaring_class, stats, position, visible, searchable, filterable, facet, sortable) VALUES (:id, :tableId, :name, :label, :description, :type, :declaringClass, :stats, :position, :visible, :searchable, :filterable, :facet, :sortable)');
+        $stmt = $pdo->prepare('INSERT OR IGNORE INTO schema_property(id, table_id, name, label, description, type, declaring_class, stats, "group", position, visible, searchable, filterable, facet, sortable) VALUES (:id, :tableId, :name, :label, :description, :type, :declaringClass, :stats, :group, :position, :visible, :searchable, :filterable, :facet, :sortable)');
         $stmt->execute([
             'id' => $tableId . ':' . $name,
             'tableId' => $tableId,
@@ -187,6 +188,7 @@ final readonly class FolioSchemaSnapshotter
             'type' => $type,
             'declaringClass' => $declaringClass,
             'stats' => $stats === null ? null : json_encode($stats, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            'group' => $group,
             'position' => $position,
             'visible' => $visible ? 1 : 0,
             'searchable' => $searchable ? 1 : 0,
@@ -252,6 +254,7 @@ final readonly class FolioSchemaSnapshotter
                 'description' => $propertyMeta instanceof PropertyMeta && $propertyMeta->description !== null ? $propertyMeta->description : $this->docComment($property->getDocComment() ?: null),
                 'type' => $this->typeName($property->getType()),
                 'declaringClass' => $property->getDeclaringClass()->getName(),
+                'group' => $field instanceof Field ? $field->group : null,
                 'visible' => $field instanceof Field ? $field->visible : true,
                 'searchable' => ($field instanceof Field && $field->searchable) || ($propertyMeta instanceof PropertyMeta && $propertyMeta->searchable),
                 'filterable' => ($field instanceof Field && $field->filterable) || ($propertyMeta instanceof PropertyMeta && $propertyMeta->facet),

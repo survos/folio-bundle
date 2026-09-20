@@ -36,6 +36,9 @@ final class FolioFacetFieldResolver implements ResetInterface
     private array $tableExistsCache = [];
 
     /** @var array<string, bool> */
+    private array $columnExistsCache = [];
+
+    /** @var array<string, bool> */
     private array $usableFacetValuesCache = [];
 
     /** @var array<string, list<array{name: string, label: string, type: string}>> */
@@ -61,7 +64,7 @@ final class FolioFacetFieldResolver implements ResetInterface
      *                          must NOT surface another core's fields as facets (e.g. 'doc' showing
      *                          'gender'/'role' from 'per') -- omit for whole-folio callers that want
      *                          every field across every core (FolioTermCloudService's cloud()).
-     * @return list<array{name: string, label: string, type: string}>
+     * @return list<array{name: string, label: string, type: string, group?: ?string}>
      */
     public function facetFieldNames(Connection $connection, ?int $limit = self::MAX_FACETS, ?string $coreCode = null): array
     {
@@ -78,9 +81,12 @@ final class FolioFacetFieldResolver implements ResetInterface
             return $this->facetFieldNamesCache[$cacheKey] = [];
         }
 
+        // schema_property."group" only exists in folios built since field groups landed; an older
+        // folio selects NULL instead, so its search page keeps working (ungrouped facets).
+        $hasGroup = $this->columnExists($connection, 'schema_property', 'group');
         if ($coreCode !== null && $this->tableExists($connection, 'schema_table')) {
-            $rows = $connection->executeQuery(<<<'SQL'
-                SELECT p.name, p.label, p.type, p.filterable, p.facet
+            $rows = $connection->executeQuery(str_replace('%GROUP_P%', $hasGroup ? 'p."group"' : 'NULL', <<<'SQL'
+                SELECT p.name, p.label, p.type, p.filterable, p.facet, %GROUP_P% AS field_group
                 FROM schema_property p
                 JOIN schema_table t ON t.id = p.table_id
                 WHERE p.visible = 1 AND t.core_code = :coreCode
@@ -88,17 +94,17 @@ final class FolioFacetFieldResolver implements ResetInterface
                     CASE WHEN p.facet = 1 OR p.filterable = 1 THEN 0 ELSE 1 END,
                     p.position,
                     p.name
-            SQL, ['coreCode' => $coreCode])->fetchAllAssociative();
+            SQL), ['coreCode' => $coreCode])->fetchAllAssociative();
         } else {
-            $rows = $connection->executeQuery(<<<'SQL'
-                SELECT name, label, type, filterable, facet
+            $rows = $connection->executeQuery(str_replace('%GROUP%', $hasGroup ? '"group"' : 'NULL', <<<'SQL'
+                SELECT name, label, type, filterable, facet, %GROUP% AS field_group
                 FROM schema_property
                 WHERE visible = 1
                 ORDER BY
                     CASE WHEN facet = 1 OR filterable = 1 THEN 0 ELSE 1 END,
                     position,
                     name
-            SQL)->fetchAllAssociative();
+            SQL))->fetchAllAssociative();
         }
 
         // schema_property carries many duplicate rows per field (one per observed row/dtoType), often
@@ -124,6 +130,9 @@ final class FolioFacetFieldResolver implements ResetInterface
                 'name' => $name,
                 'label' => $this->humanize($row['label'] !== null && $row['label'] !== '' ? (string) $row['label'] : $name),
                 'type' => (string) $row['type'],
+                // The DTO field's #[Field(group:)] — the sidebar renders one collapsible block per
+                // group (Merit, Admin, ...), so eight merit sliders stop repeating their own name.
+                'group' => ($row['field_group'] ?? null) !== '' ? $row['field_group'] : null,
             ];
 
             if ($limit !== null && count($facets) >= $limit) {
@@ -140,7 +149,7 @@ final class FolioFacetFieldResolver implements ResetInterface
      * useful for anything that visualizes discrete facet VALUES rather than a numeric range
      * (term clouds, a term-cloud navbar menu).
      *
-     * @return list<array{name: string, label: string, type: string}>
+     * @return list<array{name: string, label: string, type: string, group?: ?string}>
      */
     public function refinementFieldNames(Connection $connection, ?int $limit = self::MAX_FACETS, ?string $coreCode = null): array
     {
@@ -220,6 +229,18 @@ final class FolioFacetFieldResolver implements ResetInterface
         )->fetchOne() === $table;
     }
 
+    private function columnExists(Connection $connection, string $table, string $column): bool
+    {
+        $cacheKey = $this->connectionKey($connection) . ':' . $table . '.' . $column;
+        if (isset($this->columnExistsCache[$cacheKey])) {
+            return $this->columnExistsCache[$cacheKey];
+        }
+
+        $columns = array_column($connection->executeQuery(sprintf('PRAGMA table_info(%s)', $table))->fetchAllAssociative(), 'name');
+
+        return $this->columnExistsCache[$cacheKey] = in_array($column, $columns, true);
+    }
+
     private function humanize(string $field): string
     {
         $label = preg_replace('/(?<!^)[A-Z]/', ' $0', str_replace(['_', ':'], ' ', $field)) ?? $field;
@@ -248,6 +269,7 @@ final class FolioFacetFieldResolver implements ResetInterface
     public function reset(): void
     {
         $this->tableExistsCache = [];
+        $this->columnExistsCache = [];
         $this->usableFacetValuesCache = [];
         $this->facetFieldNamesCache = [];
     }
