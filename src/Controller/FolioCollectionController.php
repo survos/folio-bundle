@@ -11,6 +11,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\UX\Pagination\PaginatorInterface;
 
 final class FolioCollectionController extends AbstractController
 {
@@ -27,7 +28,7 @@ final class FolioCollectionController extends AbstractController
     private const PER_PAGE = 50;
 
     #[Route('', name: 'survos_folio_collection')]
-    public function __invoke(Request $request, ArtifactRepository $artifacts): Response
+    public function __invoke(Request $request, ArtifactRepository $artifacts, PaginatorInterface $paginator): Response
     {
         $query = trim((string) $request->query->get('q', ''));
         $page = max(1, $request->query->getInt('page', 1));
@@ -40,19 +41,21 @@ final class FolioCollectionController extends AbstractController
         $lastPage = max(1, (int) ceil($total / self::PER_PAGE));
         $page = min($page, $lastPage);
 
-        $folios = $this->baseQuery($artifacts, $query)
+        $folioQuery = $this->baseQuery($artifacts, $query)
             ->orderBy('dataset.aggregator', 'ASC')
-            ->addOrderBy('dataset.label', 'ASC')
-            ->setFirstResult(($page - 1) * self::PER_PAGE)
-            ->setMaxResults(self::PER_PAGE)
-            ->getQuery()
-            ->getResult();
+            ->addOrderBy('dataset.label', 'ASC');
+
+        $pagination = $paginator->query($folioQuery)
+            ->total($total)
+            ->perPage(self::PER_PAGE)
+            ->sliding(5)
+            ->route('survos_folio_collection', ['q' => $query ?: null])
+            ->paginate($page);
 
         return $this->render('@SurvosFolioBundle/folio/collection.html.twig', [
-            'folios' => $folios,
+            'folios' => $pagination->getItems(),
+            'pagination' => $pagination,
             'total' => $total,
-            'page' => $page,
-            'lastPage' => $lastPage,
             'perPage' => self::PER_PAGE,
             'query' => $query,
         ]);
