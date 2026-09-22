@@ -104,6 +104,25 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('folio:pull (and tenants:load, which delegates to it): when the target .folio already exists at the local Artifact path, skip the HTTP/storage fetch entirely — even under --force/--refresh. Opt-in: only correct when this app and the folio-building app share APP_DATA_DIR on the same filesystem (e.g. fotostory + md both mounting the same /platform volume); on a genuinely separate deployment a stale/wrong local file would silently never refresh.')
                 ->defaultFalse()
             ->end()
+            ->arrayNode('folio_sets')
+                ->info('Named sets of folios this app shows, each defined by criteria over the dataset registry, never by listing folios. Resolved by folio:sets:sync (run it as a composer auto-script); membership is derived and rebuilt every run. See docs/folio-sets.md.')
+                ->useAttributeAsKey('code')
+                ->arrayPrototype()
+                    ->children()
+                        ->scalarNode('label')->defaultNull()->end()
+                        ->scalarNode('core')->defaultValue('obj')->end()
+                        ->arrayNode('criteria')->isRequired()
+                            ->children()
+                                ->arrayNode('tags')->info('Any of these dataset tags')->scalarPrototype()->end()->end()
+                                ->arrayNode('tagsAll')->info('All of these dataset tags')->scalarPrototype()->end()->end()
+                                ->arrayNode('provider')->info('Any of these providers')->scalarPrototype()->end()->end()
+                                ->arrayNode('contentType')->info('Any of these content types (newspaper, photograph, ...)')->scalarPrototype()->end()->end()
+                                ->integerNode('minRows')->defaultValue(1)->end()
+                            ->end()
+                        ->end()
+                    ->end()
+                ->end()
+            ->end()
             ->scalarNode('reviewed_translations_dir')
                 ->info('Directory of hand-reviewed translation overrides, one <code.locale>.jsonl per dataset+locale (same {code,locale,text} shape dataset:intl:pull writes to the gitignored working trans/ dir) — but THIS directory is meant to be committed to the app\'s own repo, same convention as translations/messages.*.yaml. Checked by folio:build --locale, taking precedence over whatever Lingua returned for the same code: a small, human/AI-correctable vocabulary (dataset tags, term labels — hundreds of entries, not thousands) is worth reviewing once and keeping stable, rather than trusting a machine-translation engine\'s output verbatim forever. Null (default) disables the override entirely.')
                 ->defaultNull()
@@ -221,6 +240,11 @@ final class SurvosFolioBundle extends AbstractUxBundle
         foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
+        $services->set(\Survos\FolioBundle\Set\FolioSetResolver::class)->autowire()->public()->args([
+            '$sets' => $config['folio_sets'],
+            '$membershipDir' => '%kernel.project_dir%/var/folio-sets',
+            '$datasets' => service(\Survos\DatasetBundle\Repository\DatasetInfoRepository::class)->ignoreOnInvalid(),
+        ]);
         $services->set(BuildFolioRequestedListener::class)->autowire()->autoconfigure()->public()
             ->arg('$buildArchive', $config['build_archive']);
         // No implementation required — a bare app without a slug registry just gets slug
