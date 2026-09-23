@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle;
 
 use Survos\DataContracts\Path\DataPaths;
+use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
 use Survos\FolioBundle\Bookmark\Service\BookmarkManager;
@@ -56,6 +57,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->booleanNode('read_only')->defaultFalse()->info('Open published folios without schema updates, writes or journal-mode changes.')->end()
             ->scalarNode('archive_api_prefix')->defaultValue('/folio')->info('Remote archive API prefix, independent of browse routes.')->end()
             ->scalarNode('extension')->defaultValue('folio')->end()
+            ->integerNode('catalog_ttl')
+                ->defaultValue(300)
+                ->info('Seconds a fetched hub catalog stays fresh before FolioCatalogClient refetches. The cached copy is also the outage fallback, so this is a refresh interval, not an expiry.')
+            ->end()
             ->scalarNode('data_dir')
                 ->defaultValue('%env(APP_DATA_DIR)%')
                 ->info('Root of the data tree folio paths resolve under, same value and default as survos_dataset.data_dir. Only used when dataset-bundle is absent: when it is installed IT registers DataPaths, from its own (richer) path config, and this is ignored.')
@@ -215,6 +220,19 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->public()
                 ->args(['$dataDir' => $config['data_dir']]);
         }
+
+        // The one hub-catalog reader (src/Catalog). Registered unconditionally: it is HTTP only,
+        // needs no registry, and replacing each app's own copy is the point of it existing.
+        // folio_server is where a reader already points for folio:pull, so the catalog follows it.
+        $services->set(FolioCatalogClient::class)
+            ->autowire()
+            ->autoconfigure()
+            ->public()
+            ->args([
+                '$server' => $config['folio_server'] ?? '',
+                '$cacheFile' => '%kernel.project_dir%/var/catalog/folio-catalog.json',
+                '$ttl' => $config['catalog_ttl'],
+            ]);
 
         foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class, StrRepository::class, StrTranslationRepository::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public()->tag('doctrine.repository_service');

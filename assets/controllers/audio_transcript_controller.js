@@ -22,11 +22,14 @@ export default class extends Controller {
         this.active = null;
         this.audioPlaceholder = null;
         this.audioContainer = null;
+        this.visibilityObserver = null;
+        this.observedAnchor = null;
         this.originalAudioStyle = this.audio.style.cssText;
         this.lastManualScrollAt = 0;
         this.unitByElement = new WeakMap();
         this.abortController = new AbortController();
         this.sync = this.sync.bind(this);
+        this.observeAudioVisibility = this.observeAudioVisibility.bind(this);
         this.floatAudio = this.floatAudio.bind(this);
         this.restoreAudio = this.restoreAudio.bind(this);
         this.seek = this.seek.bind(this);
@@ -36,7 +39,11 @@ export default class extends Controller {
         const listenerOptions = { signal: this.abortController.signal };
         this.audio.addEventListener('timeupdate', this.sync, listenerOptions);
         this.audio.addEventListener('seeked', this.sync, listenerOptions);
-        this.audio.addEventListener('play', this.floatAudio, listenerOptions);
+        // NOT float-on-play: the player used to jump into the floating pill the moment you
+        // pressed play, even while you were looking straight at it -- the controls appeared to
+        // vanish (2026-09-23). It floats only once it has actually scrolled out of view, and
+        // comes back when it scrolls in.
+        this.audio.addEventListener('play', this.observeAudioVisibility, listenerOptions);
         this.audio.addEventListener('ended', this.restoreAudio, listenerOptions);
         this.element.addEventListener('click', this.seek, listenerOptions);
         window.addEventListener('wheel', this.noteManualScroll, { ...listenerOptions, passive: true });
@@ -55,6 +62,9 @@ export default class extends Controller {
         }
 
         this.abortController?.abort();
+        this.visibilityObserver?.disconnect();
+        this.visibilityObserver = null;
+        this.observedAnchor = null;
         this.units?.forEach((unit) => unit.elements.forEach((element) => {
             element.style.cursor = '';
         }));
@@ -152,6 +162,46 @@ export default class extends Controller {
         }
     }
 
+    /**
+     * Start watching whether the player is on screen, once it is playing. The observer watches the
+     * placeholder when the audio is floating and the audio itself when it is not, since the element
+     * being observed moves.
+     */
+    observeAudioVisibility() {
+        if (this.visibilityObserver) {
+            return;
+        }
+
+        this.visibilityObserver = new IntersectionObserver((entries) => {
+            const entry = entries[entries.length - 1];
+            if (!entry) {
+                return;
+            }
+            if (entry.isIntersecting) {
+                this.restoreAudio();
+            } else if (!this.audio.paused) {
+                this.floatAudio();
+            }
+            this.watchAnchor();
+        }, { threshold: 0 });
+
+        this.watchAnchor();
+    }
+
+    /** (Re)point the observer at whichever element currently holds the player's place in the page. */
+    watchAnchor() {
+        const anchor = this.audioPlaceholder ?? this.audio;
+        if (!this.visibilityObserver || anchor === this.observedAnchor) {
+            return;
+        }
+
+        if (this.observedAnchor) {
+            this.visibilityObserver.unobserve(this.observedAnchor);
+        }
+        this.visibilityObserver.observe(anchor);
+        this.observedAnchor = anchor;
+    }
+
     floatAudio() {
         if (this.audioPlaceholder) {
             return;
@@ -167,7 +217,11 @@ export default class extends Controller {
             bottom: '1rem',
             transform: 'translateX(-50%)',
             width: 'min(480px, calc(100vw - 2rem))',
-            zIndex: '1050',
+            // Above Symfony's web debug toolbar (99999), which otherwise paints straight over the
+            // pill in dev: document.elementFromPoint() at the pill's centre returned
+            // DIV.sf-toolbar-icon, so the audio played with no visible controls. A sticky site
+            // footer in production is the same hazard.
+            zIndex: '100000',
             padding: '.5rem .75rem',
             border: '1px solid rgba(255, 255, 255, .35)',
             borderRadius: '999px',
