@@ -45,6 +45,9 @@ use Symfony\Component\Serializer\Attribute\Groups;
             itemUriTemplate: '/folios/{provider}/{dataset}/{coreCode}/rows/{localId}',
             normalizationContext: ['groups' => ['row:read']],
         ),
+        // The ITEM carries its pages; the collection above deliberately does not. This is what a
+        // reader fetches when someone opens one interview, and it is the only place the audio URL
+        // and transcript are available over HTTP -- see Row::$pages for why it is not in 'row:read'.
         new Get(
             uriTemplate: '/folios/{provider}/{dataset}/{coreCode}/rows/{localId}',
             uriVariables: [
@@ -54,7 +57,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
                 'localId' => new Link(identifiers: ['localId']),
             ],
             provider: FolioRowProvider::class,
-            normalizationContext: ['groups' => ['row:read']],
+            normalizationContext: ['groups' => ['row:read', 'row:pages', 'page:read']],
         ),
     ],
     shortName: 'FolioRow',
@@ -100,9 +103,19 @@ class Row implements RouteParametersInterface
     #[ORM\OneToMany(targetEntity: Claim::class, mappedBy: 'item')]
     public Collection $claims;
 
-    /** @var Collection<int, Page> Ordered viewable pages — the canonical imagery for this row. */
+    /**
+     * @var Collection<int, Page> Ordered viewable pages — the canonical imagery for this row.
+     *
+     * Serialized under 'row:pages', NOT 'row:read', and only the item operation asks for it. A
+     * recording's audio URL and its transcript live on the Page, so a remote reader cannot render
+     * an interview without them — but putting them in 'row:read' would embed every page of every
+     * row in the COLLECTION response too. loc/covid-19-american-history-project is 325 rows whose
+     * pages carry whole 40-minute transcripts; listing them would serialize the entire folio on
+     * each page of results, and read as the reader being slow.
+     */
     #[ORM\OneToMany(targetEntity: Page::class, mappedBy: 'row')]
     #[ORM\OrderBy(['seq' => SortDirection::Ascending])]
+    #[Groups(['row:pages'])]
     public Collection $pages;
 
     private ?string $resolvedThumbnailUrl = null;
