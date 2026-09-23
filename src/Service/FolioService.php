@@ -6,7 +6,7 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
-use Survos\DatasetBundle\Service\DataPaths;
+use Survos\DataContracts\Path\DataPaths;
 use Survos\FolioBundle\DBAL\FolioConnectionWrapper;
 use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Exception\FolioNotFoundException;

@@ -7,7 +7,7 @@ namespace Survos\FolioBundle\Tests\Service;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\TestCase;
-use Survos\DatasetBundle\Service\DataPaths;
+use Survos\DataContracts\Path\DataPaths;
 use Survos\FolioBundle\Service\FolioIngestService;
 use Symfony\Component\Filesystem\Filesystem;
 

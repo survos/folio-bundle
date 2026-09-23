@@ -6,7 +6,7 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
-use Survos\DatasetBundle\Service\DataPaths;
+use Survos\DataContracts\Path\DataPaths;
 use Survos\JsonlBundle\Sqlite\SidecarDb;
 use Symfony\Component\DependencyInjection\Attribute\Target;
 

@@ -30,7 +30,15 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
          *  added below (e.g. 'year:asc') or it's silently ignored and the first-added sort wins,
          *  same as AbstractSearch's own default-sort behavior. */
         private readonly ?string $defaultSort = null,
+        /** survos_folio.yaml's search_hit_fields — extra dto_data keys selected onto every hit.
+         *  @var list<string> */
+        private readonly array $hitFields = [],
     ) {
+        foreach ($this->hitFields as $field) {
+            if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $field)) {
+                throw new \InvalidArgumentException(sprintf('survos_folio.search_hit_fields: "%s" is not a plain field name.', $field));
+            }
+        }
     }
 
     /**
@@ -217,6 +225,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 "json_extract(d.dto_data, '$.city') AS city",
                 "json_extract(d.dto_data, '$.state') AS state",
                 "json_extract(d.dto_data, '$.country') AS country",
+                ...array_map(fn (string $f): string => $this->jsonExtract($f).' AS "'.$f.'"', $this->hitFields),
             ],
             'facetColumns' => $facetColumns,
             'sortColumns' => [

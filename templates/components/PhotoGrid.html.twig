@@ -84,7 +84,7 @@
                {% if year %}data-year="{{ year }}"{% endif %}>
                 {# thumbnailUrl is already a signed imgproxy URL -- FolioRowProvider::resolveThumbnails()
                    resolves it server-side (both for this page-1 render and the client-fetched pages
-                   the Stimulus controller appends). Applying |imgproxy() again here would double-proxy
+                   the Stimulus controller appends). Applying |folio_image() again here would double-proxy
                    every image (imgproxy fetching its own already-proxied output as the "source"). #}
                 {# alt was item.label, which for a folio without titles is the localId -- a grid of
                    200 links each announced as "F-I-0-0-0-3-3-4-2" (2026-09-17). The description is
@@ -94,7 +94,7 @@
                 {% if itemAlt is empty %}
                     {% set itemAlt = [place, year]|filter(v => v is not empty)|join(', ') ?: item.label %}
                 {% endif %}
-                {% if item.thumbnailUrl %}
+                {% if item.thumbnailUrl|default(null) %}
                     <img src="{{ item.thumbnailUrl }}" alt="{{ itemAlt|u.truncate(200, '…', false) }}" loading="lazy" decoding="async">
                 {% else %}
                     {# No renderable image: either the record genuinely has none, or what was

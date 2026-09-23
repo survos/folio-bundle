@@ -300,7 +300,7 @@
                         {% if heroImage %}
                             {% set displayImage = heroImage %}
                             {% guard filter imgproxy %}
-                                {% set displayImage = heroImage|imgproxy('display') %}
+                                {% set displayImage = heroImage|folio_image('display') %}
                             {% endguard %}
                             <img src="{{ displayImage }}" class="folio-document-image border-bottom" alt="{{ title }}">
                         {% else %}

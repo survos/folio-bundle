@@ -70,7 +70,10 @@ final class FolioRouteAttributeListener
         }
 
         $request->attributes->set('folioCode', $folioCode);
-        $this->folioService->switch($folioCode);
+        // context(), not switch(): it self-heals a stale folio schema (one PRAGMA read when current).
+        // Argument resolvers load the Folio entity before any controller runs, so a folio built
+        // before a new mapped column (e.g. folio.content_type) would otherwise 500 on every route.
+        $this->folioService->context($folioCode);
     }
 
     /**

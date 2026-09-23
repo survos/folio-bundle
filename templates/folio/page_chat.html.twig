@@ -198,7 +198,7 @@
                         <div class="card-body">
                             {% set imageUrl = page.url %}
                             {% guard filter imgproxy %}
-                                {% set imageUrl = page.url|imgproxy('display') %}
+                                {% set imageUrl = page.url|folio_image('display') %}
                             {% endguard %}
                             <img src="{{ imageUrl }}" class="img-fluid rounded border" alt="Page {{ page.seq }}">
                         </div>

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
-use Survos\DatasetBundle\Enum\Stage;
+use Survos\DataContracts\Path\Stage;
 use Survos\DatasetBundle\Repository\DatasetInfoRepository;
-use Survos\DatasetBundle\Service\DataPaths;
+use Survos\DataContracts\Path\DataPaths;
 use Survos\DatasetBundle\Service\DatasetIntlService;
 use Survos\JsonlBundle\IO\JsonlReader;
 use Symfony\Component\Console\Attribute\Argument;

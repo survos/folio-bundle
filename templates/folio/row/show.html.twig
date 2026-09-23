@@ -95,8 +95,9 @@
        normalizer via PageType::Audio), not a URL-extension guess, since a CDN audio URL doesn't
        always end in a recognizable audio extension. Pulled out of `pages` BEFORE hasOcr/
        isSingleImage/pageTexts below compute from it — an audio page must never count toward
-       those or trigger the OSD/image viewer. #}
-    {% set audioPages = pages|filter(p => p.type and p.type.value == 'audio') %}
+       those or trigger the OSD/image viewer. |merge([]) makes it a plain array: filtering a
+       Doctrine collection yields an iterator, and the parts loop below needs loop.last. #}
+    {% set audioPages = pages|filter(p => p.type and p.type.value == 'audio')|merge([]) %}
     {% set pages = pages|filter(p => not (p.type and p.type.value == 'audio')) %}
     {% set pageTexts = pages|map(p => p.text|default('')) %}
     {# Per-image caption/credit (e.g. NPS: caption + "Credit: ..." folded together by the provider's
@@ -193,8 +194,18 @@
                             {% endif %}
 
                             {% if tombstoneDimensions is iterable and tombstoneDimensions is not empty %}
-                                {# Structured dimensions → dimensions-bundle renderer (icons + units, raw fallback) #}
-                                {{ dim_render(tombstoneDimensions, attribute(row.dtoData, 'weight')|default([]), tombstoneDimensionsRaw) }}
+                                {# Structured dimensions → dimensions-bundle renderer (icons + units, raw fallback).
+                                   dimensions-bundle is optional: without it, show the source's raw string. #}
+                                {% guard function dim_render %}
+                                    {{ dim_render(tombstoneDimensions, attribute(row.dtoData, 'weight')|default([]), tombstoneDimensionsRaw) }}
+                                {% else %}
+                                    {% if tombstoneDimensionsRaw %}
+                                        <span class="badge rounded-pill bg-white text-muted border px-3">
+                                            {{ ux_icon('tabler:ruler-measure', { class: 'icon me-1' }) }}
+                                            {{ tombstoneDimensionsRaw }}
+                                        </span>
+                                    {% endif %}
+                                {% endguard %}
                             {% elseif tombstoneDimensions or tombstoneDimensionsRaw %}
                                 <span class="badge rounded-pill bg-white text-muted border px-3">
                                     {{ ux_icon('tabler:ruler-measure', { class: 'icon me-1' }) }}
@@ -361,8 +372,8 @@
                             {% set pageHires = page.url %}
                             {% set pageInfoUrl = null %}
                             {% guard filter imgproxy %}
-                                {% set pageImg = page.url|imgproxy('thumb') %}
-                                {% set pageHires = page.url|imgproxy('archive') %}
+                                {% set pageImg = page.url|folio_image('thumb') %}
+                                {% set pageHires = page.url|folio_image('archive') %}
                                 {% set pageInfoUrl = path('survos_imgproxy_info', {url: page.url}) %}
                             {% endguard %}
                             {% set viewerImages = viewerImages|merge([pageImg]) %}
@@ -578,7 +589,7 @@
                                                 {% else %}
                                                     {% set thumb = page.url %}
                                                     {% guard filter imgproxy %}
-                                                        {% set thumb = page.url|imgproxy('thumb') %}
+                                                        {% set thumb = page.url|folio_image('thumb') %}
                                                     {% endguard %}
                                                     <img src="{{ thumb }}" alt="p. {{ page.seq }}"
                                                          class="img-fluid rounded border"
@@ -815,7 +826,7 @@
             {% set firstPage = pages|first %}
             {% if firstPage and firstPage.url %}
                 {% set aspectProbe = firstPage.url %}
-                {% guard filter imgproxy %}{% set aspectProbe = aspectProbe|imgproxy('thumb') %}{% endguard %}
+                {% guard filter imgproxy %}{% set aspectProbe = aspectProbe|folio_image('thumb') %}{% endguard %}
                 <script>
                     (function () {
                         var probe = {{ aspectProbe|json_encode|raw }};

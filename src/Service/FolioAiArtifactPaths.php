@@ -6,7 +6,7 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\Persistence\ManagerRegistry;
 use Survos\DatasetBundle\Entity\DatasetInfo;
-use Survos\DatasetBundle\Service\DataPaths;
+use Survos\DataContracts\Path\DataPaths;
 
 final class FolioAiArtifactPaths
 {

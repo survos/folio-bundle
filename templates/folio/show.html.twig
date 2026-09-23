@@ -85,7 +85,7 @@
                         {{ stimulus_action(controllerName, 'jump') }}
                     >
                         {% if slide.thumb %}
-                            <img src="{{ slide.thumb|imgproxy('thumb') }}" alt="" loading="lazy" decoding="async">
+                            <img src="{{ slide.thumb|folio_image('thumb') }}" alt="" loading="lazy" decoding="async">
                         {% else %}
                             <span class="small text-muted">{{ loop.index }}</span>
                         {% endif %}
@@ -160,7 +160,7 @@
                 {{ stimulus_target('clipboard', 'button') }}
                 title="Copy folio pull command"
             >
-                {% guard function ux_icon %}{{ ux_icon('clipboard') }} Copy{% else %}Copy{% endguard %}
+                {% guard function ux_icon %}{{ ux_icon('tabler:clipboard') }} Copy{% else %}Copy{% endguard %}
             </button>
         </div>
         <div class="card-body">

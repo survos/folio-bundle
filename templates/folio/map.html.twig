@@ -33,9 +33,15 @@
             ? path('survos_folio_map_geojson_filtered', {folioCode: folio.code, filter: filter, zoom: 0})
             : path('survos_folio_map_geojson', {folioCode: folio.code, zoom: 0})
         )|slice(0, -2) %}
+        {% guard function ux_map %}
         {{ ux_map(center: [20, 0], zoom: 2, attributes: stimulus_controller(controllerName, {geojsonUrl: geojsonUrlBase, rowUrlTemplate: rowUrlTemplate, slideshowBaseUrl: slideshowBaseUrl|default('')})|merge({
             style: 'height: 70vh; width: 100%; border-radius: 0.5rem;',
         })) }}
+        {% else %}
+            <div class="alert alert-info">
+                The map needs <code>symfony/ux-leaflet-map</code>, which this app does not have installed.
+            </div>
+        {% endguard %}
 
         <style>
             {# Every marker/cluster color on this page reads from these three custom properties --

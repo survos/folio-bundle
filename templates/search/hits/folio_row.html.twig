@@ -1,0 +1,27 @@
+{# Default search hit for FolioRowSearch. An app replaces it by providing its own
+   templates/search/hits/folio_row.html.twig (FolioSearchController prefers that one). Plain on
+   purpose: no app routes, no Stimulus controllers; the image goes through |folio_image, so it works
+   with or without imgproxy. #}
+{% set detailUrl = path('survos_folio_row_show', {
+    folioCode: hit.provider ~ '/' ~ hit.dataset,
+    coreCode: hit.coreCode,
+    dtoType: hit.dtoType ?: 'row',
+    localId: hit.localId
+}) %}
+{% set place = [hit.city|default(null), hit.state|default(null), hit.country|default(null)]|filter(v => v)|join(', ') %}
+<div class="hit-item card h-100 shadow-none">
+    {% if hit.thumbnailUrl|default(null) %}
+        <a href="{{ detailUrl }}" class="ratio ratio-4x3 bg-light">
+            <img src="{{ hit.thumbnailUrl|folio_image('thumb') }}" alt="" loading="lazy" class="object-fit-cover">
+        </a>
+    {% endif %}
+    <div class="card-body p-2">
+        <a href="{{ detailUrl }}" class="fw-semibold text-reset d-block">{{ hit.label|default(hit.localId) }}</a>
+        <div class="small text-muted">
+            {{ [hit.dtoType|default(null), hit.year|default(null), place ?: null]|filter(v => v)|join(' · ') }}
+        </div>
+        {% if hit.description|default(null) %}
+            <div class="small mt-1">{{ hit.description|u.truncate(160, '…') }}</div>
+        {% endif %}
+    </div>
+</div>

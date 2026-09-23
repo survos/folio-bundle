@@ -220,7 +220,7 @@
                             {% set imageUrl = hit.thumbnailUrl %}
                             {% if th %}
                                 {% guard filter imgproxy %}
-                                    {% set imageUrl = th|imgproxy('thumb') %}
+                                    {% set imageUrl = th|folio_image('thumb') %}
                                 {% endguard %}
                             {% endif %}
 

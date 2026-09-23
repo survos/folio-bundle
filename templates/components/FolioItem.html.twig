@@ -59,8 +59,8 @@
             {% set pageHires = page.url %}
             {% set pageInfoUrl = null %}
             {% guard filter imgproxy %}
-                {% set pageImg = page.url|imgproxy('thumb') %}
-                {% set pageHires = page.url|imgproxy('archive') %}
+                {% set pageImg = page.url|folio_image('thumb') %}
+                {% set pageHires = page.url|folio_image('archive') %}
                 {% set pageInfoUrl = path('survos_imgproxy_info', {url: page.url}) %}
             {% endguard %}
             {% set viewerImages = viewerImages|merge([pageImg]) %}
@@ -81,7 +81,7 @@
         <div class="fp-detail">
             <div class="fp-detail__image">
                 {% if imageSource %}
-                    <img src="{{ imageSource|imgproxy('display') }}" alt="{{ imageAlt }}" loading="eager">
+                    <img src="{{ imageSource|folio_image('display') }}" alt="{{ imageAlt }}" loading="eager">
                 {% endif %}
                 {# On-image prev/next -- the old text links tucked at the bottom of the 280px
                    sidebar needed a scroll to even see (2026-08-04 feedback); arrows over the
@@ -198,7 +198,7 @@
                         <button type="button" class="btn btn-outline-secondary"
                             {{ stimulus_controller(_sc, {
                                 title: tombstoneTitle,
-                                thumbnail: imageSource ? imageSource|imgproxy('display') : '',
+                                thumbnail: imageSource ? imageSource|folio_image('display') : '',
                                 creator: tombstoneCredit ?: tombstoneDonor,
                                 date: tombstoneYear,
                                 license: tombstoneLicense,
@@ -254,7 +254,7 @@
                    sized that way specifically for OSD's deep-zoom -- without a viewer, that was
                    downloading the full-res source into a plain <img> and made the page feel slow.
                    'display' is small for now on purpose; revisit sizing once zoom comes back. #}
-                <img src="{{ imageSource|imgproxy('display') }}" alt="{{ imageAlt }}" loading="eager">
+                <img src="{{ imageSource|folio_image('display') }}" alt="{{ imageAlt }}" loading="eager">
             {% endif %}
         </div>
 
@@ -326,7 +326,7 @@
                     <button type="button" class="btn btn-outline-secondary"
                         {{ stimulus_controller(_sc, {
                             title: tombstoneTitle,
-                            thumbnail: imageSource ? imageSource|imgproxy('display') : '',
+                            thumbnail: imageSource ? imageSource|folio_image('display') : '',
                             creator: tombstoneCredit ?: tombstoneDonor,
                             date: tombstoneYear,
                             license: tombstoneLicense,

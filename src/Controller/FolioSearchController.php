@@ -13,6 +13,8 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class FolioSearchController extends AbstractController
 {
+    private const string APP_HIT_TEMPLATE = 'search/hits/folio_row.html.twig';
+
     public function __construct(private readonly FolioService $folios)
     {
     }
@@ -42,6 +44,10 @@ final class FolioSearchController extends AbstractController
             'cores' => $ctx->em->getRepository(Core::class)->findBy([], ['code' => 'ASC']),
             'selectedCore' => $coreCode,
             'selectedDtoType' => $dtoType,
+            // The app's own hit card when it has one, otherwise this bundle's plain default.
+            'hitTemplate' => $this->container->get('twig')->getLoader()->exists(self::APP_HIT_TEMPLATE)
+                ? self::APP_HIT_TEMPLATE
+                : '@SurvosFolioBundle/search/hits/folio_row.html.twig',
         ]);
     }
 }

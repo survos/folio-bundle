@@ -1,7 +1,7 @@
 {% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
 {% set folioLabel = folio.label ?: folio.code %}
-{% set hitOptions = { folioCode: folio.code, hitTemplate: 'search/hits/folio_row.html.twig' } %}
+{% set hitOptions = { folioCode: folio.code, hitTemplate: hitTemplate|default('search/hits/folio_row.html.twig') } %}
 {% if selectedCore|default(null) %}
     {% set hitOptions = hitOptions|merge({coreCode: selectedCore}) %}
 {% endif %}

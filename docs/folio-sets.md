@@ -1,7 +1,12 @@
 # Folio sets: which folios an app shows
 
-Status: 2026-09-22. Tags, the resolver and `folio:sets:sync` are implemented and resolve against a
-local registry. Reading a remote catalog, and moving fotostory and ink onto this, are not done yet.
+Status: 2026-09-23. Tags, the resolver and `folio:sets:sync` are implemented and resolve against a
+local registry. zm's `/folio/list.json` now publishes each folio's `tags`, so a remote catalog can
+be read; the resolver itself still reads the local registry. Moving fotostory and ink onto this is
+not done yet.
+
+This bundle no longer requires dataset-bundle (see [bare-app.md](bare-app.md)), which is what makes
+a set usable by an app that has no registry at all — once the resolver reads the catalog.
 
 ## The problem
 
@@ -85,12 +90,39 @@ Checked against harvest's registry (103 folios): `contentType: newspaper` → 73
 
 ## Not yet
 
-- Reading a remote catalog (`/api/dataset_infos`) for apps that do not share harvest's registry.
+- `FolioSetResolver` reading the remote catalog. The DATA is published now (`/folio/list.json`
+  carries `tags`, sourced from zm's own `FolioRegistration.tags` rather than a live dataset-bundle
+  lookup), but `resolve()` still requires `DatasetInfoRepository` and throws without it. An app
+  without a registry works only from a recorded `var/folio-sets/<code>.json`.
 - Pulling member folios and building pooled search indexes from a set.
 - Migrating fotostory and ink onto sets, then deleting their set commands.
 - This bundle's generic pages need packages it does not declare: `simple_datatables` (collection),
   the `imgproxy` Twig filter (folio page), a `folio_fts` search configuration (search page). Either
   declare them or make those pages degrade without them.
+
+## Worked example: an oral-history site
+
+The point of a tag is that a site is a *criteria* over source metadata, not a hand-kept list.
+Voxstory selects recorded first-person testimony wherever it came from:
+
+```yaml
+survos_folio:
+    folio_sets:
+        voices:
+            label: Oral histories
+            criteria:
+                tags: [oral-history]
+```
+
+Harvest assigns that tag when it writes each dataset's metadata — every LOC collection gets it
+automatically (`App\Command\LocRawCommand::ORAL_HISTORY_TAG`), and a dataset can add narrower tags
+of its own via `tags:` in `config/loc/datasets.yaml`. The tag is deliberately provider-neutral: a
+Densho or StoryCorps dataset carrying `oral-history` joins the same set rather than needing one set
+per provider.
+
+A single-collection site is the same mechanism with narrower criteria — `provider: [mus]` plus a
+tag, or a tag minted for exactly that grouping (`nabolom`), which is how one brand limits itself to
+its own few folios.
 
 ## Decided
 

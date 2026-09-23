@@ -11,11 +11,12 @@
         "doctrine/orm": "^3.7",
         "league/commonmark": "^2.4",
         "survos/babel-bundle": "^2.10",
-        "survos/dataset-bundle": "^2.5",
         "survos/data-contracts": "^2.5",
         "survos/field-bundle": "^2.5",
         "survos/jsonl-bundle": "^2.5",
         "survos/search-bundle": "^2.5",
+        "survos/simple-datatables-bundle": "^2.19",
+        "twig/string-extra": "^3.20",
         "zenstruck/bytes": "^1.1",
         "symfony/ai-agent": "^0.13",
         "symfony/config": "^8.1",
@@ -39,8 +40,10 @@
         "survos/settings-bundle": "Lets RowMenu gate OCR/Handwriting behind a per-user beta_features setting instead of only the dev environment.",
         "survos/schema-org-bundle": "Publishes JSON-LD on the row detail page (RowSchemaOrgBuilder), reading the #[SchemaOrg] attributes survos/data-contracts already puts on the item DTOs. Without it the row page has no structured data.",
         "symfony/ux-twig-component": "Required for the PhotoGrid Twig component.",
+        "symfony/ux-leaflet-map": "Draws the folio map page (survos_folio_map); without it the page explains what is missing.",
         "api-platform/core": "Required for the PhotoGrid Twig component's data source (Row's #[ApiResource]).",
-        "presta/sitemap-bundle": "For folio:sitemap \u2014 static per-folio XML sitemaps of item pages."
+        "presta/sitemap-bundle": "For folio:sitemap \u2014 static per-folio XML sitemaps of item pages.",
+        "survos/dataset-bundle": "Production registry (DatasetInfo/Artifact rows, folio:build, the collection index). Only the app that BUILDS folios needs it; a reader pulls published folios over HTTP \u2014 see docs/bare-app.md."
     },
     "autoload": {
         "psr-4": {
@@ -65,7 +68,8 @@
         "survos/fetch-bundle": "^2.5",
         "survos/tabler-bundle": "^2.5",
         "survos/imgproxy-bundle": "^2.5",
-        "survos/iiif-bundle": "^2.5"
+        "survos/iiif-bundle": "^2.5",
+        "survos/dataset-bundle": "^2.5"
     },
     "keywords": [
         "symfony-ux",
