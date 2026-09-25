@@ -110,13 +110,13 @@ final class FolioService
      * close. The counterpart to {@see closeActive()}, which is abort-shaped — it rolls back, so
      * calling it after a good build would silently discard the build.
      *
-     * The journal_mode flip is the point. {@see FolioConnectionWrapper::applyPragmas()} asserts WAL
-     * on every connect, which is right during ingest (concurrent readers + a writer) and wrong for
+     * The journal_mode flip is the point. {@see FolioConnectionWrapper::beginTransaction()} asserts
+     * WAL on the first write, which is right during ingest (concurrent readers + a writer) and wrong for
      * a finished artifact, which has no writer at all. WAL then buys nothing and costs two sidecar
      * files, so a `.folio` stops being a single self-contained file — and on read-only media a
      * lingering `-wal` makes SQLite attempt recovery and refuse to open. Flipping on the way out
      * leaves DELETE mode in the header and removes -wal/-shm. It is idempotent: the next open
-     * re-asserts WAL, and the next finalize() puts it back.
+     * re-asserts WAL for writing, and the next finalize() (or close) puts it back.
      *
      * See survos/mono#50.
      */

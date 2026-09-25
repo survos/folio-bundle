@@ -10,8 +10,8 @@ final class FolioConnectionWrapper extends Connection
 {
     public string $currentPath;
     private bool $readOnly = false;
-    /** The journal mode the file had before applyPragmas() forced WAL; put back on close. */
-    private ?string $journalModeBefore = null;
+    /** This connection switched the file to WAL for a write; put it back to DELETE on close. */
+    private bool $walApplied = false;
 
     public function __construct(array $params, Driver $driver, ?Configuration $config = null)
     {
@@ -44,12 +44,6 @@ final class FolioConnectionWrapper extends Connection
     }
 
     /**
-     * busy_timeout must be re-applied on every connection — it is per-connection,
-     * not persisted in the file. Without it, concurrent writers (background workers,
-     * ingest + browse) die immediately with SQLITE_BUSY instead of waiting briefly.
-     * journal_mode = WAL is persisted in the file header but cheap to re-assert.
-     */
-    /**
      * mode=ro, plus immutable=1 when a plain read-only open is bound to fail.
      *
      * A WAL-mode file needs its -shm beside it; in a directory the reader cannot write, SQLite
@@ -68,26 +62,44 @@ final class FolioConnectionWrapper extends Connection
     }
 
     /**
-     * Put the journal mode back the way it was found. Opening a folio read-write must not leave
-     * the file different from how it was, whether or not the caller reached finalize(): a scan
-     * that only read 3,942 folios otherwise leaves every one of them in WAL mode.
+     * WAL is for writing, so it starts with the first write transaction, not with the connection.
      *
-     * Best effort: it fails harmlessly while another connection holds the file (the last one out
-     * restores it) and cannot run if the process is killed, which is what the reader-side
-     * immutable fallback in {@see readOnlyQuery()} is for.
+     * Asserting WAL on every connect meant every open changed the file: a zm dataset:scan that only
+     * read 3,942 folios left all of them in WAL mode (2026-09-23), and after that was fixed with a
+     * restore-on-close, zm's web workers kept flipping ~90 more a day, because two workers holding
+     * the same file each saw it already in WAL and neither put it back. Reads never get here, so
+     * browsing a folio now leaves its header alone. journal_mode cannot change inside a
+     * transaction, so this runs only at the outermost begin.
+     */
+    public function beginTransaction(): void
+    {
+        if (!$this->readOnly && !$this->walApplied && $this->getTransactionNestingLevel() === 0) {
+            $this->executeStatement('PRAGMA journal_mode = WAL');
+            $this->walApplied = true;
+        }
+        parent::beginTransaction();
+    }
+
+    /**
+     * A folio at rest is in DELETE mode (see FolioService::finalize()), so a connection that
+     * switched it to WAL switches it back on the way out, whether or not the caller reached
+     * finalize(). Best effort: leaving WAL needs an exclusive lock, so while another writer still
+     * holds the file this fails and that writer, which also applied WAL, restores it when it
+     * closes. A killed process cannot run this; the reader-side immutable fallback in
+     * {@see readOnlyQuery()} covers that.
      */
     public function close(): void
     {
-        if ($this->journalModeBefore !== null && $this->journalModeBefore !== 'wal' && $this->isConnected() && !$this->isTransactionActive()) {
+        if ($this->walApplied && $this->isConnected() && !$this->isTransactionActive()) {
             try {
-                // Leaving WAL needs an exclusive lock; don't sit out the 30 s busy_timeout for it.
+                // Don't sit out the 30 s busy_timeout for a lock another writer is holding.
                 $this->executeStatement('PRAGMA busy_timeout = 0');
-                $this->executeStatement('PRAGMA journal_mode = '.$this->journalModeBefore);
+                $this->executeStatement('PRAGMA journal_mode = DELETE');
             } catch (\Throwable) {
                 // another connection holds the file, or the mount is read-only
             }
         }
-        $this->journalModeBefore = null;
+        $this->walApplied = false;
         parent::close();
     }
 
@@ -100,6 +112,12 @@ final class FolioConnectionWrapper extends Connection
         }
     }
 
+    /**
+     * Per-connection settings; none of these is written into the file. busy_timeout must be
+     * re-applied on every connection, or concurrent writers (background workers, ingest + browse)
+     * die immediately with SQLITE_BUSY instead of waiting briefly. journal_mode is deliberately
+     * not here: it IS persisted in the file, so {@see beginTransaction()} sets it only for writes.
+     */
     private function applyPragmas(): void
     {
         if ($this->readOnly) {
@@ -107,9 +125,6 @@ final class FolioConnectionWrapper extends Connection
             $this->executeStatement('PRAGMA busy_timeout = 30000');
             return;
         }
-        $before = strtolower((string) $this->fetchOne('PRAGMA journal_mode'));
-        $this->journalModeBefore = preg_match('/^(delete|truncate|persist)$/D', $before) ? $before : null;
-        $this->executeStatement('PRAGMA journal_mode = WAL');
         $this->executeStatement('PRAGMA busy_timeout = 30000');
         $this->executeStatement('PRAGMA synchronous = NORMAL');
         $this->executeStatement('PRAGMA foreign_keys = ON');
