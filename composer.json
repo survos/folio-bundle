@@ -18,7 +18,7 @@
         "survos/simple-datatables-bundle": "^2.19",
         "twig/string-extra": "^3.20",
         "zenstruck/bytes": "^1.1",
-        "symfony/ai-agent": "^0.13",
+        "symfony/ai-agent": "^0.14",
         "symfony/config": "^8.1",
         "symfony/console": "^8.1",
         "symfony/http-client": "^8.1",
