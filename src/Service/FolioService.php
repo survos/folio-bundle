@@ -39,9 +39,86 @@ final class FolioService
     ) {}
 
     /** Pass $locale for a localized build, e.g. <code>.en.folio instead of <code>.folio. */
+    /**
+     * Build a folio somewhere else, then put it in place in one step.
+     *
+     * A build writes the live file. Readers that mount the folio root read-only — ink serves
+     * /platform that way — therefore see a database mid-write for as long as the build runs, which
+     * is what took inkstory.org down on 2026-09-24 and again on 2026-09-25 (a 6.1 GB rebuild of
+     * news/rappnews4909, with the worker dying and retrying every five minutes). Journal mode does
+     * not save them: the file itself is incomplete.
+     *
+     * While an override is set, every path() answer for that folio — and so every connection
+     * switch(), every ingest write — points at the temp file. finish() renames it over the real
+     * one, which is atomic within a filesystem, so a reader sees either the old folio or the new
+     * one and never a half-written file.
+     *
+     * @var array<string, string> folioCode+locale => temp path
+     */
+    private array $buildPaths = [];
+
+    /** Send writes for this folio to a sibling temp file until finishBuildAt(). */
+    public function buildAt(string $folioCode, ?string $locale = null): string
+    {
+        $target = $this->path($folioCode, createDirectory: true, locale: $locale);
+        $temp = $target.'.building';
+        if (is_file($temp)) {
+            unlink($temp);
+        }
+        // No copy of the existing folio: ingestDataset() calls reset(), which lays the bootstrap
+        // template over this path anyway, and copying 6 GB to overwrite it immediately is pure cost.
+        $this->buildPaths[$this->buildKey($folioCode, $locale)] = $temp;
+
+        return $temp;
+    }
+
+    /** Rename the temp file over the real folio. Returns the final path. */
+    public function finishBuildAt(string $folioCode, ?string $locale = null): string
+    {
+        $key = $this->buildKey($folioCode, $locale);
+        $temp = $this->buildPaths[$key] ?? null;
+        unset($this->buildPaths[$key]);
+        $target = $this->path($folioCode, locale: $locale);
+        if ($temp === null || !is_file($temp)) {
+            return $target;
+        }
+        // Drop anything named after the temp file before it takes the real name: SQLite's own
+        // sidecars, and the build lock, which is created from the path in use.
+        foreach (['-wal', '-shm', '-journal', '.lock'] as $sidecar) {
+            if (is_file($temp.$sidecar)) {
+                unlink($temp.$sidecar);
+            }
+        }
+        if (!rename($temp, $target)) {
+            throw new \RuntimeException(sprintf('Could not move the built folio into place: %s → %s', $temp, $target));
+        }
+        $this->logger?->info('Folio swapped into place', ['folio' => $folioCode, 'path' => $target]);
+
+        return $target;
+    }
+
+    /** Abandon a build in progress, leaving the live folio untouched. */
+    public function discardBuildAt(string $folioCode, ?string $locale = null): void
+    {
+        $key = $this->buildKey($folioCode, $locale);
+        $temp = $this->buildPaths[$key] ?? null;
+        unset($this->buildPaths[$key]);
+        foreach ([$temp, $temp.'-wal', $temp.'-shm', $temp.'-journal', $temp.'.lock'] as $path) {
+            if (is_string($path) && $path !== '' && is_file($path)) {
+                unlink($path);
+            }
+        }
+    }
+
+    private function buildKey(string $folioCode, ?string $locale): string
+    {
+        return $folioCode.'@'.($locale ?? '');
+    }
+
     public function path(string $folioCode, bool $createDirectory = false, ?string $locale = null): string
     {
-        return $this->dataPaths->folioFile($folioCode, $this->localizedExtension($locale), $createDirectory);
+        return $this->buildPaths[$this->buildKey($folioCode, $locale)]
+            ?? $this->dataPaths->folioFile($folioCode, $this->localizedExtension($locale), $createDirectory);
     }
 
     public function rootPath(): string

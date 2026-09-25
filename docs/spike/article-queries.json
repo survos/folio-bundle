@@ -1,0 +1,222 @@
+{
+  "_about": "Judged queries for news/rappnews-digital (534 born-digital articles, 2011). rel = article id prefixes; relMatch = every article whose title+body matches the regex at least relMin times. Kinds: article (one story, reader's words), passage (a fact inside a column), topic (several stories), vocab (words the text does not use), name (a person or place the embedding has no reason to know).",
+  "queries": [
+    {
+      "kind": "article",
+      "q": "how many people live in Rappahannock now",
+      "rel": [
+        "7d14b6ec"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "electric co-op restores power after the snow",
+      "rel": [
+        "2b041720"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "state cuts money for county road projects",
+      "rel": [
+        "88ca39a4"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "is the Sperryville post office closing",
+      "rel": [
+        "bb8a8aba"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "tax credit for low income working families",
+      "rel": [
+        "24c8735e"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "former publisher of the paper dies",
+      "rel": [
+        "b427027e"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "keeping cattle out of streams",
+      "rel": [
+        "3b82b540"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "Farm Bureau lawsuit against the EPA over Chesapeake Bay pollution",
+      "rel": [
+        "d73ac778"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "fire in Shenandoah National Park",
+      "rel": [
+        "897c44cb"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "developer plans for the corner of 211 and 229",
+      "rel": [
+        "6e7d9f21",
+        "1913694e"
+      ]
+    },
+    {
+      "kind": "article",
+      "q": "teenagers charged with armed robbery",
+      "rel": [
+        "2e2bcf32",
+        "da842d9a",
+        "463a846e"
+      ]
+    },
+    {
+      "kind": "passage",
+      "q": "soldier home from Afghanistan for Valentine's Day",
+      "rel": [
+        "60abc149"
+      ]
+    },
+    {
+      "kind": "passage",
+      "q": "guess how many jellybeans",
+      "rel": [
+        "9ae7aea7",
+        "d06e44d4"
+      ]
+    },
+    {
+      "kind": "passage",
+      "q": "garter snake found in the snow",
+      "rel": [
+        "0cb8d3ed"
+      ]
+    },
+    {
+      "kind": "passage",
+      "q": "horse racing drawings at the Ice House Gallery",
+      "rel": [
+        "5970ac54"
+      ]
+    },
+    {
+      "kind": "passage",
+      "q": "church mission trip",
+      "rel": [
+        "e1fa8897"
+      ]
+    },
+    {
+      "kind": "passage",
+      "q": "lost cat",
+      "rel": [
+        "68e3dc44",
+        "5970ac54"
+      ]
+    },
+    {
+      "kind": "passage",
+      "q": "lunar eclipse on the winter solstice",
+      "rel": [
+        "cefb6973"
+      ]
+    },
+    {
+      "kind": "topic",
+      "q": "cell phone towers near the school",
+      "relMatch": "\\b(cell|monopole|tower)s?\\b",
+      "relMin": 11
+    },
+    {
+      "kind": "topic",
+      "q": "should the school keep its athletic director",
+      "rel": [
+        "c8f45ba8",
+        "469fbbc1",
+        "66e3e67a",
+        "28e4b1c1"
+      ]
+    },
+    {
+      "kind": "topic",
+      "q": "new supervisor district boundaries after the census",
+      "rel": [
+        "958b71ef",
+        "57a7d394"
+      ]
+    },
+    {
+      "kind": "topic",
+      "q": "rabid raccoons",
+      "rel": [
+        "f7b0ef14",
+        "04553a93"
+      ]
+    },
+    {
+      "kind": "vocab",
+      "q": "what happened fifty years ago",
+      "relMatch": "^Down Memory Lane",
+      "relField": "title"
+    },
+    {
+      "kind": "vocab",
+      "q": "daycare",
+      "relMatch": "child ?care",
+      "relMin": 1
+    },
+    {
+      "kind": "vocab",
+      "q": "wireless internet for rural homes",
+      "relMatch": "broadband|high-speed internet",
+      "relMin": 1
+    },
+    {
+      "kind": "vocab",
+      "q": "car wreck",
+      "relMatch": "\\b(crash|accident|collision)\\b",
+      "relMin": 3
+    },
+    {
+      "kind": "name",
+      "q": "Arundel",
+      "relMatch": "Arundel",
+      "relMin": 1
+    },
+    {
+      "kind": "name",
+      "q": "Muldofsky",
+      "relMatch": "Muldofsky",
+      "relMin": 1
+    },
+    {
+      "kind": "name",
+      "q": "Tyler Hartman",
+      "relMatch": "Tyler Hartman",
+      "relMin": 1
+    },
+    {
+      "kind": "name",
+      "q": "Evelyn Kerr",
+      "relMatch": "Evelyn (M\\. )?Kerr",
+      "relMin": 1
+    },
+    {
+      "kind": "name",
+      "q": "Heather Atkins",
+      "relMatch": "Heather Atkins",
+      "relMin": 1
+    }
+  ]
+}

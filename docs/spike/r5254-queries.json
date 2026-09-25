@@ -1,0 +1,120 @@
+{
+  "_about": "Judged known-item queries for news/rappnews5254 (Rappahannock News 1952-54, OCR). relMatch is a distinctive phrase from the target's body text, so it marks the stitched story in the full tier and the block(s) carrying that text in the block tier. Kinds: story (answer is inside a headline-stitched story), block (answer is in a block no story claimed).",
+  "queries": [
+    {
+      "kind": "story",
+      "q": "television coverage not reaching the South and West",
+      "relMatch": "Large sections of Western"
+    },
+    {
+      "kind": "story",
+      "q": "high school graduation awards and valedictorian 1952",
+      "relMatch": "Balfour Award"
+    },
+    {
+      "kind": "story",
+      "q": "Senator Byrd's record as a farmer",
+      "relMatch": "reckless and [Ii]naccurate statements"
+    },
+    {
+      "kind": "story",
+      "q": "Rappahannock Chiefs baseball lose in the last inning",
+      "relMatch": "Chiefs load the bases"
+    },
+    {
+      "kind": "story",
+      "q": "Bricker Amendment debate in Congress",
+      "relMatch": "Bricker Amendment"
+    },
+    {
+      "kind": "story",
+      "q": "Red Cross membership and fund drive",
+      "relMatch": "annual drive for R\\w+ Cross"
+    },
+    {
+      "kind": "story",
+      "q": "4-H girl of the month from Flint Hill",
+      "relMatch": "Paula Miller, daughter"
+    },
+    {
+      "kind": "story",
+      "q": "covered wagon journey to Missouri after the Civil War",
+      "relMatch": "1867 and times were hard"
+    },
+    {
+      "kind": "story",
+      "q": "wedding announcements for colored readers",
+      "relMatch": "FLETCHER, BRIDE"
+    },
+    {
+      "kind": "story",
+      "q": "public power versus private electric companies",
+      "relMatch": "electricity the federal government produces"
+    },
+    {
+      "kind": "block",
+      "q": "emergency program for rural highways",
+      "relMatch": "minimum rural emergency"
+    },
+    {
+      "kind": "block",
+      "q": "soil conservation farm plans for Culpeper and Rappahannock",
+      "relMatch": "complete farm plans for soil"
+    },
+    {
+      "kind": "block",
+      "q": "snap bean crop acreage",
+      "relMatch": "snap bean"
+    },
+    {
+      "kind": "block",
+      "q": "New Farmers of America state convention",
+      "relMatch": "New Farmers of Am"
+    },
+    {
+      "kind": "block",
+      "q": "George Washington laid out the town of Washington Virginia",
+      "relMatch": "laid out a little town in the Blue Ridge"
+    },
+    {
+      "kind": "block",
+      "q": "Farmers Home Administration committeemen meet in Warrenton",
+      "relMatch": "36 county committeemen"
+    },
+    {
+      "kind": "block",
+      "q": "basketball game at the Sperryville auditorium",
+      "relMatch": "Rockets To Play"
+    },
+    {
+      "kind": "block",
+      "q": "fewer acres of forest burned in 1953 despite the drought",
+      "relMatch": "forest land burned decreased"
+    },
+    {
+      "kind": "block",
+      "q": "tuberculosis x-ray clinic in Washington",
+      "relMatch": "tuberculosis clinic"
+    },
+    {
+      "kind": "block",
+      "q": "Flint Hill baseball doubleheader",
+      "relMatch": "doubleheader with Oak Grove"
+    },
+    {
+      "kind": "block",
+      "q": "Sperryville soldier in the honor guard bringing division colors home",
+      "relMatch": "Silas Woodard"
+    },
+    {
+      "kind": "block",
+      "q": "dangerous curve where several cars wrecked on Saturday night",
+      "relMatch": "curve \\( ?near Spring House Farm"
+    },
+    {
+      "kind": "block",
+      "q": "hostess forgot the note on the screen door for her teenage boys",
+      "relMatch": "note tacked to the front screen door"
+    }
+  ]
+}

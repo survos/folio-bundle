@@ -210,6 +210,14 @@ final class FolioBuildCommand implements SignalableCommandInterface
                 }
             }
 
+            // Build into a sibling temp file and rename it over the real one at the end: a reader
+            // that mounts the folio root read-only (ink serves /platform that way) must never see a
+            // database mid-write. Everything below writes to the temp path, because FolioService
+            // resolves this folio there until finishBuildAt().
+            $this->folios->buildAt($code, $buildLocale);
+            $workingPath = $this->folios->path($code, locale: $buildLocale);
+
+            try {
             // Step 1: rows-only ingest — no FTS/index event, so the archive snapshot is clean.
             // Pass $io so the service renders a progress bar seeded from sidecar row counts.
             $result = $this->ingest->ingestDataset($info, $coreFilter, $idField, $labelField, $batch, dispatchFinished: false, io: $io, locale: $buildLocale);
@@ -338,6 +346,13 @@ final class FolioBuildCommand implements SignalableCommandInterface
             } elseif (is_file($workingPath)) {
                 unlink($workingPath);
             }
+            } catch (\Throwable $e) {
+                // A failed build leaves the live folio exactly as it was.
+                $this->folios->discardBuildAt($code, $buildLocale);
+
+                throw $e;
+            }
+            $workingPath = $this->folios->finishBuildAt($code, $buildLocale);
 
             $built++;
             } // end foreach ($requestedLocales as $requestedLocale)
