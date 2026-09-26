@@ -200,22 +200,25 @@ final class FolioBuildCommand implements SignalableCommandInterface
                 continue;
             }
 
-            // --force: delete the working .folio and the .gz archive first, so a schema/sync mismatch
-            // between them can't abort the rebuild ("out of sync — needs rebuild"). Clean slate first.
-            if ($force) {
-                foreach ([$workingPath, $archivePath] as $stalePath) {
-                    if (is_file($stalePath)) {
-                        unlink($stalePath);
-                    }
-                }
-            }
-
             // Build into a sibling temp file and rename it over the real one at the end: a reader
             // that mounts the folio root read-only (ink serves /platform that way) must never see a
             // database mid-write. Everything below writes to the temp path, because FolioService
             // resolves this folio there until finishBuildAt().
             $this->folios->buildAt($code, $buildLocale);
             $workingPath = $this->folios->path($code, locale: $buildLocale);
+
+            // --force: drop the .gz archive, so a schema/sync mismatch between it and the rebuilt
+            // folio can't abort the rebuild ("out of sync — needs rebuild").
+            //
+            // The live .folio is deliberately NOT deleted. It is what readers are serving until the
+            // rename at the end, and the build cannot inherit its schema anyway — buildAt() starts
+            // from a fresh temp file laid over with the bootstrap, so the mismatch --force exists to
+            // clear can never reach it. Deleting it here (as this did before the temp-file build)
+            // left news/rappnews4909-enhanced with no folio at all the moment a build OOM'd
+            // mid-ingest: the file readers needed was gone hours before the replacement existed.
+            if ($force && is_file($archivePath)) {
+                unlink($archivePath);
+            }
 
             try {
             // Step 1: rows-only ingest — no FTS/index event, so the archive snapshot is clean.
