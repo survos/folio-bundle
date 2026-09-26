@@ -80,7 +80,7 @@ final class FolioRegistry
 
     public function sourceFile(DatasetInfo $dataset, string $core = 'obj'): ?string
     {
-        $normalized = $this->dataPaths->stageDir($dataset->datasetKey, 'normalized') . '/' . $core . '.jsonl';
+        $normalized = \Survos\JsonlBundle\Util\Jsonl::resolvePath($this->dataPaths->stageDir($dataset->datasetKey, 'normalized') . '/' . $core . '.jsonl');
 
         // Prefer the enriched (_folio) stage, but only when it actually has rows AND is at least as
         // recent as the normalized source. A 0-byte enriched file from a failed/interrupted
@@ -89,12 +89,18 @@ final class FolioRegistry
         // a listener fix) must not be shadowed by an enriched artifact built from the old normalized
         // data — otherwise the fix is invisible to folio:build until someone remembers to delete or
         // rebuild `_folio/<core>.jsonl` by hand.
-        $enriched = $this->dataPaths->enrichFile($dataset->datasetKey, $core);
+        $enriched = \Survos\JsonlBundle\Util\Jsonl::resolvePath($this->dataPaths->enrichFile($dataset->datasetKey, $core));
         if (
             is_file($enriched) && filesize($enriched) > 0
             && (!is_file($normalized) || filemtime($enriched) >= filemtime($normalized))
         ) {
             return $enriched;
+        }
+
+        $marker = dirname($enriched).'/.materialized.json';
+        if (!is_file($enriched) && is_file($marker)
+            && in_array($core, json_decode(file_get_contents($marker), true, flags: JSON_THROW_ON_ERROR), true)) {
+            throw new \RuntimeException('Assembly was materialized and removed. Rebuild through DatasetInfo enrichment before building the folio: '.$dataset->datasetKey);
         }
 
         if (is_file($normalized)) {
@@ -151,11 +157,11 @@ final class FolioRegistry
         $normalizeDir = $this->dataPaths->stageDir($dataset->datasetKey, 'normalized');
         if (is_dir($normalizeDir)) {
             foreach (new \DirectoryIterator($normalizeDir) as $file) {
-                if (!$file->isFile() || $file->getExtension() !== 'jsonl') {
+                if (!$file->isFile() || !preg_match('/\.jsonl(?:\.gz)?$/', $file->getFilename())) {
                     continue;
                 }
 
-                $name = $file->getBasename('.jsonl');
+                $name = preg_replace('/\.jsonl(?:\.gz)?$/', '', $file->getFilename());
                 if (in_array($name, self::NON_ROW_JSONL, true)) {
                     continue;
                 }

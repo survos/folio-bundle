@@ -924,7 +924,7 @@ final class FolioIngestService
             }
         }
         foreach (['term.jsonl', 'link.jsonl'] as $phaseFile) {
-            $path = $normalizeDir . '/' . $phaseFile;
+            $path = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/' . $phaseFile);
             if (is_file($path)) {
                 try {
                     $expected += $this->counter->rows($path);
@@ -1099,8 +1099,8 @@ final class FolioIngestService
     private function ingestTerms(EntityManagerInterface $em, Folio $folio, string $datasetKey, ?string $sourceLocale, int $batch, ?SymfonyStyle $io = null): int
     {
         $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
-        $termSetFile = $normalizeDir . '/termSet.jsonl';
-        $termFile = $normalizeDir . '/term.jsonl';
+        $termSetFile = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/termSet.jsonl');
+        $termFile = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/term.jsonl');
 
         if (!is_file($termSetFile) || !is_file($termFile)) {
             return 0;
@@ -1196,8 +1196,8 @@ final class FolioIngestService
     private function ingestLinks(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
     {
         $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
-        $linkTypeFile = $normalizeDir . '/linkType.jsonl';
-        $linkFile = $normalizeDir . '/link.jsonl';
+        $linkTypeFile = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/linkType.jsonl');
+        $linkFile = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/link.jsonl');
 
         if (!is_file($linkTypeFile) || !is_file($linkFile)) {
             return ['count' => 0, 'skipped' => 0];

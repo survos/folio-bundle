@@ -28,6 +28,7 @@ final readonly class FolioArchiveService
         private FolioArchivePreparer $preparer,
         private FolioViewBuilder $viewBuilder,
         private ?LoggerInterface $logger = null,
+        private int $compressionLevel = 1,
     ) {
     }
 
@@ -369,10 +370,10 @@ final readonly class FolioArchiveService
      * over 6 for a lot more CPU time, and disk space is cheap here -- speed matters more,
      * especially for compressBare()'s on-request, block-a-live-HTTP-request use.
      */
-    private function gzip(string $source, string $target, int $level = 6): void
+    private function gzip(string $source, string $target): void
     {
         $in = fopen($source, 'rb');
-        $out = gzopen($target, 'wb' . $level);
+        $out = gzopen($target, 'wb' . $this->compressionLevel);
         if (!$in || !$out) {
             throw new \RuntimeException(sprintf('Unable to gzip "%s" to "%s".', $source, $target));
         }

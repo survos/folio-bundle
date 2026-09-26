@@ -51,6 +51,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->booleanNode('admin_navbar_menu')->defaultTrue()
                 ->info('Set false to disable this bundle\'s admin navbar menu entries.')
             ->end()
+            ->integerNode('archive_compression_level')->min(0)->max(9)->defaultValue(1)->end()
             ->booleanNode('build_archive')->defaultFalse()
                 ->info('Also build the compressed .folio.gz archive + register the FOLIO_ARCHIVE artifact on inline workflow builds (set true on publishing/prod hosts; off locally — the .gz is slow and unused for browsing).')
             ->end()
@@ -274,7 +275,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $services->set(FolioViewBuilder::class)->autowire()->autoconfigure()->public();
         $services->set(FolioDocsBuilder::class)->autowire()->autoconfigure()->public();
         $services->set(FolioArchivePreparer::class)->autowire()->autoconfigure()->public();
-        $services->set(FolioArchiveService::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioArchiveService::class)->autowire()->autoconfigure()->public()
+            ->arg('$compressionLevel', $config['archive_compression_level']);
         $services->set(FolioIngestService::class)->autowire()->autoconfigure()->public();
         $services->set(FolioAiArtifactPaths::class)->autowire()->autoconfigure()->public();
         $services->set(FolioAiPromptBuilder::class)->autowire()->autoconfigure()->public();
