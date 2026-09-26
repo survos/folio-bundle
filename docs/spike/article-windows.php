@@ -9,6 +9,7 @@ declare(strict_types=1);
  * contiguous byte range of the article's bodyText, so its provenance is {rowId, from, to}.
  *
  *   php article-windows.php <article.jsonl> [idOrTitleSubstring] [--target=120] [--max=250] [--min=40] [--whole] [--json] [--stats]
+ *   php article-windows.php --folio=<rappnews-digital.folio> [...]   roles from the folio's segments instead
  */
 
 require getenv('HOME') . '/sites/lingua/vendor/autoload.php';
@@ -54,24 +55,75 @@ function role(string $text, bool $bodySeen, bool $nearEnd, bool $letter, ?string
 }
 
 /**
- * @return array{units: list<array>, blocks: list<array>} units = packable body pieces with byte offsets
- *         into $body and the subhead path in force; blocks = every block with its role
+ * Role-typed blocks from the Markdown itself, by {@see role()}: [para, role, level, text, from, to].
+ *
+ * @return list<array{para: int, role: string, level: ?int, text: string, from: int, to: int}>
  */
-function articleUnits(string $body, int $max, int $target, bool $letter = false): array
+function markdownBlocks(string $body, bool $letter = false): array
 {
-    $units = $blocks = [];
-    $splitter = new Sentence();
+    $blocks = [];
     preg_match_all('/\S(?:.*?)(?=\n\s*\n|\z)/s', $body, $m, PREG_OFFSET_CAPTURE);
+    $bodySeen = false;
+    $prevRole = null;
+    foreach ($m[0] as $n => [$text, $from]) {
+        $text = rtrim($text);
+        [$role, $level, $value] = role($text, $bodySeen, $n >= count($m[0]) - 2, $letter, $prevRole);
+        $prevRole = $role;
+        $bodySeen = $bodySeen || $role === 'body';
+        $blocks[] = ['para' => $n, 'role' => $role, 'level' => $level, 'text' => $value, 'from' => $from, 'to' => $from + strlen($text)];
+    }
+
+    return $blocks;
+}
+
+/**
+ * The same blocks, read from a folio's segments (harvest's digital-markdown segmentation) instead of
+ * re-derived: kind/role name the block, a bodyText anchor gives its bytes. Headline and creators
+ * segments cite their own fields and are not body blocks. Segments carry no subhead level, but the
+ * anchor points at the raw source, so "###" there is a heading (hard boundary), "**" a minor one.
+ *
+ * @param list<array<string, mixed>> $segments
+ * @return list<array{para: int, role: string, level: ?int, text: string, from: int, to: int}>
+ */
+function segmentBlocks(array $segments, string $body): array
+{
+    $blocks = [];
+    usort($segments, fn ($a, $b) => ($a['order'] ?? 0) <=> ($b['order'] ?? 0));
+    foreach ($segments as $s) {
+        $anchor = null;
+        foreach ($s['anchors'] ?? [] as $a) {
+            if (($a['field'] ?? null) === 'bodyText') { $anchor = $a; break; }
+        }
+        if ($anchor === null) {
+            continue; // headline (title), byline (creators)
+        }
+        $raw = substr($body, $anchor['from'], $anchor['to'] - $anchor['from']);
+        $role = match ([$s['kind'], $s['role'] ?? null]) {
+            ['paragraph', null] => 'body',
+            ['byline', null] => 'byline',
+            default => $s['role'] ?? $s['kind'],
+        };
+        $level = $role === 'subhead' ? (preg_match('/^(#{1,6})\s/', $raw, $h) ? strlen($h[1]) : 7) : null;
+        $blocks[] = ['para' => count($blocks), 'role' => $role, 'level' => $level, 'text' => (string) ($s['text'] ?? ''),
+            'from' => $anchor['from'], 'to' => $anchor['to']];
+    }
+
+    return $blocks;
+}
+
+/**
+ * Packable body units from role-typed blocks, whichever source typed them.
+ *
+ * @return list<array> units with byte offsets into $body and the subhead path in force
+ */
+function blockUnits(array $blocks, string $body, int $max, int $target): array
+{
+    $units = [];
+    $splitter = new Sentence();
     $path = [];          // level => subhead text
     $afterMinor = false; // the body block after a "**Jackson**" subhead is a preferred window head
     $hard = false;
-    $bodySeen = false;
-    foreach ($m[0] as $n => [$text, $from]) {
-        $text = rtrim($text);
-        $to = $from + strlen($text);
-        [$role, $level, $value] = role($text, $bodySeen, $n >= count($m[0]) - 2, $letter, $prevRole ?? null);
-        $prevRole = $role;
-        $blocks[] = ['para' => $n, 'role' => $role, 'level' => $level, 'text' => $value, 'from' => $from, 'to' => $to];
+    foreach ($blocks as ['para' => $n, 'role' => $role, 'level' => $level, 'text' => $value, 'from' => $from, 'to' => $to]) {
         if ($role === 'subhead') {
             $path = array_filter($path, fn ($l) => $l < $level, ARRAY_FILTER_USE_KEY) + [$level => $value];
             ksort($path);
@@ -88,7 +140,7 @@ function articleUnits(string $body, int $max, int $target, bool $letter = false)
         if ($role !== 'body') {
             continue;
         }
-        $bodySeen = true;
+        $text = substr($body, $from, $to - $from);
         $base = ['kind' => 'para', 'para' => $n, 'speaker' => null, 'hard' => $hard, 'path' => array_values($path)];
         $cut = $afterMinor ? Q_QUESTION : Q_SPEAKER;
         $hard = $afterMinor = false;
@@ -105,9 +157,9 @@ function articleUnits(string $body, int $max, int $target, bool $letter = false)
             if ($sText === '') {
                 continue;
             }
-            $at = strpos($text, $sText, $cursor);
-            $at = $at === false ? $cursor : $at;
-            $cursor = $at + strlen($sText);
+            $at = $cursor < strlen($text) ? strpos($text, $sText, $cursor) : false;
+            $at = $at === false ? min($cursor, strlen($text)) : $at;
+            $cursor = min(strlen($text), $at + strlen($sText));
             if ($buf !== null && words(substr($text, $buf[0], $cursor - $buf[0])) > $target) {
                 $pieces[] = $buf;
                 $buf = null;
@@ -124,7 +176,30 @@ function articleUnits(string $body, int $max, int $target, bool $letter = false)
         }
     }
 
-    return ['units' => $units, 'blocks' => $blocks];
+    return $units;
+}
+
+/**
+ * Articles to window: the JSONL rows, or — with --folio — the folio's article rows, each carrying
+ * its segments. Row ids are the article's own id (the folio's local id), so both sources line up.
+ */
+function articleSource(?string $file, ?string $folio): Generator
+{
+    if ($folio !== null) {
+        $pdo = new PDO('sqlite:file:' . $folio . '?mode=ro', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        foreach ($pdo->query("SELECT id, dto_data, extras FROM item WHERE core_id LIKE '%:article' ORDER BY id") as $r) {
+            $dto = json_decode($r['dto_data'], true) ?? [];
+            $extras = json_decode($r['extras'] ?? 'null', true) ?? [];
+            yield ['id' => substr($r['id'], strrpos($r['id'], ':') + 1), 'bodyText' => $dto['bodyText'] ?? $extras['bodyText'] ?? '',
+                'segments' => $extras['segments'] ?? []] + $dto + $extras;
+        }
+        return;
+    }
+    foreach (new SplFileObject($file) as $line) {
+        if (trim($line) !== '') {
+            yield json_decode($line, true, flags: JSON_THROW_ON_ERROR);
+        }
+    }
 }
 
 $opts = ['target' => 120, 'max' => 250, 'min' => 40];
@@ -137,26 +212,28 @@ foreach (array_slice($argv, 1) as $a) {
     }
 }
 [$file, $filter] = $args + [null, null];
-if ($file === null) {
-    fwrite(STDERR, "usage: php article-windows.php <article.jsonl> [idOrTitleSubstring] [--target --max --min --json --stats]\n");
+$folio = isset($opts['folio']) ? (string) $opts['folio'] : null;
+if ($folio !== null) {
+    [$file, $filter] = [null, $args[0] ?? null];
+}
+if ($file === null && $folio === null) {
+    fwrite(STDERR, "usage: php article-windows.php <article.jsonl> | --folio=<folio> [idOrTitleSubstring] [--target --max --min --whole --json --stats]\n");
     exit(1);
 }
 
 $all = [];
 $roles = [];
 $articles = $empty = $single = $split = 0;
-foreach (new SplFileObject($file) as $line) {
-    if (trim($line) === '') {
-        continue;
-    }
-    $a = json_decode($line, true, flags: JSON_THROW_ON_ERROR);
+foreach (articleSource($file, $folio) as $a) {
     if ($filter !== null && !str_contains($a['id'], $filter) && stripos($a['title'] ?? '', $filter) === false) {
         continue;
     }
     $body = (string) ($a['bodyText'] ?? '');
     $articles++;
-    ['units' => $units, 'blocks' => $blocks] = articleUnits($body, (int) $opts['max'], (int) $opts['target'],
-        str_starts_with((string) ($a['title'] ?? ''), 'Letter') || in_array('opinion/letters', $a['sections'] ?? [], true));
+    $blocks = $folio !== null
+        ? segmentBlocks($a['segments'] ?? [], $body)
+        : markdownBlocks($body, str_starts_with((string) ($a['title'] ?? ''), 'Letter') || in_array('opinion/letters', $a['sections'] ?? [], true));
+    $units = blockUnits($blocks, $body, (int) $opts['max'], (int) $opts['target']);
     foreach ($blocks as $b) {
         $roles[$b['role']] = ($roles[$b['role']] ?? 0) + 1;
     }
