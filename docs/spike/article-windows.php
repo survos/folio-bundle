@@ -47,7 +47,9 @@ function role(string $text, bool $bodySeen, bool $nearEnd, bool $letter, ?string
         (bool) preg_match('/^(\*\*|__)([^*_\n]{1,80})\1:?$/u', $text, $m) => ['subhead', 7, trim($m[2])],
         (bool) preg_match('/^[*_]\s*[—–-]\s*(.{1,80})[*_]$/u', $text, $m) => ['signature', null, trim($m[1])],
         (bool) preg_match('/^By\s+\p{Lu}/u', $text) && $words < 12 => ['byline', null, $text],
-        (bool) preg_match('/\b(Photos?|Photograph(y|s)?)\b.*\/|^(Photo|Courtesy)\b/i', $text) && $words < 15 => ['credit', null, $text],
+        // Read a link's text, not its target: "[Fourth of July celebrations](/2011/07/…/photo-gallery/)" has a
+        // slash only inside a URL and is a paragraph; "Staff Photos/Jan Clatterbuck" is a credit.
+        (bool) preg_match('/\b(Photos?|Photograph(y|s)?)\b.*\/|^(Photo|Courtesy)\b/i', preg_replace('/\[([^\]]*)\]\([^)]*\)/', '$1', $text)) && $words < 15 => ['credit', null, $text],
         (bool) preg_match('/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}$/', $text) => ['dateline', null, $text],
         (bool) preg_match('/^[*_][^*_\n].*[^*_\n][*_]$/su', $text) => [$bodySeen ? 'aside' : 'deck', null, trim($text, '*_ ')],
         default => ['body', null, $text],
