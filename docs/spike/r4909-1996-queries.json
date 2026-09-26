@@ -1,0 +1,115 @@
+{
+  "_about": "Judged known-item queries for news/rappnews4909, issues of 1996 only (OCR). relMatch is a distinctive phrase from the target's body. Kinds: story (answer inside a headline-stitched story), block (answer in a block no story claimed — mostly continuation fragments).",
+  "queries": [
+    {
+      "kind": "story",
+      "q": "cell phone users tying up 911 lines",
+      "relMatch": "Wayne Huggins"
+    },
+    {
+      "kind": "story",
+      "q": "gospel choir celebration at Bethel Baptist in Amissville",
+      "relMatch": "Pastor.s Aide Club"
+    },
+    {
+      "kind": "story",
+      "q": "county budget and the E-911 tax",
+      "relMatch": "preliminary \\$9\\.6"
+    },
+    {
+      "kind": "story",
+      "q": "why wildflowers are named after body parts",
+      "relMatch": "Doctrine of Signatures"
+    },
+    {
+      "kind": "story",
+      "q": "Lions club community auction",
+      "relMatch": "Lions annual auction"
+    },
+    {
+      "kind": "story",
+      "q": "what to wear to the steeplechase races",
+      "relMatch": "steeplechase spectator"
+    },
+    {
+      "kind": "story",
+      "q": "boy scout summer camp week",
+      "relMatch": "Joseph Peregory, son of"
+    },
+    {
+      "kind": "story",
+      "q": "homeschooled children allowed to take classes part time",
+      "relMatch": "allow parents hom"
+    },
+    {
+      "kind": "story",
+      "q": "consignment shop in the old packing house in Flint Hill",
+      "relMatch": "Consignment Shop at the old packing house"
+    },
+    {
+      "kind": "story",
+      "q": "girl scout restores an old cemetery",
+      "relMatch": "Dawn Havstad has chosen"
+    },
+    {
+      "kind": "story",
+      "q": "newspaper editors interview Santa",
+      "relMatch": "Santa Claus dropped in"
+    },
+    {
+      "kind": "story",
+      "q": "wedding at Trinity Episcopal Church in April",
+      "relMatch": "Laura Noelle Littleton"
+    },
+    {
+      "kind": "block",
+      "q": "motorcycle repair shop opening near Culpeper",
+      "relMatch": "Minutemen Cycles"
+    },
+    {
+      "kind": "block",
+      "q": "public hearing on the design of Route 630",
+      "relMatch": "ROUTE 630 Rappahannock County Location"
+    },
+    {
+      "kind": "block",
+      "q": "adult education classes at the high school",
+      "relMatch": "trying an experiment"
+    },
+    {
+      "kind": "block",
+      "q": "letter about someone hitting our dog near Flint Hill",
+      "relMatch": "Simon is going to be OK"
+    },
+    {
+      "kind": "block",
+      "q": "high school softball team wins and loses",
+      "relMatch": "softball team added a win"
+    },
+    {
+      "kind": "block",
+      "q": "new newspaper production class at school",
+      "relMatch": "Newspaper Production"
+    },
+    {
+      "kind": "block",
+      "q": "Mount Vernon to rebuild the grist mill",
+      "relMatch": "Mount Vernon rebuilds the millworks"
+    },
+    {
+      "kind": "block",
+      "q": "senior nutrition site moves to the old Washington School",
+      "relMatch": "At long last the senior nutrition site"
+    },
+    {
+      "kind": "block",
+      "q": "chef finds local farms near The Inn",
+      "relMatch": "Chef O.Connell"
+    },
+    {
+      "kind": "block",
+      "q": "judge lets defendant attend VA substance abuse program",
+      "relMatch": "VA hospital in Richmond"
+    }
+  ]
+}

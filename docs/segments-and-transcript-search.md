@@ -245,11 +245,27 @@ member blocks are scored alike. Same eval, same fusion.
 
 The free headline-span stitch covers little of the 1950s and most of what it assembles is
 advertising (392 of 681 groups, now typed so by the enhancement), yet it lifts search on the stories
-it does assemble from 0.52 to 0.86 and costs nothing on the rest. **On OCR, a strong headline boost
-helps** (×3: 0.859 vs no boost 0.757) — the reverse of born-digital articles, because a stitched
+it does assemble from 0.52 to 0.86 and costs nothing on the rest. **On sparse 1950s stitching a strong
+headline boost helps** (×3: 0.859 vs no boost 0.757; but see 1996 below) — the reverse of born-digital articles, because a stitched
 headline is the one clean line in noisy text. So boost `headline` only where it is trustworthy (full
 tier, or block tier with `titleSource` `lead`/`block`) and never on block-tier text titles. Two
 queries fail in both tiers because their target text is OCR-garbled; that is the paid pass's job.
+
+**Denser stitching changes the headline answer (rappnews4909, 1996).** On the rebuilt
+`rappnews4909-enhanced` (1,880 stories claiming 6,196 of 18,469 blocks in 1996), 22 judged queries,
+`r4909-1996-queries.json`:
+
+| index | best MRR@10 | story queries | loose-block queries |
+|---|---|---|---|
+| block tier | 0.63 | 0.52 | 0.76 |
+| full tier, headline ×1.5, kNN ×1.5 | **0.76** | **0.79** | 0.72 |
+| full tier, headline ×3 | 0.68 | 0.82 | 0.52 |
+
+Where stitched stories are common, a ×3 headline boost lets them crowd out the loose blocks, so the
+default is the digital one after all: headline ×1.5, kNN weighted 1.5 — boosting only trustworthy
+titles still holds. One loose-block "miss" was a column continuation the stitcher did not join
+(a story ending mid-clause, the next block finishing the sentence); the rest were related stories
+from other weeks.
 
 Harvest side (same day, coordinated): `AltoParser` records `lead` (a headline/deck/byline set
 inside a block, boxed by its own lines) and `role` per block (harvest eea3ab8); block-tier titles

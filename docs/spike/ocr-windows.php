@@ -9,6 +9,8 @@ declare(strict_types=1);
  *   php ocr-windows.php block <basic.folio> <out-prefix>
  *   php ocr-windows.php full  <basic.folio> <enhanced.folio> <out-prefix> [--no-ads]
  *
+ * --issues=<regex> keeps only rows whose id matches (e.g. 'rappnews-1996-'), for scoring a slice.
+ *
  * Writes <out-prefix>.windows.jsonl and <out-prefix>.articles.jsonl (id, title, bodyText — what the
  * eval resolves relevance against).
  *
@@ -71,6 +73,8 @@ $fw = fopen("$out.windows.jsonl", 'w');
 $fa = fopen("$out.articles.jsonl", 'w');
 $counts = ['stories' => 0, 'blocks' => 0, 'claimed' => 0, 'windows' => 0, 'empty' => 0, 'ads' => 0];
 $noAds = in_array('--no-ads', $argv, true);
+$issues = null;
+foreach ($argv as $a) { if (str_starts_with($a, '--issues=')) { $issues = '/' . substr($a, 9) . '/'; } }
 
 /** Pack one unit of meaning into windows and write them. */
 $emit = function (string $id, string $headline, string $body, ?string $date, string $tier) use ($splitter, $fw, $fa, &$counts): void {
@@ -111,6 +115,7 @@ $emit = function (string $id, string $headline, string $body, ?string $date, str
 $claimed = [];
 if ($mode === 'full') {
     foreach (rows($enhanced) as [$id, $dto, $extras]) {
+        if ($issues !== null && !preg_match($issues, $id)) { continue; }
         $segs = $extras['segments'] ?? [];
         foreach (anchorKeys($extras) as $k) { $claimed[$k] = true; }
         if ($noAds && ($extras['recordKind'] ?? null) === 'advertisement') {
@@ -128,6 +133,7 @@ if ($mode === 'full') {
     }
 }
 foreach (rows($basic) as [$id, $dto, $extras]) {
+    if ($issues !== null && !preg_match($issues, $id)) { continue; }
     $keys = anchorKeys($extras);
     if ($keys !== [] && array_filter($keys, fn ($k) => isset($claimed[$k])) === $keys) {
         $counts['claimed']++;
