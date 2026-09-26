@@ -72,6 +72,14 @@ final class FolioFtsIndexer
             return ['rows' => 0, 'bytes' => 0, 'items' => $items, 'skipped' => $skipped];
         }
 
+        // Browse indexes and facet counts FIRST, and not because they are cheaper. They are what a
+        // browse page needs, and the FTS pass is the one that fails on a text-heavy folio — when it
+        // did, on 12 of museado's 740 NARA folios, it took the facet tables with it and the search
+        // page threw "no such table: item_facet" rather than simply browsing without text search.
+        // Nothing here reads item_fts, so the order costs nothing and the failure is contained.
+        $this->createBrowseIndexes($pdo);
+        $this->rebuildFacetCounts($pdo);
+
         $pdo->exec('DROP TABLE IF EXISTS item_fts');
         // Porter stemmer over unicode61: natural-language questions use inflected/plural words
         // ("documents", "songs") that must match the singular/root forms stored in the rows
@@ -87,7 +95,6 @@ final class FolioFtsIndexer
         $pdo->exec("CREATE VIRTUAL TABLE item_vocab USING fts5vocab('item_fts', 'row')");
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_core_dto_type ON item(core_id, dto_type)');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_dto_type ON item(dto_type)');
-        $this->createBrowseIndexes($pdo);
 
         $searchableProperties = $this->searchableProperties($pdo);
         $select = $pdo->query('SELECT rowid, local_id, label, dto_type, dto_data, extras FROM item ORDER BY rowid');
@@ -117,7 +124,6 @@ final class FolioFtsIndexer
         }
 
         $pdo->exec('INSERT INTO item_fts(item_fts) VALUES (\'optimize\')');
-        $this->rebuildFacetCounts($pdo);
 
         return ['rows' => $rows, 'bytes' => $bytes, 'items' => $items, 'skipped' => null];
     }

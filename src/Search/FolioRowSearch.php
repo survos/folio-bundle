@@ -81,6 +81,14 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         [$provider, $dataset] = explode('/', $folioCode, 2);
         $connection = $ctx->em->getConnection();
 
+        // A folio is searchable with whatever it has. Its FTS index is skipped on purpose for large
+        // folios whose dataset searches in Elasticsearch, and a build that died partway leaves no
+        // index and no facet tables either (12 of NARA's 740 folios on 2026-09-26, the largest
+        // ones — each 500'd on "no such table: item_facet"). Without item_fts a text query becomes
+        // a title search; without the facet tables only the cheap core/type facets are offered.
+        $hasFts = $this->hasTable($connection, 'item_fts');
+        $hasFacetTables = $this->hasTable($connection, 'item_facet') && $this->hasTable($connection, 'item_facet_count');
+
         $selectedCore = isset($options['coreCode']) && is_string($options['coreCode']) && $options['coreCode'] !== '' ? $options['coreCode'] : null;
         $selectedDtoType = isset($options['dtoType']) && is_string($options['dtoType']) && $options['dtoType'] !== '' ? $options['dtoType'] : null;
 
@@ -112,7 +120,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             'dtoType' => 'd.dto_type',
         ];
 
-        foreach ($this->facetFieldResolver->facetFieldNames($connection, coreCode: $selectedCore) as $field) {
+        foreach ($hasFacetTables ? $this->facetFieldResolver->facetFieldNames($connection, coreCode: $selectedCore) : [] as $field) {
             if (isset($facetColumns[$field['name']])) {
                 continue;
             }
@@ -183,7 +191,8 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
 
         $this->setAdapterParameters([
             'table' => 'item',
-            'ftsTable' => 'item_fts',
+            'ftsTable' => $hasFts ? 'item_fts' : null,
+            'textFallbackColumns' => ['d.label'],
             'joinExpression' => 'f.rowid = d.rowid',
             'selectColumns' => [
                 'd.id',
@@ -248,8 +257,8 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             // path serves core-scoped pages too — the adapter scopes counts to the active core. Only a
             // pinned dtoType (an extra where-constraint the precompute can't represent) forces the live
             // aggregation. Requires folios rebuilt with the core-partitioned schema.
-            'facetCountTable' => $selectedDtoType === null ? 'item_facet_count' : null,
-            'facetValueTable' => 'item_facet',
+            'facetCountTable' => $hasFacetTables && $selectedDtoType === null ? 'item_facet_count' : null,
+            'facetValueTable' => $hasFacetTables ? 'item_facet' : null,
             // The precomputed table above can only answer a query whose sole constraint is the core
             // scope, so a *text* query always falls through to aggregating facets over its own
             // matches. On a page-level newspaper folio that is the whole cost of the search: on
@@ -273,6 +282,11 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         } catch (\Throwable) {
             return 0;
         }
+    }
+
+    private function hasTable(Connection $connection, string $name): bool
+    {
+        return (bool) $connection->fetchOne("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", [$name]);
     }
 
     public function getHitTemplate(): ?string
