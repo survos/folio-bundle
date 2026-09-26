@@ -65,6 +65,14 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->defaultValue('%env(APP_DATA_DIR)%')
                 ->info('Root of the data tree folio paths resolve under, same value and default as survos_dataset.data_dir. Only used when dataset-bundle is absent: when it is installed IT registers DataPaths, from its own (richer) path config, and this is ignored.')
             ->end()
+            ->integerNode('fts_max_rows')
+                ->defaultValue(0)
+                ->info('Rows up to which a folio is given a SQLite FTS index EVEN THOUGH its dataset opted out (extras.search: backend elasticsearch + allowFtsSkip — see docs/search-policy.md); past it, the opt-out is honored and no index is built. 0 = always honor it. A dataset that has not opted out is always indexed whatever its size, since no search at all is worse than a slow build.')
+            ->end()
+            ->integerNode('live_facet_max_rows')
+                ->defaultValue(500000)
+                ->info('Rows past which a text (FTS) search skips live facet counts, which are aggregated over the matching rows and cannot use the precomputed table. Measured on news/rappnews4909 (966,590 rows): ~5s per first-seen query, essentially all of it facets, against ~1s for hits and counts. Filter-only queries keep their facets either way. 0 = always live.')
+            ->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
             ->scalarNode('folio_server')
                 ->info('Base URL of the live folio site — hosts the full folio UX and the folio archive API. Used for browse links and, when set, as folio:pull\'s preferred source (GET <server>/folio/list.json). Null by default so folio:pull reads the folio_archive storage, which is where the archives actually live (S3, via the folio-archive mount); an app that really does have a folio API sets this itself.')
@@ -246,7 +254,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
             // so a bare app can require folio-bundle, pull a folio, and display it — no dataset infra.
             ->arg('$datasetEntityManager', service('doctrine.orm.dataset_entity_manager')->ignoreOnInvalid());
         $services->set(FolioSummaryService::class)->autowire()->autoconfigure()->public();
-        $services->set(FolioFtsIndexer::class)->autowire()->autoconfigure()->public();
+        $services->set(FolioFtsIndexer::class)->autowire()->autoconfigure()->public()
+            ->arg('$maxRows', $config['fts_max_rows']);
         $services->set(FolioQueryAnalyzer::class)->autowire()->autoconfigure()->public();
         $services->set(FolioRetriever::class)->autowire()->autoconfigure()->public();
         $services->set(FolioChatContextHolder::class)->autowire()->autoconfigure()->public();
@@ -302,6 +311,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 '$titleSortEnabled' => $config['search_title_sort_enabled'],
                 '$defaultSort' => $config['search_default_sort'],
                 '$hitFields' => $config['search_hit_fields'],
+                '$liveFacetMaxRows' => $config['live_facet_max_rows'],
             ]);
         }
         $services->set(\Survos\FolioBundle\Service\PeriodicalCoverageService::class)->autowire()->autoconfigure();

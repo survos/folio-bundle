@@ -50,6 +50,16 @@ class Folio implements RouteParametersInterface
      * readers build snippets from the row text (FolioSnippet).
      */
     public const string FTS_CONTENT_NONE = 'none';
+    /**
+     * No FTS table at all: this folio's text search lives in Elasticsearch. Carried here from the
+     * dataset's declared search policy (extras.search — backend: elasticsearch, allowFtsSkip: true;
+     * see FolioSearchConfiguration and docs/search-policy.md) so a reader can say "search is not in
+     * this file" rather than inferring it from a missing table, which is also what a half-finished
+     * build looks like. The build applies it past survos_folio.fts_max_rows: on news/rappnews4909 —
+     * 966,590 page rows, 1.3 GB of OCR — the index is the largest table in a 6 GB folio and the
+     * longest phase of every rebuild.
+     */
+    public const string FTS_CONTENT_OFF = 'off';
 
     /**
      * What the folio is, from the dataset's meta (extras.contentType): newspaper, periodical, ...
@@ -58,7 +68,7 @@ class Folio implements RouteParametersInterface
     #[ORM\Column(length: 40, nullable: true, options: ['comment' => 'Dataset content type (newspaper, periodical, ...)'])]
     public ?string $contentType = null;
 
-    #[ORM\Column(length: 12, options: ['default' => self::FTS_CONTENT_STORED, 'comment' => 'stored | none (contentless FTS; opt-in via dataset meta extras.ftsContent)'])]
+    #[ORM\Column(length: 12, options: ['default' => self::FTS_CONTENT_STORED, 'comment' => 'stored | none (contentless FTS) | off (no FTS at all); opt-in via dataset meta extras.ftsContent'])]
     public string $ftsContent = self::FTS_CONTENT_STORED;
 
     /** @var Collection<int, LinkType> */

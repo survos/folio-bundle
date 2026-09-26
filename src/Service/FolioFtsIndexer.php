@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Psr\Log\LoggerInterface;
 use Survos\DataContracts\Vocabulary\ItemField;
 use Survos\FolioBundle\Entity\Folio;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
@@ -17,6 +18,9 @@ final class FolioFtsIndexer
 
     public function __construct(
         private readonly SluggerInterface $slugger = new AsciiSlugger(),
+        /** survos_folio.fts_max_rows: rows past which a folio gets no FTS index. 0 = no limit. */
+        private readonly int $maxRows = 0,
+        private readonly ?LoggerInterface $logger = null,
     ) {
     }
 
@@ -44,12 +48,29 @@ final class FolioFtsIndexer
     ];
 
     /**
-     * @return array{rows:int, bytes:int}
+     * @return array{rows:int, bytes:int, items:int, skipped:?string}
      */
-    public function rebuild(string $dbFile): array
+    public function rebuild(string $dbFile, bool $force = false): array
     {
         $pdo = $this->connect($dbFile);
         $this->assertFts5($pdo);
+
+        $items = (int) ($pdo->query('SELECT count(*) FROM item')->fetchColumn() ?: 0);
+        $skipped = $force ? null : $this->gate($pdo, $items);
+        if ($skipped !== null) {
+            // No index, and the old one goes with it. A rebuild reassigns item rowids, so an
+            // item_fts left over from the previous build points at the wrong rows — strictly worse
+            // than no index. Everything else the FTS pass also builds (browse indexes, sort_key,
+            // the precomputed facet counts) is cheap and readers depend on it, so it still runs.
+            $this->dropTables($pdo);
+            $this->createBrowseIndexes($pdo);
+            $this->rebuildFacetCounts($pdo);
+            $this->logger?->notice('Folio FTS index skipped', [
+                'dbFile' => $dbFile, 'items' => $items, 'reason' => $skipped, 'maxRows' => $this->maxRows,
+            ]);
+
+            return ['rows' => 0, 'bytes' => 0, 'items' => $items, 'skipped' => $skipped];
+        }
 
         $pdo->exec('DROP TABLE IF EXISTS item_fts');
         // Porter stemmer over unicode61: natural-language questions use inflected/plural words
@@ -98,7 +119,31 @@ final class FolioFtsIndexer
         $pdo->exec('INSERT INTO item_fts(item_fts) VALUES (\'optimize\')');
         $this->rebuildFacetCounts($pdo);
 
-        return ['rows' => $rows, 'bytes' => $bytes];
+        return ['rows' => $rows, 'bytes' => $bytes, 'items' => $items, 'skipped' => null];
+    }
+
+    /**
+     * Why this folio gets no FTS index, or null to build one.
+     *
+     * Permission comes first and comes from the dataset: only a dataset that declares
+     * `extras.search: {backend: elasticsearch, allowFtsSkip: true}` can be left unindexed, because
+     * only then does a text query have somewhere else to go (FolioSearchConfiguration enforces the
+     * pairing; FolioIngestService carries it into `folio.fts_content`). A folio with no such
+     * declaration is always indexed, however large — no search at all is worse than a slow build.
+     *
+     * `survos_folio.fts_max_rows` then decides whether the permission is worth using: a small
+     * folio is indexed anyway, since it costs little and keeps the file self-contained, while a
+     * page-level newspaper folio past the limit is not — indexing it is the longest phase of its
+     * build, the largest table in the file, and the part that has to fit in a worker's memory.
+     * 0 means never index a folio whose dataset has opted out.
+     */
+    private function gate(\PDO $pdo, int $items): ?string
+    {
+        if (self::ftsContent($pdo) !== Folio::FTS_CONTENT_OFF) {
+            return null;
+        }
+
+        return $this->maxRows > 0 && $items <= $this->maxRows ? null : 'policy';
     }
 
     /** The folio's FTS content mode; `stored` for a folio built before the setting existed. */
@@ -110,12 +155,20 @@ final class FolioFtsIndexer
             return Folio::FTS_CONTENT_STORED;
         }
 
-        return $mode === Folio::FTS_CONTENT_NONE ? Folio::FTS_CONTENT_NONE : Folio::FTS_CONTENT_STORED;
+        return match ($mode) {
+            Folio::FTS_CONTENT_NONE => Folio::FTS_CONTENT_NONE,
+            Folio::FTS_CONTENT_OFF => Folio::FTS_CONTENT_OFF,
+            default => Folio::FTS_CONTENT_STORED,
+        };
     }
 
     public function drop(string $dbFile): void
     {
-        $pdo = $this->connect($dbFile);
+        $this->dropTables($this->connect($dbFile));
+    }
+
+    private function dropTables(\PDO $pdo): void
+    {
         $pdo->exec('DROP TABLE IF EXISTS item_vocab');
         $pdo->exec('DROP TABLE IF EXISTS item_fts');
     }

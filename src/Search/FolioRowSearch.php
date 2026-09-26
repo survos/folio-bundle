@@ -33,6 +33,9 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         /** survos_folio.yaml's search_hit_fields — extra dto_data keys selected onto every hit.
          *  @var list<string> */
         private readonly array $hitFields = [],
+        /** survos_folio.yaml's live_facet_max_rows — the row count past which a text query stops
+         *  aggregating facets over its own matches. 0 = always live. */
+        private readonly int $liveFacetMaxRows = 500_000,
     ) {
         foreach ($this->hitFields as $field) {
             if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $field)) {
@@ -247,7 +250,29 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             // aggregation. Requires folios rebuilt with the core-partitioned schema.
             'facetCountTable' => $selectedDtoType === null ? 'item_facet_count' : null,
             'facetValueTable' => 'item_facet',
+            // The precomputed table above can only answer a query whose sole constraint is the core
+            // scope, so a *text* query always falls through to aggregating facets over its own
+            // matches. On a page-level newspaper folio that is the whole cost of the search: on
+            // news/rappnews4909 (966,590 rows) a first-seen query spends ~5s there against ~1s for
+            // the hits and the count. Past the configured size a text query returns hits and no
+            // facet counts — a filter-only query, which the precomputed table does answer, keeps
+            // them. Counts aggregated over the wrong row set would be worse than none: they would
+            // read as the number of matches they are not.
+            'liveFacets' => $this->liveFacetMaxRows <= 0 || $this->rowCount($connection) <= $this->liveFacetMaxRows,
         ]);
+    }
+
+    /**
+     * The folio's own row count, from its `folio` row — the number the build wrote, so this costs
+     * one indexed read rather than a count(*) over a million rows on every search request.
+     */
+    private function rowCount(Connection $connection): int
+    {
+        try {
+            return (int) $connection->fetchOne('SELECT row_count FROM folio LIMIT 1');
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 
     public function getHitTemplate(): ?string

@@ -11,6 +11,7 @@ use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DataContracts\Path\Stage;
 use Survos\DataContracts\Path\DataPaths;
 use Survos\FieldBundle\Attribute\Map;
+use Survos\FolioBundle\Configuration\FolioSearchConfiguration;
 use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Str,StrTranslation,Term,TermSet};
 use Survos\FolioBundle\Dto\PageDto;
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
@@ -123,7 +124,15 @@ final class FolioIngestService
         $folio->datasetKey = $dataset->datasetKey;
         $extras = is_array($dataset->meta['extras'] ?? null) ? $dataset->meta['extras'] : [];
         $folio->contentType = is_string($extras['contentType'] ?? null) ? $extras['contentType'] : null;
-        $folio->ftsContent = ($extras['ftsContent'] ?? null) === Folio::FTS_CONTENT_NONE ? Folio::FTS_CONTENT_NONE : Folio::FTS_CONTENT_STORED;
+        // extras.search is the dataset's declared search policy (docs/search-policy.md): a folio
+        // whose text search lives in Elasticsearch may be published with no FTS table at all, and
+        // says so in its own row so a reader can report search as external rather than missing.
+        // extras.ftsContent stays independent — 'none' is still a real FTS index, contentless.
+        $folio->ftsContent = match (true) {
+            FolioSearchConfiguration::fromExtras($extras)->allowFtsSkip => Folio::FTS_CONTENT_OFF,
+            ($extras['ftsContent'] ?? null) === Folio::FTS_CONTENT_NONE => Folio::FTS_CONTENT_NONE,
+            default => Folio::FTS_CONTENT_STORED,
+        };
         $ctx->em->flush();
 
         // #2: drop non-unique secondary indexes for the duration of the load. Maintaining them per-row

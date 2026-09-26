@@ -25,6 +25,8 @@ final readonly class FolioFtsIndexListener
             'sourceFile' => basename($event->sourceFile),
         ]);
         $result = $this->indexer->rebuild($event->dbFile);
+        // The indexer logs its own notice when it skips (a gated folio); this stays the record of
+        // what the ingest built, skipped or not.
         $this->logger?->info('Folio FTS5 index rebuilt', [
             'dataset' => $event->datasetKey,
             'core' => $event->core,
@@ -34,6 +36,7 @@ final readonly class FolioFtsIndexListener
             'docs' => $archive['docs'] ?? 0,
             'rows' => $result['rows'],
             'bytes' => $result['bytes'],
+            'skipped' => $result['skipped'],
             'dbFile' => $event->dbFile,
         ]);
     }

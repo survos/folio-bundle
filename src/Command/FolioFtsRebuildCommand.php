@@ -25,6 +25,7 @@ final class FolioFtsRebuildCommand extends Command
     {
         $this
             ->addArgument('folioCode', InputArgument::REQUIRED, 'Folio code, e.g. dc/05747667f')
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Index even a folio whose dataset opted out of SQLite search (extras.search.allowFtsSkip) and is over survos_folio.fts_max_rows')
             ->addOption('query', null, InputOption::VALUE_REQUIRED, 'Run a test MATCH query after rebuild')
             ->addOption('limit', null, InputOption::VALUE_REQUIRED, 'Rows to show for --query', 5);
     }
@@ -34,7 +35,17 @@ final class FolioFtsRebuildCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $folioCode = (string) $input->getArgument('folioCode');
         $ctx = $this->folios->context($folioCode);
-        $result = $this->indexer->rebuild($ctx->path);
+        $result = $this->indexer->rebuild($ctx->path, (bool) $input->getOption('force'));
+
+        if ($result['skipped'] !== null) {
+            $io->warning(sprintf(
+                '%s (%d rows) was left with no FTS index: its dataset declares Elasticsearch as the search backend, and it is over survos_folio.fts_max_rows. Pass --force to index it anyway.',
+                $folioCode,
+                $result['items'],
+            ));
+
+            return Command::SUCCESS;
+        }
 
         $io->success(sprintf(
             'Rebuilt item_fts for %s: %d rows, %s indexed text.',
