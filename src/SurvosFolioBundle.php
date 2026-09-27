@@ -74,6 +74,14 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->defaultValue(500000)
                 ->info('Rows past which a text (FTS) search skips live facet counts, which are aggregated over the matching rows and cannot use the precomputed table. Measured on news/rappnews4909 (966,590 rows): ~5s per first-seen query, essentially all of it facets, against ~1s for hits and counts. Filter-only queries keep their facets either way. 0 = always live.')
             ->end()
+            ->scalarNode('elastic_row_index')
+                ->defaultValue('folio_row')
+                ->info('Elasticsearch index holding the text of folios built without an FTS index (docs/search-policy.md). Shared by every folio and every app that reads them, so not app-prefixed. Needs ELASTICSEARCH_DSN.')
+            ->end()
+            ->integerNode('elastic_match_limit')
+                ->defaultValue(1000)
+                ->info('Row ids a text query on such a folio brings back from Elasticsearch; paging, filters and facets then run over these in SQLite.')
+            ->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
             ->scalarNode('folio_server')
                 ->info('Base URL of the live folio site — hosts the full folio UX and the folio archive API. Used for browse links and, when set, as folio:pull\'s preferred source (GET <server>/folio/list.json). Null by default so folio:pull reads the folio_archive storage, which is where the archives actually live (S3, via the folio-archive mount); an app that really does have a folio API sets this itself.')
@@ -300,7 +308,20 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // HTTP through the bundle's existing symfony/http-client, so unlike the Meili commands it
         // needs no engine client installed and nothing to guard on. It errors clearly when
         // ELASTICSEARCH_DSN is unset, which is the right failure for an app that has no cluster.
+        $services->set(\Survos\FolioBundle\Service\FolioElasticClient::class)->autowire()->autoconfigure();
         $services->set(FolioElasticBuildSetCommand::class)->autowire()->autoconfigure()->public();
+        // Text search for folios built without FTS (fts_content = off): the shared row index, the
+        // command that fills it, and — where Messenger exists — the message a finished build queues.
+        $services->set(\Survos\FolioBundle\Service\FolioElasticRowIndex::class)->autowire()->autoconfigure()->public()->args([
+            '$index' => $config['elastic_row_index'],
+            '$matchLimit' => $config['elastic_match_limit'],
+        ]);
+        $services->set(\Survos\FolioBundle\Service\FolioElasticIndexCommand::class)->autowire()->autoconfigure()->public();
+        $services->set(\Survos\FolioBundle\EventListener\FolioElasticIndexListener::class)->autowire()->autoconfigure()
+            ->tag('kernel.event_listener', ['event' => 'Survos\FolioBundle\Event\FolioIngestFinishedEvent']);
+        if (interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
+            $services->set(\Survos\FolioBundle\MessageHandler\IndexFolioRowsHandler::class)->autowire()->autoconfigure();
+        }
         // The 'folio_row' search this bundle's own search.html.twig already assumes exists
         // (hardcodes name: 'folio_row' + hitTemplate: 'search/hits/folio_row.html.twig') --
         // shared here rather than every host app hand-writing an identical class. Requires the

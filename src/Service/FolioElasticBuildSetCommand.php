@@ -10,7 +10,6 @@ use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * Pool several folios into ONE combined Elasticsearch index — the twin of
@@ -26,10 +25,8 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * with the same `--fields` projection and `--extras` lift — straight into the `_bulk` endpoint as
  * NDJSON. No intermediate file, and one bad folio is skipped rather than aborting the run.
  *
- * Talks to Elasticsearch over plain HTTP rather than through `elasticsearch/elasticsearch`. The
- * bulk API is newline-delimited JSON over POST, which is what the Meilisearch path already does,
- * and folio-bundle is installed in applications that have no Elasticsearch client at all. Adding
- * one as a hard dependency to make one command work is the wrong trade.
+ * Talks to Elasticsearch over plain HTTP through {@see FolioElasticClient}: the bulk API is
+ * newline-delimited JSON over POST, which is what the Meilisearch path already does.
  *
  * ## Why an explicit mapping
  *
@@ -50,13 +47,9 @@ final class FolioElasticBuildSetCommand
     /** Documents per _bulk request. Large enough to be worth a round trip, small enough to retry. */
     private const int CHUNK = 500;
 
-    /** Set from the DSN's ?ca= when the node uses a private CA, as fsn1's does. */
-    private ?string $caBundle = null;
-
     public function __construct(
         private readonly FolioDocumentStream $stream,
-        private readonly HttpClientInterface $http,
-        #[Autowire('%env(default::ELASTICSEARCH_DSN)%')] private readonly ?string $dsn = null,
+        private readonly FolioElasticClient $elastic,
         #[Autowire('%env(default::SEARCH_INDEX_PREFIX)%')] private readonly ?string $prefix = null,
     ) {
     }
@@ -78,12 +71,11 @@ final class FolioElasticBuildSetCommand
 
             return Command::INVALID;
         }
-        if (($this->dsn ?? '') === '') {
+        if (!$this->elastic->isConfigured()) {
             $io->error('Set ELASTICSEARCH_DSN, e.g. elasticsearch://127.0.0.1:9200');
 
             return Command::INVALID;
         }
-        [$base, $headers] = $this->endpoint($this->dsn);
         $index = ($this->prefix ?? '').$indexBase;
 
         $keep = array_values(array_filter(array_map('trim', explode(',', $fields)), static fn (string $f): bool => $f !== ''));
@@ -98,10 +90,10 @@ final class FolioElasticBuildSetCommand
 
         $io->title($index);
         if ($reset) {
-            $this->request('DELETE', $base.'/'.$index, $headers, expected: [200, 404]);
+            $this->elastic->request('DELETE', $index, expected: [200, 404]);
             $io->writeln('  index deleted');
         }
-        $this->createIndex($base, $index, $headers, $keep, $extraKeys, $allFields);
+        $this->createIndex($index, $keep, $extraKeys, $allFields);
 
         $report = new FolioDocumentStreamReport();
         $count = 0;
@@ -120,17 +112,17 @@ final class FolioElasticBuildSetCommand
             $buffer[] = json_encode(['index' => ['_index' => $index, '_id' => $id]], JSON_THROW_ON_ERROR);
             $buffer[] = json_encode($document, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
             if (count($buffer) >= self::CHUNK * 2) {
-                $count += $this->flush($io, $base, $headers, $buffer);
+                $count += $this->flush($io, $buffer);
                 $buffer = [];
             }
         }
         if ($buffer !== []) {
-            $count += $this->flush($io, $base, $headers, $buffer);
+            $count += $this->flush($io, $buffer);
         }
 
         // Without a refresh the documents are indexed but not yet searchable, which reads as an
         // empty index to whoever looks next.
-        $this->request('POST', $base.'/'.$index.'/_refresh', $headers);
+        $this->elastic->request('POST', $index.'/_refresh');
 
         foreach ($report->perFolio as $folioCode => $rows) {
             $io->writeln(sprintf('  %-34s %s row(s)', $folioCode, number_format($rows)));
@@ -154,11 +146,10 @@ final class FolioElasticBuildSetCommand
      *
      * @param list<string> $keep
      * @param list<string> $extraKeys
-     * @param array<string, list<string>> $headers
      */
-    private function createIndex(string $base, string $index, array $headers, array $keep, array $extraKeys, bool $allFields): void
+    private function createIndex(string $index, array $keep, array $extraKeys, bool $allFields): void
     {
-        $exists = $this->request('HEAD', $base.'/'.$index, $headers, expected: [200, 404]);
+        $exists = $this->elastic->request('HEAD', $index, expected: [200, 404]);
         if ($exists === 200) {
             return;
         }
@@ -176,7 +167,7 @@ final class FolioElasticBuildSetCommand
         }
         $properties['date'] = ['type' => 'keyword'];
 
-        $this->request('PUT', $base.'/'.$index, $headers, [
+        $this->elastic->request('PUT', $index, [
             'mappings' => [
                 'dynamic_templates' => [[
                     'strings_as_keywords' => [
@@ -190,10 +181,10 @@ final class FolioElasticBuildSetCommand
     }
 
     /** @param list<string> $buffer NDJSON lines, action and document alternating */
-    private function flush(SymfonyStyle $io, string $base, array $headers, array $buffer): int
+    private function flush(SymfonyStyle $io, array $buffer): int
     {
         $body = implode("\n", $buffer)."\n";
-        $response = $this->request('POST', $base.'/_bulk', $headers + ['Content-Type' => 'application/x-ndjson'], raw: $body, decode: true);
+        $response = $this->elastic->request('POST', '_bulk', raw: $body, decode: true, headers: ['Content-Type' => 'application/x-ndjson']);
         $indexed = 0;
         // _bulk answers 200 even when individual documents were rejected, so the per-item errors
         // are the only place a mapping conflict shows up. Silence here would mean a build that
@@ -209,60 +200,5 @@ final class FolioElasticBuildSetCommand
         }
 
         return $indexed;
-    }
-
-    /**
-     * The base URL and headers for a DSN, in the form search-bundle's adapter accepts:
-     * `elasticsearch://host:port`, `elasticsearch+https://…`, with `?api_key=` and `?ca=`.
-     *
-     * @return array{0: string, 1: array<string, string>}
-     */
-    private function endpoint(string $dsn): array
-    {
-        $parts = parse_url($dsn);
-        if (!is_array($parts) || !isset($parts['host'])) {
-            throw new \InvalidArgumentException(sprintf('Invalid Elasticsearch DSN "%s".', $dsn));
-        }
-        $scheme = ($parts['scheme'] ?? '') === 'elasticsearch+https' ? 'https' : 'http';
-        $base = sprintf('%s://%s:%d', $scheme, $parts['host'], $parts['port'] ?? 9200);
-        parse_str($parts['query'] ?? '', $query);
-        $headers = ['Accept' => 'application/json'];
-        if (is_string($query['api_key'] ?? null) && $query['api_key'] !== '') {
-            $headers['Authorization'] = 'ApiKey '.$query['api_key'];
-        }
-        $this->caBundle = is_string($query['ca'] ?? null) && $query['ca'] !== '' ? $query['ca'] : null;
-
-        return [$base, $headers];
-    }
-
-    /**
-     * @param array<string, string> $headers
-     * @param array<string, mixed>|null $json
-     * @param list<int> $expected HTTP codes that are not failures; empty means 2xx only
-     * @return array<string, mixed>|int decoded body, or the status code when $decode is false
-     */
-    private function request(string $method, string $url, array $headers, ?array $json = null, array $expected = [], bool $decode = false, ?string $raw = null): array|int
-    {
-        $options = ['headers' => $headers, 'timeout' => 120];
-        if ($this->caBundle !== null) {
-            $options['cafile'] = $this->caBundle;
-        }
-        if ($json !== null) {
-            $options['json'] = $json;
-        }
-        if ($raw !== null) {
-            $options['body'] = $raw;
-        }
-        $response = $this->http->request($method, $url, $options);
-        $status = $response->getStatusCode();
-        if ($expected !== [] && in_array($status, $expected, true)) {
-            return $decode ? $response->toArray(false) : $status;
-        }
-        if ($status >= 400) {
-            throw new \RuntimeException(sprintf('Elasticsearch %s %s → %d: %s', $method, $url, $status,
-                substr($response->getContent(false), 0, 400)));
-        }
-
-        return $decode ? $response->toArray(false) : $status;
     }
 }

@@ -509,12 +509,13 @@ final class FolioFtsIndexer
     }
 
     /**
-     * @param array<string, mixed> $row
+     * The words a row is found by. Public because a folio searched in Elasticsearch instead
+     * ({@see FolioElasticRowIndex}) indexes this same text, so both backends match the same rows.
+     *
+     * @param array<string, mixed> $row local_id, label, dto_type, dto_data, extras
+     * @param array<string,true> $searchableProperties from {@see searchableProperties()}
      */
-    /**
-     * @param array<string,true> $searchableProperties
-     */
-    private function searchBody(array $row, array $searchableProperties): string
+    public function searchBody(array $row, array $searchableProperties): string
     {
         $parts = [
             $row['local_id'] ?? null,
@@ -576,7 +577,7 @@ final class FolioFtsIndexer
     /**
      * @return array<string,true>
      */
-    private function searchableProperties(\PDO $pdo): array
+    public function searchableProperties(\PDO $pdo): array
     {
         try {
             $exists = $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_property'")->fetchColumn();

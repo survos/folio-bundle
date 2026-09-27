@@ -10,6 +10,7 @@ use Survos\SearchBundle\Search\AbstractSearch;
 use Survos\SearchBundle\Twig\Components\Facet\RangeSlider;
 use Survos\SearchBundle\Twig\Components\Facet\RefinementList;
 use Survos\FolioBundle\Service\FolioFacetFieldResolver;
+use Survos\FolioBundle\Service\FolioElasticRowIndex;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\SearchBundle\Search\HitTemplateSearchInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
@@ -36,6 +37,8 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         /** survos_folio.yaml's live_facet_max_rows — the row count past which a text query stops
          *  aggregating facets over its own matches. 0 = always live. */
         private readonly int $liveFacetMaxRows = 500_000,
+        /** Where a folio without item_fts is text-searched; see docs/search-policy.md. */
+        private readonly ?FolioElasticRowIndex $elastic = null,
     ) {
         foreach ($this->hitFields as $field) {
             if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $field)) {
@@ -193,6 +196,12 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             'table' => 'item',
             'ftsTable' => $hasFts ? 'item_fts' : null,
             'textFallbackColumns' => ['d.label'],
+            // No item_fts: ask the shared Elasticsearch row index for the matching rows. It answers
+            // null when it can't (node down, folio not indexed yet), and the label search above
+            // applies — a narrower search, never an unfiltered one.
+            'textMatcher' => !$hasFts && $this->elastic?->isConfigured()
+                ? fn (string $text): ?array => $this->elastic->match($folioCode, $text, $selectedCore)
+                : null,
             'joinExpression' => 'f.rowid = d.rowid',
             'selectColumns' => [
                 'd.id',
