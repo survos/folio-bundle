@@ -246,6 +246,9 @@ final class FolioFtsIndexer
         }
 
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_core_sort ON item(core_id, sort_key, local_id)');
+        // Title A-Z within a core: without it every page of a label sort builds a temp B-tree over
+        // the whole core (bl-book-images, 1.08M rows: 0.4 s a page).
+        $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_core_label ON item(core_id, label)');
     }
 
     /**

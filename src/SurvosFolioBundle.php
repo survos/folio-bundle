@@ -136,8 +136,14 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('folio:pull (and tenants:load, which delegates to it): when the target .folio already exists at the local Artifact path, skip the HTTP/storage fetch entirely — even under --force/--refresh. Opt-in: only correct when this app and the folio-building app share APP_DATA_DIR on the same filesystem (e.g. fotostory + md both mounting the same /platform volume); on a genuinely separate deployment a stale/wrong local file would silently never refresh.')
                 ->defaultFalse()
             ->end()
+            ->enumNode('folio_sets_source')
+                ->info('What folio sets resolve against. auto: the hub catalog (<folio_server>/folio/list.json) when folio_server is set — a reading app — else the local dataset registry — the app that builds folios.')
+                ->values(['auto', 'catalog', 'registry'])
+                ->defaultValue('auto')
+            ->end()
             ->arrayNode('folio_sets')
-                ->info('Named sets of folios this app shows, each defined by criteria over the dataset registry, never by listing folios. Resolved by folio:sets:sync (run it as a composer auto-script); membership is derived and rebuilt every run. See docs/folio-sets.md.')
+                ->normalizeKeys(false)
+                ->info('Named sets of folios this app shows, selected by criteria over their metadata (a tag, set in harvest) or by folio name. Resolved by folio:sets:sync (run it as a composer auto-script); membership is derived and rebuilt every run. See docs/folio-sets.md.')
                 ->useAttributeAsKey('code')
                 ->arrayPrototype()
                     ->children()
@@ -150,8 +156,21 @@ final class SurvosFolioBundle extends AbstractUxBundle
                                 ->arrayNode('provider')->info('Any of these providers')->scalarPrototype()->end()->end()
                                 ->arrayNode('contentType')->info('Any of these content types (newspaper, photograph, ...)')->scalarPrototype()->end()->end()
                                 ->integerNode('minRows')->defaultValue(1)->end()
+                                ->arrayNode('folios')->info('These folios by name (provider/code), in addition to any the criteria above select. For the one- or few-folio set; anything that should grow on its own is a tag.')->scalarPrototype()->end()->end()
                             ->end()
                         ->end()
+                    ->end()
+                ->end()
+            ->end()
+            ->arrayNode('sites')
+                ->normalizeKeys(false)
+                ->info('Hosts and the folio sets they show. A site has no criteria of its own: its folios are the union of its sets\' members, and a site that adds up to one folio is that folio\'s own site. See docs/folio-sets.md.')
+                ->useAttributeAsKey('code')
+                ->arrayPrototype()
+                    ->children()
+                        ->arrayNode('hosts')->isRequired()->requiresAtLeastOneElement()->scalarPrototype()->end()->end()
+                        ->arrayNode('sets')->isRequired()->requiresAtLeastOneElement()->scalarPrototype()->end()->end()
+                        ->booleanNode('restrict')->info('404 any folio outside this site\'s sets, as a one-collection site (tobacco) wants.')->defaultFalse()->end()
                     ->end()
                 ->end()
             ->end()
@@ -361,11 +380,18 @@ final class SurvosFolioBundle extends AbstractUxBundle
         foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
-        $services->set(\Survos\FolioBundle\Set\FolioSetResolver::class)->autowire()->public()->args([
-            '$sets' => $config['folio_sets'],
-            '$membershipDir' => '%kernel.project_dir%/var/folio-sets',
-            '$datasets' => service(\Survos\DatasetBundle\Repository\DatasetInfoRepository::class)->ignoreOnInvalid(),
-        ]);
+        foreach ($config['sites'] as $siteCode => $site) {
+            foreach ($site['sets'] as $setCode) {
+                if (!isset($config['folio_sets'][$setCode])) {
+                    throw new \InvalidArgumentException(sprintf('survos_folio.sites.%s shows set "%s", which is not in survos_folio.folio_sets.', $siteCode, $setCode));
+                }
+            }
+        }
+        $builder->setParameter('survos_folio.folio_sets', $config['folio_sets']);
+        $builder->setParameter('survos_folio.sites', $config['sites']);
+        $builder->setParameter('survos_folio.folio_sets_source', $config['folio_sets_source']);
+        // Sets and sites: resolver, site registry and host listener, wired by their own attributes.
+        $services->load('Survos\\FolioBundle\\Set\\', $this->bundleRootPath().'/src/Set/')->autowire()->autoconfigure();
         // Bare #[AsEventListener] (no event named): Symfony infers the event by reflecting on
         // __invoke(BuildFolioRequestedEvent), so registering this without dataset-bundle fails at
         // compile time. Nothing dispatches that event in a reader app anyway — it is how the

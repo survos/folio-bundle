@@ -1,9 +1,10 @@
 # Folio sets: which folios an app shows
 
-Status: 2026-09-23. Tags, the resolver and `folio:sets:sync` are implemented and resolve against a
-local registry. zm's `/folio/list.json` now publishes each folio's `tags`, so a remote catalog can
-be read; the resolver itself still reads the local registry. Moving fotostory and ink onto this is
-not done yet.
+Status: 2026-09-28. Tags, the resolver and `folio:sets:sync` are implemented and resolve against a
+local registry. zm's `/folio/list.json` has a `tags` field, but on production (recordia.org) all
+2,853 folios publish `tags: []`: registrations were never re-synced after tags landed, so no app
+can select by tag yet. The resolver still reads the local registry. Next: sets gain hosts and
+become sites (see "Sites" below); nothing has moved onto them yet.
 
 This bundle no longer requires dataset-bundle (see [bare-app.md](bare-app.md)), which is what makes
 a set usable by an app that has no registry at all — once the resolver reads the catalog.
@@ -123,6 +124,169 @@ per provider.
 A single-collection site is the same mechanism with narrower criteria — `provider: [mus]` plus a
 tag, or a tag minted for exactly that grouping (`nabolom`), which is how one brand limits itself to
 its own few folios.
+
+## Sets and sites, owned by the bundle (proposed 2026-09-28)
+
+Every reading site is the same structure, rebuilt in each app: a host, a rule for which folios
+belong, optional per-folio editorial choices, and a check that its pages work.
+
+| Site | Host → site | Membership | Editorial per folio | Check |
+|---|---|---|---|---|
+| covid.voxstory.org | fotostory `SubdomainTenantListener` | `app.vox_sets` (tag half-working) | — | none |
+| fotostory tenants/sets | `SubdomainTenantListener` | `app.folio_selectors`, `app.folio_sets`, `AppLoadCommand` | hero scrape | none |
+| tobacco.survos.com | zm `TobaccoSiteListener` | hardcoded `n4/tobacco` | — | none |
+| ink | its host | `Publication` rows | slug, order, hidden, title | `ink:smoke` |
+
+What four hand-kept lists cost on 2026-09-28: voxstory interview pages 500'd and its set pages
+503'd, fotostory served a cleveland "Item not found" from an index built off a different copy
+than the one on disk, and a fresh checkout could pull only 9 of fotostory's photo tenants.
+Nothing noticed; only ink checks its own pages.
+
+folio-bundle owns two concepts, both defined in the app's config (so a fresh checkout recreates
+them) and both selecting folios the same two ways — by **tag** or by **folio name**:
+
+- **Folio set** — a code, a label and criteria. The only place criteria live.
+- **Site** — hosts plus the sets it shows. No criteria of its own.
+
+```yaml
+survos_folio:
+    folio_sets:
+        oral-history:
+            label: Oral histories
+            criteria: { tags: [oral-history] }
+        covid:
+            label: COVID-19 American History Project
+            criteria: { folios: [loc/covid-19-american-history-project] }
+        opan:
+            label: OPAN Global
+            criteria: { tags: [opan] }
+        museums:
+            label: Museum Collections
+            criteria: { tags: [museum] }       # tag not assigned in harvest yet
+        tobacco:
+            label: Tobacco News
+            criteria: { folios: [n4/tobacco] }
+
+    sites:
+        vox:
+            hosts: [voxstory.org, vox.wip]
+            sets: [oral-history]
+        covid:
+            hosts: [covid.voxstory.org, covid.vox.wip]
+            sets: [covid]
+        fotostory:
+            hosts: [fotostory.org, fotostory.wip]
+            sets: [opan, museums]         # the home page lists each set
+        museums:
+            hosts: [museums.fotostory.org, museums.fotostory.wip]
+            sets: [museums]
+        tobacco:
+            hosts: [tobacco.survos.com, tobacco.wip]
+            sets: [tobacco]
+```
+
+A site's folios are the union of its sets' members. A set with no site is still useful — a
+search scope, an index, a page under `/set/{code}` on whatever site links to it.
+
+**A set of one is the folio.** When a set resolves to exactly one member, its site behaves as that
+folio's own site rather than a collection of one:
+
+- the set's home is the folio's home — no "1 collection" landing page, no "All collections" link;
+- search uses the folio's own search (FTS or the shared row index); no pooled set index is built;
+- routes can drop the folio code (`covid.voxstory.org/interview/{id}`, not
+  `/folio/loc/covid-19-american-history-project/obj/interview/{id}`), while the long form keeps
+  working and redirects.
+
+It is decided by the resolved membership at sync time, not by how the set is written: a `folios:
+[n4/tobacco]` set is always one, and a tag set that has one member today gets the same treatment
+and becomes a real collection on the sync where a second folio gains the tag — no config change.
+Everything that renders a set asks the set (`isSingle()` / `single()`) rather than counting.
+
+`criteria.folios` is for the one- or few-folio case (tobacco, a vox subdomain). Anything that
+should grow on its own is a tag, set in harvest; `tags` and `folios` may be combined, and the
+existing `tagsAll` / `provider` / `contentType` / `minRows` criteria stay available.
+
+The bundle owns:
+
+1. **Host → site.** A request listener sets the site (and so its sets) on the request and 404s a
+   folio outside them.
+   Replaces `TobaccoSiteListener`, vox's subdomain handling, and the folio half of
+   `SubdomainTenantListener`.
+2. **`folio:sites:sync`.** Resolves every set's criteria against `<folio_server>/folio/list.json`, keeps the
+   last membership when the hub is unreachable, and pulls members where the app keeps its own
+   copies. A composer auto-script and postdeploy step, so every install reconciles.
+3. **`folio:sites:smoke`.** Requests each site's home, every member folio, and one row per folio;
+   fails on a non-200 or an empty row. Runs after deploy with `--notify`. `ink:smoke` becomes a
+   caller.
+
+The app keeps only decoration: a hook keyed by site + folio for ink's slug/order/hidden/title and
+fotostory's hero content. It never decides membership.
+
+### Sync: files, then the app database
+
+`folio:sites:sync` does two separate things, and they obey different rules.
+
+**Files** (the `.folio` on disk):
+
+| Invocation | Missing folio | Existing folio |
+|---|---|---|
+| `folio:sites:sync` | reported, not fetched | left alone |
+| `--pull` | `folio:pull` | left alone |
+| `--force` (implies `--pull`) | `folio:pull` | re-pulled and re-inflated |
+
+`local_passthrough` overrides all three: the app does not own its data dir (production fotostory
+and ink read zm's `/platform`), so it never writes a folio file **or** the dataset registry there
+— `APP_DATA_DIR/datasets.db` on production is zm's registry, and `folio:pull`'s bookkeeping would
+write into it. When `--pull`/`--force` is refused for that reason, sync says so as a warning
+naming the folio; today `folio:pull` prints a plain "skipping fetch" line even under `--force`,
+which is how a laptop with passthrough hardcoded on drifted from the published folios unnoticed.
+Passthrough is an env value (`FOLIO_LOCAL_PASSTHROUGH`): true where the builder shares the disk,
+false on a laptop that pulls its own copies.
+
+A re-pull must inflate to a temp file and rename it into place, as `folio:build` does, so a reader
+never opens a half-written folio. Today it does not: `FolioArchiveService::restore()` gunzips
+straight onto the target and inflates it in place, so `--force` on a folio being served is unsafe
+until that changes. "Stale" (re-pull only what changed upstream) waits until the
+catalog publishes checksums; today `checksum` is null, so `--force` means everything.
+
+A member the catalog lists but cannot serve (404, unpublished) is reported and kept in
+membership marked unavailable — the site hides it and smoke flags it, rather than a page failing
+at request time.
+
+**App database** (tenants, publications — whatever the app keeps per folio): always reconciled,
+passthrough or not, from membership plus what is actually on disk. Present members are upserted
+through the app's hook; members that are gone are removed or hidden. fotostory's `tenants:load`
+does the upsert half today (it checks the file itself and upserts `Tenant`/`TenantFolio` even
+when it skips the pull) but never removes, which is why its home page logs "Skipping tenant" on
+every request instead of not listing the folio. That generic half moves here; fotostory keeps
+only brand, country and the hero scrape as its hook.
+
+### Composer
+
+Every reading app gets the same two script entries, so no deploy or checkout depends on anyone
+remembering a command:
+
+```json
+"scripts": {
+    "auto-scripts": {
+        "folio:sites:sync": "symfony-cmd"
+    },
+    "sync": "@php bin/console folio:sites:sync --no-interaction"
+}
+```
+
+- `composer install` / `update` (auto-scripts): membership + app database, no downloads. Safe on
+  production and never slow.
+- `composer sync -- --pull`: a laptop or fresh checkout gets exactly what is published.
+- `composer sync -- --force`: refresh everything local.
+- Dokku postdeploy: `composer sync && php bin/console folio:sites:smoke --notify`, as ink does
+  now with `ink:sync` / `ink:smoke`. A catalog outage keeps the last membership and does not fail
+  the release (ink learned this: a non-zero postdeploy rejects the deploy).
+
+`criteria.folios` exists for the one-folio site (tobacco, a vox subdomain). Anything wider is a
+tag, set in harvest.
+
+Order: resolver reads the remote catalog + smoke → vox (smallest) → tobacco → fotostory → ink.
 
 ## Decided
 

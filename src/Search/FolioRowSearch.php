@@ -139,7 +139,9 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 $label = $m[1];
             }
             $this->addFacet($field['name'], $label, $isNumeric ? RangeSlider::class : RefinementList::class, group: $group);
-            $facetColumns[$field['name']] = $this->jsonExtract($field['name']);
+            // year is sort_key (FolioFtsIndexer::ensurePrimarySortColumn), so the slider's MIN/MAX is
+            // two probes of idx_item_core_sort instead of a json_extract over every row
+            $facetColumns[$field['name']] = $field['name'] === 'year' ? 'd.sort_key' : $this->jsonExtract($field['name']);
         }
 
         $sorts = [];
@@ -249,6 +251,8 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 ...array_map(fn (string $f): string => $this->jsonExtract($f).' AS "'.$f.'"', $this->hitFields),
             ],
             'facetColumns' => $facetColumns,
+            // real columns: a fixed core/dtoType filter must not become a per-row item_facet EXISTS
+            'columnFilters' => ['core', 'dtoType'],
             'sortColumns' => [
                 'label' => 'd.label',
                 'year' => 'd.sort_key',

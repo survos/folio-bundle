@@ -7,30 +7,44 @@ namespace Survos\FolioBundle\Set;
 use Survos\DatasetBundle\Entity\Artifact;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DatasetBundle\Repository\DatasetInfoRepository;
+use Survos\FolioBundle\Catalog\FolioCatalogClient;
+use Survos\FolioBundle\Catalog\FolioCatalogEntry;
+use Survos\FolioBundle\Service\FolioService;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
 /**
- * Resolves an app's folio sets (survos_folio.folio_sets) against the dataset registry. A set is a
- * code, a label and criteria — never a list of folios — so membership is derived and can always be
- * rebuilt: a dataset joins a set by gaining a tag in its metadata, not by being added anywhere.
- * See docs/folio-sets.md. folio:sets:sync records the result; members() reads it back.
+ * Resolves an app's folio sets (survos_folio.folio_sets). A set selects folios two ways, which may
+ * be combined: by criteria over their metadata (`tags`, `tagsAll`, `provider`, `contentType`), so a
+ * folio joins by gaining a tag in harvest, or by name (`folios`), for the one- or few-folio set.
+ * Membership is derived and can always be rebuilt. See docs/folio-sets.md.
  *
- * Criteria, all optional and ANDed together:
- *   tags        any of these tags            provider     any of these providers
- *   tagsAll     all of these tags            contentType  any of these content types
- *   minRows     at least this many rows (default 1)
- *
- * Only datasets with a built folio are candidates: a set is of folios, not datasets.
+ * Two sources answer the same criteria with the same {@see matches()}: the hub catalog
+ * (`<folio_server>/folio/list.json`), which is what a reading app sees, and the local dataset
+ * registry, which is what the app that builds the folios sees. folio:sets:sync records the result;
+ * members() reads it back.
  */
 final class FolioSetResolver
 {
+    /** Criteria that select by metadata; `folios` selects by name, `minRows` only filters. */
+    private const array SELECTIVE = ['tags', 'tagsAll', 'provider', 'contentType'];
+
     /** @var array<string, list<string>> folio file → content types, read once per process */
     private array $contentTypes = [];
 
     /** @param array<string, array{label: ?string, core: string, criteria: array<string, mixed>}> $sets */
     public function __construct(
+        #[Autowire('%survos_folio.folio_sets%')]
         private readonly array $sets,
+        #[Autowire('%kernel.project_dir%/var/folio-sets')]
         private readonly string $membershipDir,
         private readonly ?DatasetInfoRepository $datasets = null,
+        private readonly ?FolioCatalogClient $catalog = null,
+        private readonly ?FolioService $folios = null,
+        /** auto: the hub catalog when folio_server is set, else the local registry */
+        #[Autowire('%survos_folio.folio_sets_source%')]
+        private readonly string $source = 'auto',
+        #[Autowire('%survos_folio.folio_server%')]
+        private readonly ?string $folioServer = null,
     ) {}
 
     /** @return array<string, array{label: ?string, core: string, criteria: array<string, mixed>}> */
@@ -44,27 +58,44 @@ final class FolioSetResolver
         return isset($this->sets[$code]);
     }
 
+    public function source(): string
+    {
+        if ($this->source !== 'auto') {
+            return $this->source;
+        }
+
+        return $this->catalog !== null && ($this->folioServer ?? '') !== '' ? 'catalog' : 'registry';
+    }
+
     /**
-     * Evaluate a set's criteria against the registry now.
+     * Evaluate a set's criteria now. Throws when the source cannot answer at all, so a caller can
+     * keep the last recorded membership instead of emptying the set.
      *
-     * @return list<array{datasetKey: string, label: ?string, provider: string, tags: list<string>, contentTypes: list<string>, rowCount: ?int, folio: ?string}>
+     * @return list<array{datasetKey: string, label: ?string, provider: string, tags: list<string>, rowCount: ?int, inCatalog: bool, downloadUrl: ?string, local: ?string, available: bool}>
      */
     public function resolve(string $code): array
     {
         $set = $this->sets[$code] ?? throw new \InvalidArgumentException(sprintf('No folio set "%s". Defined: %s.', $code, implode(', ', array_keys($this->sets)) ?: 'none'));
-        if ($this->datasets === null) {
-            throw new \RuntimeException('The dataset registry is not available, so folio sets cannot be resolved. Is survos/dataset-bundle configured?');
-        }
+        $criteria = $set['criteria'];
+        $named = array_values(array_unique(array_map('strval', $criteria['folios'] ?? [])));
+        $selective = array_filter(self::SELECTIVE, static fn (string $k): bool => ($criteria[$k] ?? []) !== []) !== [];
+
         $members = [];
-        foreach ($this->datasets->findAll() as $info) {
-            $candidate = $this->candidate($info, $set['criteria']);
-            if ($candidate !== null && self::matches($set['criteria'], $candidate)) {
-                $members[] = $candidate;
+        foreach ($this->candidates($criteria) as $candidate) {
+            $byName = in_array($candidate['datasetKey'], $named, true);
+            if ($byName || ($selective && self::matches($criteria, $candidate))) {
+                $members[$candidate['datasetKey']] = $candidate;
             }
         }
-        usort($members, static fn (array $a, array $b): int => strcmp($a['datasetKey'], $b['datasetKey']));
+        // A named folio the source does not know is still a member: it may be on disk (built
+        // here, or published under another route), and if not, sync reports it rather than the
+        // set silently shrinking.
+        foreach ($named as $datasetKey) {
+            $members[$datasetKey] ??= $this->member($datasetKey, null, strtolower(explode('/', $datasetKey)[0]), [], null, false, null);
+        }
+        ksort($members);
 
-        return $members;
+        return array_values($members);
     }
 
     /**
@@ -77,6 +108,24 @@ final class FolioSetResolver
         $recorded = $this->recorded($code);
 
         return $recorded !== null ? $recorded['members'] : $this->resolve($code);
+    }
+
+    /**
+     * A set of one is the folio itself: its site renders that folio's home and search, not a
+     * collection of one. Decided by the recorded membership, so a tag set becomes a collection on
+     * the sync where a second folio gains the tag.
+     */
+    public function isSingle(string $code): bool
+    {
+        return count($this->members($code)) === 1;
+    }
+
+    /** @return array<string, mixed>|null the only member of a set of one */
+    public function single(string $code): ?array
+    {
+        $members = $this->members($code);
+
+        return count($members) === 1 ? $members[0] : null;
     }
 
     /** @return array{code: string, label: ?string, criteria: array<string, mixed>, resolvedAt: string, members: list<array<string, mixed>>}|null */
@@ -95,7 +144,18 @@ final class FolioSetResolver
         return rtrim($this->membershipDir, '/').'/'.$code.'.json';
     }
 
-    /** Whether a candidate meets every criterion. Public and static so it is testable on plain arrays. */
+    /** The folio file for a dataset key if it is on disk here, else null. */
+    public function localPath(string $datasetKey): ?string
+    {
+        if ($this->folios === null) {
+            return null;
+        }
+        $path = $this->folios->path($datasetKey);
+
+        return is_file($path) ? $path : null;
+    }
+
+    /** Whether a candidate meets every metadata criterion. Public and static so it is testable on plain arrays. */
     public static function matches(array $criteria, array $candidate): bool
     {
         $norm = static fn (array $values): array => array_map(static fn ($v): string => strtolower(trim((string) $v)), $values);
@@ -109,14 +169,51 @@ final class FolioSetResolver
         if (($criteria['provider'] ?? []) !== [] && !in_array($candidate['provider'], $norm($criteria['provider']), true)) {
             return false;
         }
-        if (($criteria['contentType'] ?? []) !== [] && array_intersect($norm($criteria['contentType']), $candidate['contentTypes']) === []) {
+        if (($criteria['contentType'] ?? []) !== [] && array_intersect($norm($criteria['contentType']), $candidate['contentTypes'] ?? []) === []) {
             return false;
         }
 
         return ($candidate['rowCount'] ?? 0) >= (int) ($criteria['minRows'] ?? 1);
     }
 
-    private function candidate(DatasetInfo $info, array $criteria): ?array
+    /** @return iterable<array<string, mixed>> */
+    private function candidates(array $criteria): iterable
+    {
+        if ($this->source() === 'catalog') {
+            $entries = $this->catalog->all();
+            if ($entries === [] && $this->catalog->isStale()) {
+                throw new \RuntimeException(sprintf('The folio catalog %s is unreachable and nothing is cached.', $this->catalog->url()));
+            }
+            foreach ($entries as $entry) {
+                // A translated variant (mus/enterreno + "en") is the same folio for membership;
+                // folio:pull fetches the variants along with it.
+                if ($entry->locale === null) {
+                    yield $this->fromCatalog($entry);
+                }
+            }
+
+            return;
+        }
+
+        if ($this->datasets === null) {
+            throw new \RuntimeException('Folio sets resolve against the local dataset registry here, and it is not available. Set survos_folio.folio_server to resolve against the hub catalog instead.');
+        }
+        foreach ($this->datasets->findAll() as $info) {
+            if (($candidate = $this->fromRegistry($info, $criteria)) !== null) {
+                yield $candidate;
+            }
+        }
+    }
+
+    private function fromCatalog(FolioCatalogEntry $entry): array
+    {
+        return $this->member(
+            $entry->datasetKey, $entry->title, strtolower($entry->provider), $entry->tags, $entry->rowCount, true, $entry->downloadUrl,
+            $entry->contentType !== null ? [strtolower($entry->contentType)] : [],
+        );
+    }
+
+    private function fromRegistry(DatasetInfo $info, array $criteria): ?array
     {
         $artifact = $info->artifact(Artifact::TYPE_FOLIO);
         if ($artifact === null) {
@@ -124,15 +221,30 @@ final class FolioSetResolver
         }
         $folio = $artifact->uri !== null && is_file($artifact->uri) ? $artifact->uri : null;
 
-        return [
-            'datasetKey' => $info->datasetKey,
-            'label' => $info->label,
-            'provider' => strtolower($info->provider()),
-            'tags' => $info->getTags(),
+        return $this->member(
+            $info->datasetKey, $info->label, strtolower($info->provider()), $info->getTags(), $artifact->rowCount, true, null,
             // Only worked out when a criterion needs it: it may mean opening the folio file.
-            'contentTypes' => ($criteria['contentType'] ?? []) !== [] ? $this->contentTypes($artifact, $folio) : [],
-            'rowCount' => $artifact->rowCount,
-            'folio' => $folio,
+            ($criteria['contentType'] ?? []) !== [] ? $this->contentTypes($artifact, $folio) : [],
+            $folio,
+        );
+    }
+
+    /** @param list<string> $tags @param list<string> $contentTypes */
+    private function member(string $datasetKey, ?string $label, string $provider, array $tags, ?int $rowCount, bool $inCatalog, ?string $downloadUrl, array $contentTypes = [], ?string $local = null): array
+    {
+        $local ??= $this->localPath($datasetKey);
+
+        return [
+            'datasetKey' => $datasetKey,
+            'label' => $label,
+            'provider' => $provider,
+            'tags' => $tags,
+            'contentTypes' => $contentTypes,
+            'rowCount' => $rowCount,
+            'inCatalog' => $inCatalog,
+            'downloadUrl' => $downloadUrl,
+            'local' => $local,
+            'available' => $local !== null,
         ];
     }
 
