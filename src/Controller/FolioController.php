@@ -1392,6 +1392,15 @@ final class FolioController extends AbstractController
 
         $pageTableExists = $this->tableExists($ctx->em->getConnection(), 'page');
         $claims = $this->rowClaimsResolver->resolve($ctx->em->getConnection(), $row->id);
+        // A summary imported as a claim (folio:ai:import-claims) fills the DTO's empty field, so the
+        // narrative can show it; claims come ordered by source, so the newest prompt version wins.
+        if ($dto !== null && ($dto->denseSummary ?? '') === '') {
+            foreach ($claims as $claim) {
+                if ($claim['predicate'] === 'ai:denseSummary' && is_string($claim['value']) && trim($claim['value']) !== '') {
+                    $dto->denseSummary = trim($claim['value']);
+                }
+            }
+        }
         $aiTaskRuns = $this->rowClaimsResolver->aiTaskRuns($claims);
         $links = $this->rowLinks($ctx->em, $folio->code, $coreCode, $localId);
         $terms = $this->rowTermsResolver->resolve($ctx->em, $folio->code, $row->dtoData ?? [], $row->extras ?? []);

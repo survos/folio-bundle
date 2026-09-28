@@ -11,6 +11,9 @@ final class FolioAiPromptBuilder
     public const IMAGE_ENRICH = 'image_enrich';
     public const DENSE_SUMMARY = 'dense_summary';
 
+    /** ~15k tokens: whole interviews fit, and a 300-page case file cannot blow up one request. */
+    private const int MAX_TEXT_CHARS = 60_000;
+
     /** @param array<string,mixed> $row */
     public function requestLine(array $row, string $task, string $model, string $source, string $imageDetail = 'low'): array
     {
@@ -59,7 +62,7 @@ final class FolioAiPromptBuilder
     {
         return match ($task) {
             self::IMAGE_ENRICH => 'You enrich museum photograph records. Return only valid JSON. Prefer concise, factual claims grounded in the image and supplied metadata. Use null or empty arrays when evidence is insufficient.',
-            self::DENSE_SUMMARY => 'You summarize museum collection records. Return only valid JSON. Use the supplied metadata only and do not infer visual details.',
+            self::DENSE_SUMMARY => 'You summarize archival records: objects, documents and recorded interviews. When the record includes its own text (a transcript or OCR), summarize what it says: who is speaking or writing and what they describe, not the catalogue boilerplate. Return only valid JSON. Use only the supplied material and do not infer visual details.',
             default => throw new \InvalidArgumentException(sprintf('Unsupported folio AI task "%s".', $task)),
         };
     }
@@ -83,8 +86,12 @@ final class FolioAiPromptBuilder
 
         $schema = $task === self::IMAGE_ENRICH
             ? 'Return JSON with keys: title, description, keywords, denseSummary, people, places, organizations, dateText, confidence, claims. Claims is optional and may contain objects with predicate, value, confidence, basis.'
-            : 'Return JSON with keys: denseSummary, keywords, subjects, confidence, claims. Claims is optional and may contain objects with predicate, value, confidence, basis.';
+            : 'Return JSON with keys: denseSummary (2-4 plain sentences, under 400 characters), keywords, subjects, confidence, claims. Claims is optional and may contain objects with predicate, value, confidence, basis.';
         $text = $schema . "\nRecord:\n" . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        $pageText = is_string($row['page_text'] ?? null) ? trim($row['page_text']) : '';
+        if ($task === self::DENSE_SUMMARY && $pageText !== '') {
+            $text .= "\n\nText of the record:\n" . mb_substr($pageText, 0, self::MAX_TEXT_CHARS);
+        }
 
         if ($task !== self::IMAGE_ENRICH) {
             return $text;

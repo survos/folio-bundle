@@ -124,7 +124,8 @@ final class FolioAiBatchPreparer
 
         return match ($task) {
             FolioAiPromptBuilder::IMAGE_ENRICH => 'ai:image_enrich@1',
-            FolioAiPromptBuilder::DENSE_SUMMARY => 'ai:dense_summary@1',
+            // @2: the prompt reads the row's own text (transcript, OCR), not just its metadata.
+            FolioAiPromptBuilder::DENSE_SUMMARY => 'ai:dense_summary@2',
         };
     }
 
@@ -138,8 +139,13 @@ final class FolioAiBatchPreparer
     /** @return \Generator<int,array<string,mixed>> */
     private function candidateRows(Connection $connection, string $coreCode, ?string $dtoType, string $source, bool $includeExisting): \Generator
     {
-        $sql = <<<'SQL'
-SELECT i.id, i.local_id, i.label, i.dto_type, i.dto_data, i.extras
+        // A row's words usually live on its pages (an interview's transcript, a document's OCR),
+        // not in dto_data; a summary of the metadata alone just restates the catalogue record.
+        $pageText = $this->hasPageText($connection)
+            ? "(SELECT group_concat(t, char(10) || char(10)) FROM (SELECT p.text AS t FROM page p WHERE p.row_id = i.id AND p.text IS NOT NULL AND p.text <> '' ORDER BY p.seq))"
+            : 'NULL';
+        $sql = <<<SQL
+SELECT i.id, i.local_id, i.label, i.dto_type, i.dto_data, i.extras, {$pageText} AS page_text
 FROM item i
 JOIN core c ON c.id = i.core_id
 WHERE c.code = :coreCode
@@ -159,6 +165,11 @@ SQL;
         while (($row = $result->fetchAssociative()) !== false) {
             yield $row;
         }
+    }
+
+    private function hasPageText(Connection $connection): bool
+    {
+        return (bool) $connection->fetchOne("SELECT 1 FROM pragma_table_info('page') WHERE name = 'text'");
     }
 
     /** @return array<string,mixed>|null */
