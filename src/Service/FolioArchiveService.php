@@ -251,6 +251,8 @@ final readonly class FolioArchiveService
 
         $this->gunzip($archivePath, $target);
         $inflated = $this->inflate($target);
+        // The archive has its build's schema; the reader may be newer. See FolioService::upgradeSchema().
+        $this->folios->upgradeSchema($folioCode, $locale);
 
         return [
             'archive' => $archivePath,

@@ -382,6 +382,36 @@ final class FolioService
         return new FolioContext($folioCode, $this->path($folioCode, locale: $locale), $em);
     }
 
+    /**
+     * Bring one folio's schema up to the deployed entities, even in a read-only app.
+     *
+     * For a file the app itself just wrote: a folio:pull or folio:restore. An archive keeps the
+     * schema of the build that made it, and zm then adds newer columns to the working folio in place
+     * (context() does, on first open) without touching the archive. So a pulled copy arrives on an
+     * older schema than the code reading it, and a read_only app — fotostory never writes to folios —
+     * never repairs it: its row page 500'd on "no such column: t0.content_type"
+     * (loc/voices-remembering-slavery, 2026-09-28). The copy is the app's own, so this is safe.
+     */
+    public function upgradeSchema(string $folioCode, ?string $locale = null): void
+    {
+        $conn = $this->folioEntityManager->getConnection();
+        if (!$conn instanceof FolioConnectionWrapper) {
+            throw new \RuntimeException(sprintf('Configure the folio DBAL connection with wrapper_class: %s', FolioConnectionWrapper::class));
+        }
+        $target = $this->path($folioCode, locale: $locale);
+        if (!is_file($target)) {
+            throw new FolioNotFoundException($folioCode, $target);
+        }
+        $this->folioEntityManager->clear();
+        $conn->selectDatabase($target, false);
+        try {
+            $this->schemaManager->update($this->folioEntityManager);
+        } finally {
+            // The next switch() reopens it the app's own way (read-only where configured).
+            $this->invalidateConnection();
+        }
+    }
+
     private function bootstrapPath(): string
     {
         return $this->dataPaths->folioBootstrapFile($this->extension);
