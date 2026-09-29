@@ -1,3 +1,9 @@
+> The local bookmark implementation has moved to `survos/bookmark-bundle`.
+> Existing `Survos\FolioBundle\Bookmark` names and `survos_folio` configuration
+> remain compatibility adapters. New non-Folio apps use `survos_bookmark` and
+> `Survos\BookmarkBundle` directly. See `../../bookmark-bundle/README.md`.
+> Folio route helpers remain in this bundle; the extracted core has no Folio dependency.
+
 # Bookmarks
 
 Lets a signed-in user save a folio row (optionally into a flat, user-owned

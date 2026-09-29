@@ -856,6 +856,10 @@ export default class extends Controller {
     }
 
     rowUrl(bookmark) {
+        if (bookmark.targetUrl) {
+            const target = new URL(bookmark.targetUrl);
+            return ['http:', 'https:'].includes(target.protocol) ? target.href : '#';
+        }
         if (!bookmark) {
             return '#';
         }

@@ -8,7 +8,7 @@ use Survos\DataContracts\Path\DataPaths;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
-use Survos\FolioBundle\Bookmark\Service\BookmarkManager;
+use Survos\BookmarkBundle\Service\BookmarkManager;
 use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand,FolioTranslateCommand,FolioValidateCommand};
 use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioFtsIndexListener,FolioRouteAttributeListener};
 use Survos\FolioBundle\Menu\FolioMenu;
@@ -506,6 +506,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // this service, rather than a container compile failure.
         if ($config['bookmark_class'] !== null && $config['folder_class'] !== null) {
             $services->set(BookmarkManager::class)->autowire()->autoconfigure()->public()->args([
+                '$bookmarkClass' => $config['bookmark_class'],
+                '$folderClass' => $config['folder_class'],
+            ]);
+            $services->set(\Survos\FolioBundle\Bookmark\Service\BookmarkManager::class)->autowire()->autoconfigure()->public()->args([
                 '$bookmarkClass' => $config['bookmark_class'],
                 '$folderClass' => $config['folder_class'],
             ]);

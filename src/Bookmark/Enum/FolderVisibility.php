@@ -4,9 +4,5 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Bookmark\Enum;
 
-enum FolderVisibility: string
-{
-    case Public = 'public';
-    case Unlisted = 'unlisted';
-    case Private = 'private';
-}
+// Compatibility alias for existing hosts; implementation lives in bookmark-bundle.
+class_alias(\Survos\BookmarkBundle\Enum\FolderVisibility::class, __NAMESPACE__.'\\FolderVisibility');

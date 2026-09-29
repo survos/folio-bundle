@@ -425,18 +425,9 @@ final class FolioIngestService
         }
 
         $conn = $em->getConnection();
-        /** @var array<string,string> localId => item id */
-        $byLocalId = [];
-        foreach ($conn->fetchAllKeyValue('SELECT local_id, id FROM item') as $localId => $itemId) {
-            $byLocalId[(string) $localId] = (string) $itemId;
-        }
-        // Image AI claims (observe/analyze via mediary) are keyed by the universal image id
-        // (xxh3 of the image url = the asset id), NOT the row's localId. Map asset id → item id
-        // through the page's media_id (which is that same asset id) so those claims fold in too.
-        /** @var array<string,string> assetId => item id */
-        $byAssetId = [];
-        foreach ($conn->fetchAllKeyValue('SELECT media_id, row_id FROM page WHERE media_id IS NOT NULL') as $mediaId => $rowId) {
-            $byAssetId[(string) $mediaId] = (string) $rowId;
+        $itemBySubject = $this->claimSubjects($conn, $claimsFile);
+        if ($itemBySubject === []) {
+            return ['count' => 0];
         }
 
         $claims = new FolioBulkInserter($conn, 'claim', self::CLAIM_COLUMNS);
@@ -444,7 +435,7 @@ final class FolioIngestService
         foreach (JsonlReader::open($claimsFile) as $data) {
             $predicate = is_scalar($data['predicate'] ?? null) ? (string) $data['predicate'] : '';
             $subjectId = (string) ($data['subjectId'] ?? '');
-            $itemId = $byLocalId[$subjectId] ?? $byAssetId[$subjectId] ?? null;
+            $itemId = $itemBySubject[$subjectId] ?? null;
             if ($itemId === null || $predicate === '') {
                 continue;
             }
@@ -490,6 +481,65 @@ final class FolioIngestService
         );
 
         return ['count' => $count];
+    }
+
+    /**
+     * The item id of every subject the claims file names, resolved inside SQLite.
+     *
+     * Claims are keyed by the row's localId, or — for image AI claims (observe/analyze via
+     * mediary) — by the universal image id (xxh3 of the image url = the asset id), which reaches
+     * its item through the page's media_id. This used to load EVERY item's localId → id (and every
+     * page's media_id → row_id) into PHP arrays first, which ran a news title with millions of rows
+     * out of a 512 MB memory limit (RappNews 4909, 2026-09-29) before a single claim was read. Only
+     * the subjects the claims name are needed, so memory now scales with the claims, not the folio.
+     *
+     * item has no index on local_id alone, only uniq_item_core_local (core, local_id), so the join
+     * runs once per core (a handful) to stay an index lookup; local ids win over asset ids.
+     *
+     * @return array<string,string> subjectId => item id
+     */
+    private function claimSubjects(\Doctrine\DBAL\Connection $conn, string $claimsFile): array
+    {
+        $subjects = [];
+        foreach (JsonlReader::open($claimsFile) as $data) {
+            $subjectId = (string) ($data['subjectId'] ?? '');
+            if ($subjectId !== '') {
+                $subjects[$subjectId] = true;
+            }
+        }
+        if ($subjects === []) {
+            return [];
+        }
+
+        $conn->executeStatement('DROP TABLE IF EXISTS temp.claim_subject');
+        $conn->executeStatement('CREATE TEMP TABLE claim_subject (subject_id TEXT PRIMARY KEY, item_id TEXT)');
+        $insert = $conn->prepare('INSERT OR IGNORE INTO temp.claim_subject (subject_id) VALUES (?)');
+        foreach (array_keys($subjects) as $subjectId) {
+            // DBAL 4's Statement::executeStatement() takes no parameters; an array passed to it
+            // is ignored and the row goes in as NULL.
+            $insert->bindValue(1, (string) $subjectId);
+            $insert->executeStatement();
+        }
+        unset($subjects);
+
+        foreach ($conn->fetchFirstColumn('SELECT DISTINCT core FROM item ORDER BY core') as $core) {
+            $conn->executeStatement(
+                'UPDATE temp.claim_subject SET item_id = (SELECT i.id FROM item i WHERE i.core = ? AND i.local_id = claim_subject.subject_id) '
+                . 'WHERE item_id IS NULL',
+                [(string) $core],
+            );
+        }
+        $conn->executeStatement(
+            'UPDATE temp.claim_subject SET item_id = (SELECT p.row_id FROM page p WHERE p.media_id = claim_subject.subject_id LIMIT 1) '
+            . 'WHERE item_id IS NULL'
+        );
+        $resolved = [];
+        foreach ($conn->fetchAllKeyValue('SELECT subject_id, item_id FROM temp.claim_subject WHERE item_id IS NOT NULL') as $subjectId => $itemId) {
+            $resolved[(string) $subjectId] = (string) $itemId;
+        }
+        $conn->executeStatement('DROP TABLE temp.claim_subject');
+
+        return $resolved;
     }
 
     /** Claim value as the TEXT column expects: scalar → string, list/object → JSON. */
