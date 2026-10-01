@@ -33,7 +33,6 @@
         "ext-sqlite3": "*",
         "ext-pdo_sqlite": "*",
         "tacman/gcf-php": "^1.0",
-        "survos/bookmark-bundle": "^2.34 || dev-main",
         "survos/kit-bundle": "^2.33"
     },
     "suggest": {
@@ -44,8 +43,9 @@
         "symfony/ux-twig-component": "Required for the PhotoGrid Twig component.",
         "symfony/ux-leaflet-map": "Draws the folio map page (survos_folio_map); without it the page explains what is missing.",
         "api-platform/core": "Required for the PhotoGrid Twig component's data source (Row's #[ApiResource]).",
-        "presta/sitemap-bundle": "For folio:sitemap \u2014 static per-folio XML sitemaps of item pages.",
-        "survos/dataset-bundle": "Production registry (DatasetInfo/Artifact rows, folio:build, the collection index). Only the app that BUILDS folios needs it; a reader pulls published folios over HTTP \u2014 see docs/bare-app.md."
+        "presta/sitemap-bundle": "For folio:sitemap — static per-folio XML sitemaps of item pages.",
+        "survos/dataset-bundle": "Production registry (DatasetInfo/Artifact rows, folio:build, the collection index). Only the app that BUILDS folios needs it; a reader pulls published folios over HTTP — see docs/bare-app.md.",
+        "survos/bookmark-bundle": "Required when bookmark_class and folder_class are configured; install and configure the bookmark owner explicitly."
     },
     "autoload": {
         "psr-4": {
@@ -71,7 +71,8 @@
         "survos/tabler-bundle": "^2.5",
         "survos/imgproxy-bundle": "^2.5",
         "survos/iiif-bundle": "^2.5",
-        "survos/dataset-bundle": "^2.5"
+        "survos/dataset-bundle": "^2.5",
+        "survos/bookmark-bundle": "^2.34 || dev-main"
     },
     "keywords": [
         "symfony-ux",

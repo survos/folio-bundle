@@ -505,6 +505,9 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // above — a host app that hasn't set bookmark_class/folder_class simply doesn't get
         // this service, rather than a container compile failure.
         if ($config['bookmark_class'] !== null && $config['folder_class'] !== null) {
+            if (!class_exists(BookmarkManager::class)) {
+                throw new \LogicException('Install survos/bookmark-bundle before configuring survos_folio.bookmark_class and folder_class.');
+            }
             $services->set(BookmarkManager::class)->autowire()->autoconfigure()->public()->args([
                 '$bookmarkClass' => $config['bookmark_class'],
                 '$folderClass' => $config['folder_class'],
