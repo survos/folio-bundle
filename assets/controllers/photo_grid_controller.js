@@ -1,5 +1,5 @@
 import { Controller } from '@hotwired/stimulus';
-import { path } from '@survos/js-twig/generated/fos_routes.js';
+import { path } from '@survos/js-twig/routing';
 
 /*
  * Infinite-scroll photo grid. The server renders page 1 (see PhotoGrid.php's

@@ -1,5 +1,5 @@
 import { Controller } from '@hotwired/stimulus';
-import { path } from '@survos/js-twig/generated/fos_routes.js';
+import { path } from '@survos/js-twig/routing';
 import {
     listFolders,
     createFolderRequest,
