@@ -15,7 +15,7 @@ use Survos\FolioBundle\Entity\{Claim,Core,Doc,Folio,Link,LinkType,Page,Row,Schem
 
 final class FolioSchemaManager
 {
-    private const array ENTITIES = [Folio::class, Core::class, Row::class, Page::class, Claim::class, SchemaTable::class, SchemaProperty::class, Doc::class, TermSet::class, Term::class, LinkType::class, Link::class, Str::class, StrTranslation::class];
+    private const array ENTITIES = [\Survos\FolioBundle\Entity\FolioProperty::class, Folio::class, Core::class, Row::class, Page::class, Claim::class, SchemaTable::class, SchemaProperty::class, Doc::class, TermSet::class, Term::class, LinkType::class, Link::class, Str::class, StrTranslation::class];
 
     /** Memoized per process — the entity schema is constant for a deploy. */
     private ?int $expectedVersion = null;

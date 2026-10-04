@@ -20,6 +20,10 @@ final class FolioInfoCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $ctx = $this->folios->context((string) $input->getArgument('folioCode'));
+        $folio = $ctx->em->find(\Survos\FolioBundle\Entity\Folio::class, $ctx->folioCode);
+        $io = new SymfonyStyle($input, $output);
+        $io->definitionList(['label' => $folio->label], ['description' => $folio->description],
+            ['metadata format' => $folio->get('schemaVersion') ?? 1]);
         $repo = fn (string $class) => $ctx->em->getRepository($class)->count([]);
         (new SymfonyStyle($input, $output))->table(['Metric', 'Count'], [
             ['cores', $repo(Core::class)], ['rows', $repo(Row::class)], ['term sets', $repo(TermSet::class)], ['links', $repo(Link::class)],

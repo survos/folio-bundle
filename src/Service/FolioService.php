@@ -36,7 +36,11 @@ final class FolioService
         private readonly string $extension = 'folio',
         private readonly ?LoggerInterface $logger = null,
         private readonly bool $readOnly = false,
-    ) {}
+    ) {
+        $this->folioEntityManager->getEventManager()->addEventListener(
+            ['postLoad', 'preFlush', 'postFlush'], new FolioPropertyListener(),
+        );
+    }
 
     /** Pass $locale for a localized build, e.g. <code>.en.folio instead of <code>.folio. */
     /**
@@ -56,11 +60,13 @@ final class FolioService
      * @var array<string, string> folioCode+locale => temp path
      */
     private array $buildPaths = [];
+    private array $preservedProperties = [];
 
     /** Send writes for this folio to a sibling temp file until finishBuildAt(). */
     public function buildAt(string $folioCode, ?string $locale = null): string
     {
         $target = $this->path($folioCode, createDirectory: true, locale: $locale);
+        $this->preserveProperties($folioCode, $target, $locale);
         $temp = $target.'.building';
         if (is_file($temp)) {
             unlink($temp);
@@ -77,7 +83,7 @@ final class FolioService
     {
         $key = $this->buildKey($folioCode, $locale);
         $temp = $this->buildPaths[$key] ?? null;
-        unset($this->buildPaths[$key]);
+        unset($this->buildPaths[$key], $this->preservedProperties[$key]);
         $target = $this->path($folioCode, locale: $locale);
         if ($temp === null || !is_file($temp)) {
             return $target;
@@ -102,12 +108,37 @@ final class FolioService
     {
         $key = $this->buildKey($folioCode, $locale);
         $temp = $this->buildPaths[$key] ?? null;
-        unset($this->buildPaths[$key]);
+        unset($this->buildPaths[$key], $this->preservedProperties[$key]);
         foreach ([$temp, $temp.'-wal', $temp.'-shm', $temp.'-journal', $temp.'.lock'] as $path) {
             if (is_string($path) && $path !== '' && is_file($path)) {
                 unlink($path);
             }
         }
+    }
+
+    private function preserveProperties(string $code, string $path, ?string $locale): void
+    {
+        $preserved = [];
+        if (is_file($path.'.metadata-backup.json')) {
+            $backup = json_decode((string) file_get_contents($path.'.metadata-backup.json'), flags: JSON_THROW_ON_ERROR);
+            foreach ($backup as $key => $entry) {
+                $data = (array) $entry;
+                $data['provenance'] = json_decode(json_encode($entry->provenance, JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
+                $preserved[$key] = \Survos\DataContracts\Metadata\PropertyValue::fromArray($data);
+            }
+        }
+        if (is_file($path)) {
+            $pdo = new \PDO('sqlite:file:'.str_replace('%2F', '/', rawurlencode($path)).'?mode=ro', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+            $preserved = (new \Survos\Folio\PropertyStore($pdo))->read() + $preserved;
+        }
+        $this->preservedProperties[$this->buildKey($code, $locale)] = $preserved;
+    }
+
+    /** A successful direct ingest no longer needs its interrupted-reset recovery snapshot. */
+    public function finishMetadataReset(string $code, ?string $locale = null): void
+    {
+        $backup = $this->path($code, locale: $locale).'.metadata-backup.json';
+        if (is_file($backup)) { unlink($backup); }
     }
 
     private function buildKey(string $folioCode, ?string $locale): string
@@ -162,6 +193,18 @@ final class FolioService
      */
     public function reset(string $folioCode, ?string $locale = null): void
     {
+        $target = $this->path($folioCode, locale: $locale);
+        $key = $this->buildKey($folioCode, $locale);
+        if (!isset($this->buildPaths[$key])) {
+            $this->preserveProperties($folioCode, $target, $locale);
+            if (isset($this->preservedProperties[$key])) {
+                // reset() is also called outside the atomic build command. Retain a durable
+                // recovery snapshot before its destructive step; it is intentionally not deleted.
+                (new \Symfony\Component\Filesystem\Filesystem())->dumpFile($target.'.metadata-backup.json',
+                    json_encode(array_map(static fn ($p) => $p->toArray(), $this->preservedProperties[$key]), JSON_THROW_ON_ERROR));
+            }
+        }
+
         $bootstrap = $this->bootstrapPath();
         if (!is_file($bootstrap)) {
             $this->buildBootstrap();
@@ -346,6 +389,7 @@ final class FolioService
         // the change can't be applied incrementally (e.g. a dropped/retyped column) → re-import.
         try {
             $this->schemaManager->update($em);
+            (new \Survos\Folio\PropertyStore($em->getConnection()->getNativeConnection()))->migrate();
         } catch (\Throwable $e) {
             // Report what actually failed, including the exception class and the root cause. The
             // previous wording asserted "re-import required" for ANY throwable, which sent real
@@ -377,6 +421,14 @@ final class FolioService
             $folio = new Folio($folioCode);
             $em->persist($folio);
             $em->flush();
+        }
+
+        $key = $this->buildKey($folioCode, $locale);
+        if (isset($this->preservedProperties[$key])) {
+            $folio = $em->find(Folio::class, $folioCode);
+            foreach ($this->preservedProperties[$key] as $name => $property) { $folio->put($name, $property); }
+            $em->flush();
+            unset($this->preservedProperties[$key]);
         }
 
         return new FolioContext($folioCode, $this->path($folioCode, locale: $locale), $em);

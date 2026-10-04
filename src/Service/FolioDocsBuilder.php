@@ -10,10 +10,13 @@ final readonly class FolioDocsBuilder
     public function rebuild(string $dbFile, array $metadata = []): array
     {
         $pdo = $this->connect($dbFile);
-        $folio = $pdo->query('SELECT code, label, dataset_key, row_count FROM folio LIMIT 1')->fetch(\PDO::FETCH_ASSOC);
+        $folio = $pdo->query('SELECT code, dataset_key FROM folio LIMIT 1')->fetch(\PDO::FETCH_ASSOC);
         if (!is_array($folio)) {
             return ['docs' => 0];
         }
+
+        $values = (new \Survos\Folio\PropertyStore($pdo))->values();
+        $folio += ['label' => $values['label'] ?? null, 'row_count' => $values['rowCount'] ?? 0, 'description' => $values['description'] ?? null];
 
         $cores = $pdo->query('SELECT code, label, row_count FROM core ORDER BY code')->fetchAll(\PDO::FETCH_ASSOC) ?: [];
         $tables = $pdo->query("SELECT id, name, kind, core_code, dto_type, label, description, row_count FROM schema_table ORDER BY kind, name")->fetchAll(\PDO::FETCH_ASSOC) ?: [];

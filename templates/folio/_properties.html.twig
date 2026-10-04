@@ -1,0 +1,97 @@
+{# Uses the hydrated Folio API for both legacy columns and property-backed files. #}
+{% set properties = folio.properties() %}
+<section class="card mb-4" id="folio-properties" aria-labelledby="folio-properties-heading">
+    <div class="card-header">
+        <h2 class="card-title mb-0" id="folio-properties-heading">Properties</h2>
+    </div>
+    <div class="card-body">
+        {% if folio.description is not null and folio.description != '' %}
+            {% if folio.description|length > 400 %}
+                <p class="text-break mb-2">{{ folio.description|slice(0, 400) }}…</p>
+                <details class="mb-3">
+                    <summary>Read full description</summary>
+                    <div class="text-break mt-2" style="white-space: pre-wrap;">{{ folio.description }}</div>
+                </details>
+            {% else %}
+                <p class="text-break" style="white-space: pre-wrap;">{{ folio.description }}</p>
+            {% endif %}
+        {% endif %}
+        {% if folio.contentType or folio.tags %}
+            <dl class="mb-3">
+                {% if folio.contentType %}
+                    <dt class="small text-muted">Content type</dt>
+                    <dd>{{ folio.contentType }}</dd>
+                {% endif %}
+                {% if folio.tags %}
+                    <dt class="small text-muted">Tags</dt>
+                    <dd class="d-flex flex-wrap gap-1 mb-0">
+                        {% for tag in folio.tags %}
+                            <span class="badge bg-blue-lt">{{ tag }}</span>
+                        {% endfor %}
+                    </dd>
+                {% endif %}
+            </dl>
+        {% endif %}
+        {% if properties %}
+            <details>
+                <summary>All properties ({{ properties|length }})</summary>
+                <div class="table-responsive mt-3">
+                    <table class="table table-vcenter mb-0">
+                        <caption class="visually-hidden">Folio property values and provenance</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Key</th>
+                                <th scope="col">Value</th>
+                                <th scope="col">Source</th>
+                                <th scope="col">Owner</th>
+                                <th scope="col">Updated (UTC)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for key in properties|keys|sort %}
+                                {% set property = properties[key] %}
+                                {% set json = property.value|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_UNICODE') b-or constant('JSON_UNESCAPED_SLASHES')) %}
+                                {% set isText = json starts with '"' %}
+                                {% set structured = json starts with '{' or json starts with '[' %}
+                                <tr>
+                                    <th scope="row" class="font-monospace text-break align-top">{{ key }}</th>
+                                    <td class="align-top" style="min-width: 16rem; max-width: 36rem;">
+                                        {% if structured or (isText and property.value|length > 240) %}
+                                            <details>
+                                                <summary>{{ structured ? 'View JSON' : 'Read full text' }} <span class="text-muted">({{ (isText ? property.value|length : json|length)|number_format }} characters)</span></summary>
+                                                <pre class="small text-break mt-2 mb-0" style="white-space: pre-wrap; max-height: 24rem; overflow: auto;">{{ isText ? property.value : json }}</pre>
+                                            </details>
+                                        {% elseif isText %}
+                                            <span class="text-break" style="white-space: pre-wrap;">{{ property.value == '' ? '(empty string)' : property.value }}</span>
+                                        {% else %}
+                                            <code>{{ json }}</code>
+                                        {% endif %}
+                                    </td>
+                                    <td class="align-top">
+                                        <span class="badge bg-secondary-lt">{{ property.source }}</span>
+                                        {% if property.provenance %}
+                                            <details class="mt-2">
+                                                <summary class="small">Provenance</summary>
+                                                <pre class="small text-break mt-2 mb-0" style="white-space: pre-wrap; max-height: 16rem; max-width: 24rem; overflow: auto;">{{ property.provenance|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_UNICODE') b-or constant('JSON_UNESCAPED_SLASHES')) }}</pre>
+                                            </details>
+                                        {% endif %}
+                                    </td>
+                                    <td class="font-monospace text-break align-top">{{ property.owner }}</td>
+                                    <td class="align-top text-nowrap">
+                                        {% if property.owner == 'legacy.folio' %}
+                                            <span class="text-muted">Not recorded</span>
+                                        {% else %}
+                                            <time datetime="{{ property.updatedAt }}">{{ property.updatedAt|date('Y-m-d H:i:s', 'UTC') }}</time>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        {% else %}
+            <p class="text-muted mb-0">No descriptive properties recorded.</p>
+        {% endif %}
+    </div>
+</section>

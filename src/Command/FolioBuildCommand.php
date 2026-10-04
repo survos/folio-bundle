@@ -252,6 +252,10 @@ final class FolioBuildCommand implements SignalableCommandInterface
                 continue;
             }
 
+            $propertyPdo = new \PDO('sqlite:file:'.$workingPath.'?mode=ro');
+            $catalogProperties = (new \Survos\Folio\PropertyStore($propertyPdo))->values();
+            unset($propertyPdo);
+
             // Bare snapshot (regardless of --gz/--inflate): the pipeline's only clean, pre-index
             // state. Captured now, before Step 3's inflate() mutates $workingPath in place, so a
             // `.gz` archive can be produced later — on demand, on first download request — by a
@@ -282,6 +286,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
                     rowCount: (int) $result['rows'],
                     dtoCounts: $this->dtoCounts($result['cores']),
                     metadata: [
+                        'folioProperties' => $catalogProperties,
                         'compressed' => true,
                         'sourceBytes' => $res['sourceBytes'],
                         'archiveBytes' => $res['archiveBytes'],
@@ -334,6 +339,7 @@ final class FolioBuildCommand implements SignalableCommandInterface
                     rowCount: (int) $result['rows'],
                     dtoCounts: $this->dtoCounts($result['cores']),
                     metadata: [
+                        'folioProperties' => $catalogProperties,
                         'cores' => $this->coreMetadata($result['cores']),
                         'coreCounts' => $this->coreCounts($result['cores']),
                         'terms' => (int) $result['terms'],

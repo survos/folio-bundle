@@ -1,12 +1,26 @@
 # Folio properties: migration design
 
-Status: proposed after code review, 2026-10-04. No implementation or rollout yet.
+Status: implemented locally, 2026-10-04. No release or deployment.
+
+Shared metadata contracts live in `lib/data-contracts`; see its
+`docs/dataset-metadata.md` for vault ownership, overrides and durable storage.
+`lib/folio` (`survos/folio`) provides framework-free PDO metadata reading,
+conversion and catalog projection. `folio-bundle` supplies Doctrine/Symfony
+integration. This extracts metadata first, not every existing row/query service.
+
+The new library is unreleased. Local harvest, ink and zm use Composer-created
+symlinks plus `../mono/link .`; application lockfiles were not upgraded for this
+unreleased dependency. Release the library/contracts and bundle together only with
+approval, then resolve application dependencies and clear Doctrine metadata caches.
+Do not run a routine dependency install that removes the local library before that
+coordinated release, unless intentionally rolling the linked bundle back too.
 
 ## Storage and API
 
 Keep `folio` as the identity/bootstrap row: `code`, `datasetKey`, `ftsContent`.
 Add `folio_property`: `key` (string primary key), `value` (JSON encoded TEXT),
-`source` (`meta`, `build`, `human`, `import`), `updatedAt` (UTC).
+`source` (`meta`, `build`, `human`, `import`), `owner` (stable writer ID),
+`updatedAt` (UTC), and JSON `provenance` (origin/reference/transformation details).
 Each file has one folio, so properties need no additional folio foreign key.
 Claim remains record-scoped and unchanged.
 
@@ -77,17 +91,18 @@ must preserve the folio's existing value instead of treating migration as a rebu
 ## Ownership and rebuilds
 
 A key has one current owner, not a history of competing values. A writer replaces
-its own source's snapshot (including removing vanished keys) and leaves other
+its own owner's snapshot (including removing vanished keys) and leaves other
 sources untouched. Human edits may explicitly take ownership of descriptive keys;
 automated writers cannot overwrite them. Legacy conversion records copied values
 as `import`; a subsequent build may explicitly adopt the known legacy-derived
 metadata keys into `meta`/`build`, rather than making all imported values disposable.
-This requires a deliberate ownership-transfer rule in the write API.
+Only the known legacy Folio keys may be adopted automatically; other owners remain protected.
 
 The current ingest path calls `reset()` before writing rows. Preserve foreign-owned
 properties, including unknown keys, before reset and restore them into the rebuilt
 file. A failed build must not destroy the only durable copy of human metadata;
-implement recoverable preservation or staged replacement before enabling rebuilds.
+atomic builds retain the old file until success; direct reset retains a durable
+`.metadata-backup.json` recovery snapshot.
 Preserve provenance/timestamps on untouched values. Source replacement and format
 conversion must be transactional and tested for interruption/repetition.
 
@@ -103,9 +118,9 @@ files can be projected read-only with the same fallback reader.
 Ink already accepts catalog description and uses it for publication metadata.
 Rut uses the typed bundle catalog entry; fotostory also has direct Folio entity
 reads and a separate DatasetInfo API client. Pressia has no matching source-level
-Folio integration in this review. Bundle changes alone do not update zm's app-owned
-catalog implementation; inspect the available metadata handoff before deciding
-whether an additional, separately authorized zm edit is needed. Paper-level search
+Folio integration in this review. Build events and dataset scans now carry `folioProperties` in Artifact metadata;
+zm projects them into the catalog, including titleRecord and description. Its
+query filter searches the projected descriptions and title records in the catalog. Paper-level search
 should consume catalog metadata rather than fan out across folio files.
 
 ## Rollout and fallback lifetime
@@ -138,3 +153,21 @@ newspaper folio in scratch storage, migrate only that copy, and compare metadata
 row/core counts, representative records, SQLite integrity and search behavior.
 Never open a live folio through the writable self-migrating context for this check.
 No live rebuild, deletion, migration or publication is part of verification.
+
+
+## Local verification (2026-10-04)
+
+- Shared contracts, dataset metadata and bundle tests cover legacy/new reads,
+  incomplete conversion, nulls, unknown JSON objects, ownership, vault recovery,
+  overrides, rebuild preservation and the `folio:migrate --file` command.
+- Full harvest and ink suites run against linked sources. Harvest's installed
+  Rector/PHPUnit bootstrap collision is avoided without vendor edits by loading
+  `vendor/autoload.php` before `vendor/phpunit/phpunit/phpunit`.
+- A read-only SQLite backup of X10's `cron-america/sn85049620` (The Cedar Co.
+  news-letter) was converted with harvest's actual `folio:migrate --file` command.
+  All 3,480 records, 3,489 pages, two cores and claims retained identical hashes;
+  integrity remained `ok`, and FTS counts for news/county/river stayed 69/61/12.
+- X10 scratch builds exercised 200 synthetic records and 71 actual newspaper
+  records from sn88059517, with human overrides surviving rebuild and a discarded
+  build leaving the prior file unchanged. Original folios were not modified.
+- No bulk migration, release, tag, push, publish, or deployment was performed.

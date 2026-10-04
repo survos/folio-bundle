@@ -33,7 +33,8 @@
         "ext-sqlite3": "*",
         "ext-pdo_sqlite": "*",
         "tacman/gcf-php": "^1.0",
-        "survos/kit-bundle": "^2.33"
+        "survos/kit-bundle": "^2.33",
+        "survos/folio": "^2.5"
     },
     "suggest": {
         "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",

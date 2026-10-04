@@ -25,6 +25,7 @@ final class FolioMigrateCommand extends Command
     protected function configure(): void
     {
         $this->addArgument('dataset', InputArgument::OPTIONAL, 'Dataset key (e.g. mus/cleveland)')
+            ->addOption('file', null, InputOption::VALUE_REQUIRED, 'Convert metadata in one existing SQLite file without using the dataset registry')
             ->addOption('all', null, InputOption::VALUE_NONE, 'Migrate all known datasets')
             ->addOption('provider', null, InputOption::VALUE_REQUIRED, 'Migrate all datasets for a provider');
     }
@@ -32,6 +33,20 @@ final class FolioMigrateCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+
+        if (($file = $input->getOption('file')) !== null) {
+            if ($input->getArgument('dataset') || $input->getOption('all') || $input->getOption('provider')) {
+                throw new \InvalidArgumentException('--file cannot be combined with dataset selection.');
+            }
+            if (!is_file($file)) { throw new \InvalidArgumentException('Folio file not found: '.$file); }
+            $pdo = new \PDO('sqlite:'.$file, options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+            if (!$pdo->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='folio'")->fetchColumn()) {
+                throw new \InvalidArgumentException('Not a folio: '.$file);
+            }
+            (new \Survos\Folio\PropertyStore($pdo))->migrate();
+            $io->success('Folio metadata converted: '.$file);
+            return Command::SUCCESS;
+        }
 
         $datasets = $this->registry->datasets(
             datasetKey: (string) ($input->getArgument('dataset') ?? '') ?: null,
@@ -54,7 +69,7 @@ final class FolioMigrateCommand extends Command
 
             // Update metadata fields the service doesn't know about.
             $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
-            $folio->label = $dataset->label;
+            // Conversion preserves the existing label and its ownership.
             $folio->datasetKey = $dataset->datasetKey;
 
             // Backfill Core::$geoCount for folios ingested before that column existed — the

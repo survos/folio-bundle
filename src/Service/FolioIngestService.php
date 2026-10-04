@@ -120,10 +120,18 @@ final class FolioIngestService
         $conn->beginTransaction();
 
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
-        $folio->label = $dataset->label;
+        $metadata = $dataset->meta;
+        $metadata['label'] = $dataset->label;
+        $properties = \Survos\DataContracts\Metadata\DatasetMetadata::properties($metadata);
+        $owners = [];
+        foreach ($folio->properties() as $property) {
+            if ($property->source === 'meta') { $owners[$property->owner] = []; }
+        }
+        foreach ($properties as $key => $property) { $owners[$property->owner][$key] = $property; }
+        foreach ($owners as $owner => $snapshot) { $folio->replaceProperties($owner, $snapshot); }
         $folio->datasetKey = $dataset->datasetKey;
         $extras = is_array($dataset->meta['extras'] ?? null) ? $dataset->meta['extras'] : [];
-        $folio->contentType = is_string($extras['contentType'] ?? null) ? $extras['contentType'] : null;
+
         // extras.search is the dataset's declared search policy (docs/search-policy.md): a folio
         // whose text search lives in Elasticsearch may be published with no FTS table at all, and
         // says so in its own row so a reader can report search as external rather than missing.
@@ -266,6 +274,7 @@ final class FolioIngestService
 
         $conn->commit();
         $conn->executeStatement('PRAGMA synchronous = NORMAL');
+        $this->folios->finishMetadataReset($dataset->datasetKey, $buildLocale);
 
         return [
             'rows' => $totalCount,

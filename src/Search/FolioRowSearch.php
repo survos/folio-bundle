@@ -54,7 +54,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
     private function isPeriodical(Connection $connection): bool
     {
         try {
-            return in_array($connection->fetchOne('SELECT content_type FROM folio LIMIT 1'), ['newspaper', 'periodical'], true);
+            return in_array(((new \Survos\Folio\PropertyStore($connection->getNativeConnection()))->values()['contentType'] ?? null), ['newspaper', 'periodical'], true);
         } catch (\Throwable) {
             return false;
         }
@@ -291,7 +291,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
     private function rowCount(Connection $connection): int
     {
         try {
-            return (int) $connection->fetchOne('SELECT row_count FROM folio LIMIT 1');
+            return (int) ((new \Survos\Folio\PropertyStore($connection->getNativeConnection()))->values()['rowCount'] ?? 0);
         } catch (\Throwable) {
             return 0;
         }

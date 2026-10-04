@@ -7,6 +7,8 @@ namespace Survos\FolioBundle\Entity;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
+use Survos\DataContracts\Metadata\PropertyKey;
+use Survos\DataContracts\Metadata\PropertyValue;
 use Survos\FieldBundle\Attribute\RouteIdentity;
 use Survos\FieldBundle\Entity\RouteIdentityTrait;
 use Survos\FieldBundle\Entity\RouteParametersInterface;
@@ -33,14 +35,14 @@ class Folio implements RouteParametersInterface
     #[ORM\Column(length: 120, options: ['comment' => 'Unique folio identifier, matches dataset key'])]
     public string $code;
 
-    #[ORM\Column(length: 255, nullable: true, options: ['comment' => 'Human-readable display name'])]
-    public ?string $label = null;
+    public ?string $label { get => $this->get(PropertyKey::LABEL); set { $this->set(PropertyKey::LABEL, $value); } }
+    public ?string $description { get => $this->get(PropertyKey::DESCRIPTION); set { $this->set(PropertyKey::DESCRIPTION, $value); } }
+    public array $tags { get => $this->get(PropertyKey::TAGS) ?? []; set { $this->set(PropertyKey::TAGS, $value); } }
 
     #[ORM\Column(length: 180, nullable: true, options: ['comment' => 'Dataset key from data-bundle (e.g. mus/cleveland)'])]
     public ?string $datasetKey = null;
 
-    #[ORM\Column(options: ['default' => 0, 'comment' => 'Total rows across all cores'])]
-    public int $rowCount = 0;
+    public int $rowCount { get => $this->get(PropertyKey::ROW_COUNT) ?? 0; set { $this->set(PropertyKey::ROW_COUNT, $value, 'build', 'folio.build'); } }
 
     /** Search text is stored in the FTS table (snippet() works) — every folio unless it opts out. */
     public const string FTS_CONTENT_STORED = 'stored';
@@ -65,8 +67,7 @@ class Folio implements RouteParametersInterface
      * What the folio is, from the dataset's meta (extras.contentType): newspaper, periodical, ...
      * Published so readers such as Ink can tell a newspaper folio from a museum collection.
      */
-    #[ORM\Column(length: 40, nullable: true, options: ['comment' => 'Dataset content type (newspaper, periodical, ...)'])]
-    public ?string $contentType = null;
+    public ?string $contentType { get => $this->get(PropertyKey::CONTENT_TYPE); set { $this->set(PropertyKey::CONTENT_TYPE, $value); } }
 
     #[ORM\Column(length: 12, options: ['default' => self::FTS_CONTENT_STORED, 'comment' => 'stored | none (contentless FTS) | off (no FTS at all); opt-in via dataset meta extras.ftsContent'])]
     public string $ftsContent = self::FTS_CONTENT_STORED;
@@ -75,9 +76,57 @@ class Folio implements RouteParametersInterface
     #[ORM\OneToMany(targetEntity: LinkType::class, mappedBy: 'folio', fetch: 'EXTRA_LAZY')]
     public Collection $linkTypes;
 
+    /** @var array<string, PropertyValue> */
+    private array $properties = [];
+    private array $pending = [];
+
+    public function get(string $key): mixed { return isset($this->properties[$key]) ? $this->properties[$key]->value : ($key === PropertyKey::SCHEMA_VERSION ? 1 : null); }
+    public function has(string $key): bool { return array_key_exists($key, $this->properties); }
+    public function properties(): array { return $this->properties; }
+    public function pendingProperties(): array { return $this->pending; }
+    public function markPropertiesSaved(): void { $this->pending = []; }
+    public function loadProperties(array $properties): void { $this->properties = $properties; $this->pending = []; }
+
+    public function set(string $key, mixed $value, string $source = 'meta', string $owner = 'folio.meta', array $provenance = []): void
+    {
+        $this->put($key, PropertyValue::create($value, $source, $owner, $provenance));
+    }
+
+    public function put(string $key, PropertyValue $property): void
+    {
+        PropertyKey::validate($key, $property->value);
+        if ($property->source === 'human' && in_array($key, [PropertyKey::ROW_COUNT, PropertyKey::SCHEMA_VERSION], true)) {
+            throw new \InvalidArgumentException('Cannot override a system property: '.$key);
+        }
+        $old = $this->properties[$key] ?? null;
+        if ($old !== null && $property->source !== 'human' && $old->owner !== $property->owner
+            && !($old->owner === 'legacy.folio' && in_array($key, [PropertyKey::LABEL, PropertyKey::CONTENT_TYPE, PropertyKey::ROW_COUNT], true))) {
+            return;
+        }
+        if ($old !== null && $old->value === $property->value && $old->source === $property->source && $old->owner === $property->owner && $old->provenance === $property->provenance) { return; }
+        $this->properties[$key] = $this->pending[$key] = $property;
+    }
+
+    /** Replace only this writer's snapshot; another writer's properties are preserved. */
+    public function replaceProperties(string $owner, array $properties): void
+    {
+        foreach ($properties as $key => $property) {
+            if ($property->owner !== $owner) { throw new \InvalidArgumentException('Property owner mismatch'); }
+            PropertyKey::validate($key, $property->value);
+        }
+        foreach ($this->properties as $key => $property) {
+            if ($property->owner === $owner && !array_key_exists($key, $properties)) {
+                unset($this->properties[$key]);
+                $this->pending[$key] = null;
+            }
+        }
+        foreach ($properties as $key => $property) { $this->put($key, $property); }
+    }
+
     public function __construct(string $code)
     {
         $this->code = $code;
+        $this->set(PropertyKey::SCHEMA_VERSION, 2, 'build', 'folio.format');
         $this->linkTypes = new ArrayCollection();
     }
 }
