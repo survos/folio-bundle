@@ -91,6 +91,10 @@ final readonly class FolioSchemaSnapshotter
                 $rows = $this->dtoDataRows($pdo, (string) $core['id'], $dtoType);
                 $fieldStats = $this->fieldPresence($rows);
                 $metadata = $this->dtoPropertyMetadata($dtoType);
+                // #[Field(order:)] sets position (and so facet order); fields without one keep the
+                // order they appear in the rows (100 is Field's default order). uksort is stable, so ties keep it.
+                uksort($fieldStats, static fn (int|string $a, int|string $b): int =>
+                    ($metadata[$a]['order'] ?? 100) <=> ($metadata[$b]['order'] ?? 100));
                 $position = 0;
                 foreach ($fieldStats as $name => $stats) {
                     if (!is_string($name) || $name === '' || !$this->observed($stats)) {
@@ -255,6 +259,7 @@ final readonly class FolioSchemaSnapshotter
                 'type' => $this->typeName($property->getType()),
                 'declaringClass' => $property->getDeclaringClass()->getName(),
                 'group' => $field instanceof Field ? $field->group : null,
+                'order' => $field instanceof Field ? $field->order : null,
                 'visible' => $field instanceof Field ? $field->visible : true,
                 'searchable' => ($field instanceof Field && $field->searchable) || ($propertyMeta instanceof PropertyMeta && $propertyMeta->searchable),
                 'filterable' => ($field instanceof Field && $field->filterable) || ($propertyMeta instanceof PropertyMeta && $propertyMeta->facet),
