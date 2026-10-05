@@ -447,7 +447,7 @@ final class FolioFtsIndexer
             $values = [];
             foreach ($value as $item) {
                 if (is_scalar($item)) {
-                    $values[] = trim((string) $item);
+                    $values[] = self::facetString($item);
                 }
             }
 
@@ -458,9 +458,15 @@ final class FolioFtsIndexer
             return [];
         }
 
-        $value = trim((string) $value);
+        $value = self::facetString($value);
 
         return $this->validFacetValue($value) ? [$value] : [];
+    }
+
+    /** A boolean facets as 'true'/'false': (string) false is '', which dropped every false and left true as '1'. */
+    private static function facetString(bool|int|float|string $value): string
+    {
+        return is_bool($value) ? ($value ? 'true' : 'false') : trim((string) $value);
     }
 
     private function validFacetValue(string $value): bool
