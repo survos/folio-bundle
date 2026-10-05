@@ -362,7 +362,7 @@
                         </div>
 
                     {% elseif pages|length > 0 %}
-                        {% set rowManifestUrl = url('survos_folio_iiif_manifest', {folioCode: row.folioCode, coreCode: core.code, localId: row.localId}) %}
+                        {% set rowManifestUrl = row.dtoData.iiifManifest ?? url('survos_folio_iiif_manifest', {folioCode: row.folioCode, coreCode: core.code, localId: row.localId}) %}
                         {% set viewerImages = [] %}
                         {% set viewerHires = [] %}
                         {% set viewerInfoUrls = [] %}

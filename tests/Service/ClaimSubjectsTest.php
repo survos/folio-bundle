@@ -19,11 +19,11 @@ final class ClaimSubjectsTest extends TestCase
         $file = sys_get_temp_dir().'/claim-subjects-'.bin2hex(random_bytes(8)).'.jsonl';
         $conn = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         try {
-            $conn->executeStatement('CREATE TABLE item (id TEXT PRIMARY KEY, core TEXT, local_id TEXT)');
-            $conn->executeStatement('CREATE UNIQUE INDEX uniq_item_core_local ON item (core, local_id)');
+            $conn->executeStatement('CREATE TABLE item (id TEXT PRIMARY KEY, core_id TEXT, local_id TEXT)');
+            $conn->executeStatement('CREATE UNIQUE INDEX uniq_item_core_local ON item (core_id, local_id)');
             $conn->executeStatement('CREATE TABLE page (row_id TEXT, media_id TEXT)');
             foreach ([['i1', 'obj', 'a'], ['i2', 'obj', 'b'], ['i3', 'article', 'c'], ['i4', 'obj', 'untouched']] as [$id, $core, $local]) {
-                $conn->insert('item', ['id' => $id, 'core' => $core, 'local_id' => $local]);
+                $conn->insert('item', ['id' => $id, 'core_id' => $core, 'local_id' => $local]);
             }
             $conn->insert('page', ['row_id' => 'i2', 'media_id' => 'asset-9']);
             $claims = [

@@ -531,9 +531,9 @@ final class FolioIngestService
         }
         unset($subjects);
 
-        foreach ($conn->fetchFirstColumn('SELECT DISTINCT core FROM item ORDER BY core') as $core) {
+        foreach ($conn->fetchFirstColumn('SELECT DISTINCT core_id FROM item ORDER BY core_id') as $core) {
             $conn->executeStatement(
-                'UPDATE temp.claim_subject SET item_id = (SELECT i.id FROM item i WHERE i.core = ? AND i.local_id = claim_subject.subject_id) '
+                'UPDATE temp.claim_subject SET item_id = (SELECT i.id FROM item i WHERE i.core_id = ? AND i.local_id = claim_subject.subject_id) '
                 . 'WHERE item_id IS NULL',
                 [(string) $core],
             );
