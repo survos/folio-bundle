@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Entity;
 
-use ApiPlatform\Metadata\ApiFilter;
+use ApiPlatform\Metadata\QueryParameter;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
 use ApiPlatform\Metadata\Link;
-use ApiPlatform\Doctrine\Orm\Filter\SearchFilter;
+use ApiPlatform\Doctrine\Orm\Filter\ExactFilter;
+use ApiPlatform\Doctrine\Orm\Filter\PartialSearchFilter;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
@@ -62,7 +63,8 @@ use Symfony\Component\Serializer\Attribute\Groups;
     ],
     shortName: 'FolioRow',
 )]
-#[ApiFilter(SearchFilter::class, properties: ['dtoType' => 'exact', 'label' => 'partial'])]
+#[QueryParameter(key: 'dtoType', property: 'dtoType', filter: new ExactFilter())]
+#[QueryParameter(key: 'label', property: 'label', filter: new PartialSearchFilter(caseSensitive: true))]
 class Row implements RouteParametersInterface
 {
     public const API_ROWS = 'folio_rows';

@@ -50,6 +50,8 @@ final class OptionalCollectionGridTest extends TestCase
         return $twig->render('collection.html.twig', [
             'app' => ['request' => Request::create('/f'), 'bundles' => $bundles],
             'query' => '',
+            'tag' => '',
+            'tags' => [],
             'total' => 0,
             'pagination' => ['totalPages' => 1],
         ]);

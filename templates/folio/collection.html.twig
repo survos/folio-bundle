@@ -10,6 +10,7 @@
 
 {% block page_subtitle %}
     {{ total|number_format }} portable databases registered from dataset artifacts
+    {%- if tag %} tagged "{{ tag }}"{% endif %}
     {%- if query %} matching "{{ query }}"{% endif %}
 {% endblock %}
 
@@ -31,8 +32,18 @@
                         placeholder="Search folios by name, key or aggregator…"
                         aria-label="Search folios"
                     >
+                    <label class="input-group-text" for="folio-tag">Tag</label>
+                    <select class="form-select" name="tag" id="folio-tag">
+                        <option value="">All tags</option>
+                        {% if tag and tag not in tags|keys %}
+                            <option value="{{ tag }}" selected>{{ tag }} (0)</option>
+                        {% endif %}
+                        {% for value, count in tags %}
+                            <option value="{{ value }}"{% if value == tag %} selected{% endif %}>{{ value }} ({{ count }})</option>
+                        {% endfor %}
+                    </select>
                     <button class="btn" type="submit">Search</button>
-                    {% if query %}
+                    {% if query or tag %}
                         <a class="btn btn-outline-secondary" href="{{ path('survos_folio_collection') }}">Clear</a>
                     {% endif %}
                 </div>

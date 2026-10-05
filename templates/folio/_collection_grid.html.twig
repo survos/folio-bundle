@@ -3,6 +3,7 @@
                 :columns="[
                     'dataset',
                     'provider',
+                    'tags',
                     {name: 'itemCount', title: 'Items'},
                     'rowCount',
                     'cores',
@@ -37,6 +38,12 @@
                     <span class="badge bg-blue-lt">
                         {{ row.dataset.aggregator ?: row.dataset.provider }}
                     </span>
+                {% endblock %}
+
+                {% block tags %}
+                    {% for value in row.dataset.tags %}
+                        <a class="badge bg-blue-lt me-1" href="{{ path('survos_folio_collection', {tag: value, q: query ?: null}) }}">{{ value }}</a>
+                    {% endfor %}
                 {% endblock %}
 
                 {% block itemCount %}
