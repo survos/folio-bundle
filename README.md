@@ -65,3 +65,15 @@ shared folios even with `--force`.
 and returns counts plus per-issue details. It scans folio rows: run it offline when recording
 catalog summaries, never as a directory-page cache-miss fallback. zm's publisher command
 persists the compact versioned summary in its registry; Ink consumes that recorded API data.
+
+## Optional collection table
+
+The collection catalogue uses `survos/grid-bundle` for its server-rendered cells.
+It is suggested, not required: install and enable it in applications that use
+`survos_folio_collection`. Without it, the page displays an installation warning.
+Folio does not require Simple DataTables or `pentiminax/ux-datatables`.
+
+Search and pagination remain server-side (50 folio artifacts per page); the grid's
+client-side paging, search and ordering are disabled so they cannot misleadingly
+operate on only the current page. Row and photo browsing can use the existing
+optional API Platform integration independently of the catalogue grid.

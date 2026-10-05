@@ -1,0 +1,104 @@
+            <twig:grid
+                :data="folios"
+                :columns="[
+                    'dataset',
+                    'provider',
+                    {name: 'itemCount', title: 'Items'},
+                    'rowCount',
+                    'cores',
+                    'size',
+                    'updated',
+                    {name: 'actions', title: ''},
+                ]"
+                :pageLength="perPage"
+                :search="false"
+                :options="{paging: false, lengthChange: false, ordering: false}"
+            >
+                {% block dataset %}
+                    {% set datasetKey = row.dataset.datasetKey %}
+
+                    <div class="fw-semibold">
+                        <a href="{{ path('survos_folio_show', { folioCode: datasetKey }) }}">
+                            {{ row.dataset.label ?: datasetKey }}
+                        </a>
+                        {% if row.dataset.hasArchive %}
+                            <span class="text-muted ms-1" title="Compressed archive (.gz) available">
+                                {{ icon('tabler:download') }}
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    <div class="text-muted small font-monospace">
+                        {{ datasetKey }}
+                    </div>
+                {% endblock %}
+
+                {% block provider %}
+                    <span class="badge bg-blue-lt">
+                        {{ row.dataset.aggregator ?: row.dataset.provider }}
+                    </span>
+                {% endblock %}
+
+                {% block itemCount %}
+                    {{ row.dataset.itemCount|number_format }}
+                {% endblock %}
+
+                {% block rowCount %}
+                    {{ row.rowCount ? row.rowCount|number_format : '' }}
+                {% endblock %}
+
+                {% block cores %}
+                    {% set coreCounts = row.metadata.coreCounts|default({}) %}
+
+                    {% if coreCounts %}
+                        {% for core, count in coreCounts %}
+                            <span class="badge text-bg-light border me-1">
+                                {{ core }} {{ count|number_format }}
+                            </span>
+                        {% endfor %}
+                    {% else %}
+                        <span class="text-muted">-</span>
+                    {% endif %}
+                {% endblock %}
+
+                {% block size %}
+                    {# row.sizeBytes, NOT row.liveSize: liveSize is a property hook doing
+                       clearstatcache() + filesize() on the /platform mount every time it is read,
+                       which in a list is one stat storm per render. The recorded column is what a
+                       listing wants; liveSize belongs on a detail/verify view. #}
+                    {% set bytes = row.sizeBytes %}
+
+                    {% if bytes %}
+                        {{ (bytes / 1024 / 1024)|number_format(1) }} MB
+                    {% endif %}
+                {% endblock %}
+
+                {% block updated %}
+                    {{ row.updatedAt ? row.updatedAt|date('Y-m-d H:i') : '' }}
+                {% endblock %}
+
+                {% block actions %}
+                    <div class="btn-list flex-nowrap">
+                        <a
+                            href="{{ path('survos_folio_show', { folioCode: row.dataset.datasetKey }) }}"
+                            class="btn btn-sm btn-primary"
+                        >
+                            Browse
+                        </a>
+
+                        <a
+                            href="{{ path('survos_folio_search', { folioCode: row.dataset.datasetKey }) }}"
+                            class="btn btn-sm btn-outline-secondary"
+                        >
+                            Grid
+                        </a>
+
+                        <a
+                            href="{{ path('survos_folio_schema', { folioCode: row.dataset.datasetKey }) }}"
+                            class="btn btn-sm btn-outline-secondary"
+                        >
+                            Schema
+                        </a>
+                    </div>
+                {% endblock %}
+            </twig:grid>

@@ -15,7 +15,6 @@
         "survos/field-bundle": "^2.5",
         "survos/jsonl-bundle": "^2.5",
         "survos/search-bundle": "^2.5",
-        "survos/simple-datatables-bundle": "^2.19",
         "twig/string-extra": "^3.20",
         "zenstruck/bytes": "^1.1",
         "symfony/ai-agent": "^0.14",
@@ -44,9 +43,10 @@
         "symfony/ux-twig-component": "Required for the PhotoGrid Twig component.",
         "symfony/ux-leaflet-map": "Draws the folio map page (survos_folio_map); without it the page explains what is missing.",
         "api-platform/core": "Required for the PhotoGrid Twig component's data source (Row's #[ApiResource]).",
-        "presta/sitemap-bundle": "For folio:sitemap — static per-folio XML sitemaps of item pages.",
-        "survos/dataset-bundle": "Production registry (DatasetInfo/Artifact rows, folio:build, the collection index). Only the app that BUILDS folios needs it; a reader pulls published folios over HTTP — see docs/bare-app.md.",
-        "survos/bookmark-bundle": "Required when bookmark_class and folder_class are configured; install and configure the bookmark owner explicitly."
+        "presta/sitemap-bundle": "For folio:sitemap \u2014 static per-folio XML sitemaps of item pages.",
+        "survos/dataset-bundle": "Production registry (DatasetInfo/Artifact rows, folio:build, the collection index). Only the app that BUILDS folios needs it; a reader pulls published folios over HTTP \u2014 see docs/bare-app.md.",
+        "survos/bookmark-bundle": "Required when bookmark_class and folder_class are configured; install and configure the bookmark owner explicitly.",
+        "survos/grid-bundle": "Version ^2.35.5 renders the server-paginated folio collection table; the collection page shows an installation warning without it."
     },
     "autoload": {
         "psr-4": {
@@ -73,7 +73,8 @@
         "survos/imgproxy-bundle": "^2.5",
         "survos/iiif-bundle": "^2.5",
         "survos/dataset-bundle": "^2.5",
-        "survos/bookmark-bundle": "^2.34 || dev-main"
+        "survos/bookmark-bundle": "^2.34 || dev-main",
+        "survos/grid-bundle": "^2.35.5"
     },
     "keywords": [
         "symfony-ux",
