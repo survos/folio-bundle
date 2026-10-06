@@ -71,6 +71,46 @@ final class FolioNarrative
         return $dto->sourceCaption === $this->getMainText() ? null : $dto->sourceCaption;
     }
 
+    /**
+     * The date as a reader sees it. Some sources hand over a JSON-encoded list as the string
+     * (Digital Commonwealth: '["[ca. 1930–1945]"]'); that prints as its values, not its syntax.
+     */
+    #[ExposeInTemplate]
+    public function getDate(): ?string
+    {
+        $date = $this->dto?->date;
+        if ($date === null || $date === '') {
+            return null;
+        }
+        if (str_starts_with($date, '[') && \is_array($list = json_decode($date, true))) {
+            $date = implode('; ', array_filter(array_map(strval(...), $list), static fn (string $v): bool => $v !== ''));
+        }
+
+        return $date === '' ? null : $date;
+    }
+
+    /**
+     * One readable rights statement. Some sources (LoC) supply a whole HTML policy page here;
+     * the first paragraph is the statement itself, and the rest stays behind rightsUri.
+     */
+    #[ExposeInTemplate]
+    public function getRights(): ?string
+    {
+        $rights = $this->dto?->rights;
+        if ($rights === null || trim($rights) === '') {
+            return $this->dto?->rightsUri;
+        }
+        if ($rights !== strip_tags($rights)) {
+            if (preg_match('~<p\b[^>]*>(.*?)</p>~is', $rights, $m)) {
+                $rights = $m[1];
+            }
+            $rights = html_entity_decode(strip_tags($rights), \ENT_QUOTES | \ENT_HTML5);
+        }
+        $rights = trim((string) preg_replace('/\s+/u', ' ', $rights));
+
+        return mb_strlen($rights) > 300 ? rtrim(mb_substr($rights, 0, 300)).'…' : $rights;
+    }
+
     /** "City, State, Country" — same join FolioItem.html.twig uses for its tombstone location. */
     #[ExposeInTemplate]
     public function getLocation(): ?string

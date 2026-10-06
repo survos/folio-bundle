@@ -83,7 +83,7 @@ final class FolioCollectionController extends AbstractController
             if ($datasetIds === []) {
                 $qb->andWhere('1 = 0');
             } else {
-                $qb->andWhere('dataset.id IN (:datasetIds)')->setParameter('datasetIds', $datasetIds);
+                $qb->andWhere('dataset.datasetKey IN (:datasetIds)')->setParameter('datasetIds', $datasetIds);
             }
         }
 
@@ -98,12 +98,12 @@ final class FolioCollectionController extends AbstractController
     /**
      * Read registry metadata only: no artifact hydration or folio-file I/O. Using the same
      * normalizer as DatasetInfo::getTags() keeps these facets aligned with FolioSet selection.
-     * @return array<string, list<int>> tag => unique dataset ids with a built folio
+     * @return array<string, list<string>> tag => unique dataset keys with a built folio
      */
     private function tagIndex(ArtifactRepository $artifacts): array
     {
         $rows = $this->baseQuery($artifacts, '')
-            ->select('DISTINCT dataset.id AS id, dataset.meta AS meta')
+            ->select('DISTINCT dataset.datasetKey AS id, dataset.meta AS meta')
             ->getQuery()->getArrayResult();
         $index = [];
         foreach ($rows as $row) {

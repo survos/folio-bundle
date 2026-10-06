@@ -44,7 +44,9 @@ final class FolioTimelineStats
         $params = ['core' => $core->id];
 
         $ends = $conn->executeQuery(
-            sprintf('SELECT MIN(%1$s) AS lo, MAX(%1$s) AS hi FROM item d WHERE %2$s AND %1$s IS NOT NULL', $yearExpr, $where),
+            // Two subqueries: SQLite answers a lone MIN or MAX from the (core_id, sort_key) index,
+            // but scans the whole core when both share one SELECT.
+            sprintf('SELECT (SELECT MIN(%1$s) FROM item d WHERE %2$s AND %1$s IS NOT NULL) AS lo, (SELECT MAX(%1$s) FROM item d WHERE %2$s AND %1$s IS NOT NULL) AS hi', $yearExpr, $where),
             $params,
         )->fetchAssociative();
 

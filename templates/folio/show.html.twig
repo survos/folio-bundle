@@ -4,21 +4,18 @@
 
 {% block body_class %}folio-layout{% endblock %}
 
-{#
-{% block page_pretitle %}Folio Overview{% endblock %}
+{# The overview is the folio's landing page, so it names the collection; map and gallery stay
+   headerless to keep their canvas high on the page. #}
 
 {% block page_title %}
     {{ folioLabel }}
 {% endblock %}
 
 {% block page_subtitle %}
-    <span class="font-monospace">{{ ctx.folioCode }}</span>
-    <span class="mx-1 text-muted">&middot;</span>
-    {{ cores|length }} cores
+    {{ cores|length }} {{ cores|length == 1 ? 'core' : 'cores' }}
     <span class="mx-1 text-muted">&middot;</span>
     {{ totalRows|number_format }} rows
 {% endblock %}
-#}
 
 {% block title %}{{ folioLabel }}{% endblock %}
 
@@ -149,25 +146,28 @@
         </style>
     {% endif %}
 
-    {% set installCommand = 'bin/console folio:pull --dataset ' ~ ctx.folioCode %}
+    {# A console command is for whoever runs this app, not its visitors. #}
+    {% if is_granted('ROLE_ADMIN') %}
+        {% set installCommand = 'bin/console folio:pull --dataset ' ~ ctx.folioCode %}
 
-    <div class="card mb-4" {{ stimulus_controller('clipboard', { successContent: 'Copied!' }) }}>
-        <div class="card-header d-flex align-items-center justify-content-between gap-2">
-            <h2 class="card-title mb-0">Install Folio</h2>
-            <button
-                type="button"
-                class="btn btn-sm btn-ghost-secondary"
-                {{ stimulus_action('clipboard', 'copy') }}
-                {{ stimulus_target('clipboard', 'button') }}
-                title="Copy folio pull command"
-            >
-                {% guard function ux_icon %}{{ ux_icon('tabler:clipboard') }} Copy{% else %}Copy{% endguard %}
-            </button>
+        <div class="card mb-4" {{ stimulus_controller('clipboard', { successContent: 'Copied!' }) }}>
+            <div class="card-header d-flex align-items-center justify-content-between gap-2">
+                <h2 class="card-title mb-0">Install Folio</h2>
+                <button
+                    type="button"
+                    class="btn btn-sm btn-ghost-secondary"
+                    {{ stimulus_action('clipboard', 'copy') }}
+                    {{ stimulus_target('clipboard', 'button') }}
+                    title="Copy folio pull command"
+                >
+                    {% guard function ux_icon %}{{ ux_icon('tabler:clipboard') }} Copy{% else %}Copy{% endguard %}
+                </button>
+            </div>
+            <div class="card-body">
+                <code class="d-block text-break" {{ stimulus_target('clipboard', 'source') }}>{{ installCommand }}</code>
+            </div>
         </div>
-        <div class="card-body">
-            <code class="d-block text-break" {{ stimulus_target('clipboard', 'source') }}>{{ installCommand }}</code>
-        </div>
-    </div>
+    {% endif %}
 
     {# Cores — each is first-class, with its own links and counts. #}
     <div class="row row-cards mb-4">
@@ -404,9 +404,4 @@
         </div>
     {% endif %}
 
-    <style>
-        .page-header {
-            display: none !important;
-        }
-    </style>
 {% endblock %}

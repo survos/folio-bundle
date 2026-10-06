@@ -15,6 +15,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
@@ -46,6 +47,10 @@ final class FolioAiController extends AbstractController
     ) {
     }
 
+    // Admin-only: ?run=1 spends real AI calls (Mistral OCR, handwriting) on a plain GET, so a
+    // crawler or a curious visitor following a link must never trigger one. The IsGranted also
+    // hides RowMenu's OCR/Handwriting items for everyone else (MenuService::canAccessRoute()).
+    #[IsGranted('ROLE_ADMIN')]
     #[Route('/{folioCode}/ai/{coreCode}/{localId}', name: 'survos_folio_ai', requirements: ['folioCode' => FolioController::FOLIO_CODE_PATTERN], options: ['expose' => true])]
     public function run(
         Request $request,

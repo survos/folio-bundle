@@ -146,7 +146,10 @@ final class FolioController extends AbstractController
         $params = ['core' => $coreId];
 
         $ends = $conn->executeQuery(
-            sprintf('SELECT MIN(%1$s) AS lo, MAX(%1$s) AS hi FROM item d WHERE %2$s', $sort['expr'], $where),
+            // Two scalar subqueries, not MIN(x), MAX(x) in one SELECT: SQLite only answers a lone
+            // MIN or MAX from the (core_id, sort_key) index; together they scan every row of the
+            // core (92s on a 2.8M-article newspaper folio, which then died at max_execution_time).
+            sprintf('SELECT (SELECT MIN(%1$s) FROM item d WHERE %2$s) AS lo, (SELECT MAX(%1$s) FROM item d WHERE %2$s) AS hi', $sort['expr'], $where),
             $params,
         )->fetchAssociative();
 
@@ -261,7 +264,8 @@ final class FolioController extends AbstractController
         $counts = [];
         if ($sort !== null && $sort['numeric'] && $slides !== []) {
             $ends = $conn->executeQuery(
-                sprintf('SELECT MIN(%1$s) AS lo, MAX(%1$s) AS hi FROM item d WHERE %2$s', $sort['expr'], implode(' AND ', $where)),
+                // Separate subqueries so each can use the index -- see yearTimelineData().
+                sprintf('SELECT (SELECT MIN(%1$s) FROM item d WHERE %2$s) AS lo, (SELECT MAX(%1$s) FROM item d WHERE %2$s) AS hi', $sort['expr'], implode(' AND ', $where)),
                 $params,
             )->fetchAssociative();
             if ($ends !== false && $ends['lo'] !== null && $ends['hi'] !== null && $ends['lo'] != $ends['hi']) {

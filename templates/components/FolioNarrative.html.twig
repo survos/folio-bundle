@@ -23,10 +23,10 @@
             {% if dto.creators %}
                 <li>{{ 'narrative.by'|trans }} {{ dto.creators|join(', ') }}</li>
             {% endif %}
-            {% if dto.date or location %}
+            {% if date or location %}
                 <li>
-                    {% if dto.date %}{{ 'narrative.dated'|trans }} {{ dto.date }}{% endif %}
-                    {% if dto.date and location %}, {% endif %}
+                    {% if date %}{{ 'narrative.dated'|trans }} {{ date }}{% endif %}
+                    {%- if date and location %}, {% endif %}
                     {% if location %}{{ 'narrative.in_place'|trans }} {{ location }}{% endif %}
                 </li>
             {% endif %}
@@ -45,8 +45,10 @@
             {% if dto.physicalDescription %}
                 <li>{{ dto.physicalDescription }}</li>
             {% endif %}
-            {% if dto.rights or dto.rightsUri %}
-                <li>{{ 'narrative.rights'|trans }}: {{ dto.rights ?: dto.rightsUri }}</li>
+            {% if rights %}
+                <li>{{ 'narrative.rights'|trans }}:
+                    {% if dto.rightsUri and rights != dto.rightsUri %}<a href="{{ dto.rightsUri }}" target="_blank" rel="noopener">{{ rights }}</a>{% else %}{{ rights }}{% endif %}
+                </li>
             {% endif %}
         </ul>
 

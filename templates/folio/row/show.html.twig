@@ -74,9 +74,77 @@
 
 {% block body_class %}folio-layout folio-object-page{% endblock %}
 
-{% block page_pretitle %}{% endblock %}
-{% block page_title %}{% endblock %}
-{% block page_subtitle %}{% endblock %}
+{# The page header carries the item's identity, so its PAGE_ACTIONS (RowMenu) sit beside the
+   real title instead of a route-derived "Details". Prev/next is pinned to the title column's
+   right edge, so it stays put no matter how long the title is. #}
+{% block page_pretitle %}
+    {{ dtoTrans != dtoKey ? dtoTrans : dtoLabel }} · <span class="font-monospace" style="text-transform: none">{{ row.localId }}</span>
+{% endblock %}
+{% block page_title %}
+    <span class="d-flex flex-grow-1 align-items-start gap-3">
+    <span class="folio-detail-title">{{ tombstoneTitle }}</span>
+        {# Prev/next document within this core (build order) — keyset nav (LAG/LEAD). #}
+        {% set adjacent = adjacent|default(null) %}
+        {% if adjacent and (adjacent.prev or adjacent.next) %}
+            <span class="btn-group btn-group-sm ms-auto flex-shrink-0 folio-adjacent-nav" role="group" aria-label="Document navigation">
+                <a class="btn btn-outline-secondary {{ adjacent.prev ? '' : 'disabled' }}" rel="prev"
+                   {% if adjacent.prev %}href="{{ path('survos_folio_row_show', {folioCode: row.folioCode, coreCode: core.code, dtoType: adjacent.prev.dtoType, localId: adjacent.prev.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+                    {{ ux_icon('tabler:chevron-left', { class: 'icon' }) }} {{ 'prev'|trans({}, 'folio') }}
+                </a>
+                <a class="btn btn-outline-secondary {{ adjacent.next ? '' : 'disabled' }}" rel="next"
+                   {% if adjacent.next %}href="{{ path('survos_folio_row_show', {folioCode: row.folioCode, coreCode: core.code, dtoType: adjacent.next.dtoType, localId: adjacent.next.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
+                    {{ 'next'|trans({}, 'folio') }} {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
+                </a>
+            </span>
+        {% endif %}
+    </span>
+{% endblock %}
+{% block page_subtitle %}
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+        {% if tombstoneYear %}
+            <span class="badge rounded-pill bg-warning-lt px-3">
+                {{ ux_icon('tabler:calendar', { class: 'icon me-1' }) }}
+                {{ tombstoneYear }}
+            </span>
+        {% endif %}
+
+        {% if tombstoneDimensions is iterable and tombstoneDimensions is not empty %}
+            {# Structured dimensions → dimensions-bundle renderer (icons + units, raw fallback).
+               dimensions-bundle is optional: without it, show the source's raw string. #}
+            {% guard function dim_render %}
+                {{ dim_render(tombstoneDimensions, attribute(row.dtoData, 'weight')|default([]), tombstoneDimensionsRaw) }}
+            {% else %}
+                {% if tombstoneDimensionsRaw %}
+                    <span class="badge rounded-pill bg-white text-muted border px-3">
+                        {{ ux_icon('tabler:ruler-measure', { class: 'icon me-1' }) }}
+                        {{ tombstoneDimensionsRaw }}
+                    </span>
+                {% endif %}
+            {% endguard %}
+        {% elseif tombstoneDimensions or tombstoneDimensionsRaw %}
+            <span class="badge rounded-pill bg-white text-muted border px-3">
+                {{ ux_icon('tabler:ruler-measure', { class: 'icon me-1' }) }}
+                {{ tombstoneDimensions ?: tombstoneDimensionsRaw }}
+            </span>
+        {% endif %}
+
+        {% if citationUrl %}
+            <a href="{{ citationUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
+                {{ 'source'|trans }} {{ ux_icon('tabler:external-link', { class: 'icon ms-1' }) }}
+            </a>
+        {% endif %}
+
+        {% if tombstoneSourceImage %}
+            <a href="{{ tombstoneSourceImage }}" target="_blank" rel="noopener" class="text-decoration-none">
+                Source image {{ ux_icon('tabler:photo', { class: 'icon ms-1' }) }}
+            </a>
+        {% endif %}
+
+        {% if tombstoneCredit %}
+            <span class="text-muted">&middot; {{ tombstoneCredit }}</span>
+        {% endif %}
+    </div>
+{% endblock %}
 
 {% block title %}
     {{ tombstoneTitle }} · {{ ctx.folioCode }}
@@ -126,113 +194,18 @@
     {% set ocrPageCount = dto ? dto.pageCount : attribute(row.dtoData, 'pageCount')|default(null) %}
     {% set aiTasks = dto ? dto.aiTasks : attribute(row.dtoData, 'aiTasks')|default(null) %}
 
-    <div class="container-xl py-4 py-lg-5">
+    <div class="pb-4">
         <div class="folio-detail-shell">
 
-            {# Show/Edit/Bookmark/Ask document/OCR/Handwriting/Share is Survos\FolioBundle\Menu\RowMenu,
+            {# Show/Edit/Bookmark/Ask document/OCR/Handwriting is Survos\FolioBundle\Menu\RowMenu,
                a normal PAGE_ACTIONS menu — it renders automatically in base.html.twig's own
                .page-header, exactly like every other page (e.g. the Edit page). This hero does NOT
                render its own action bar; don't add one back here or in a host-app override. #}
-            {% block folio_hero %}
-            <div class="folio-detail-hero">
-                <div class="row g-2 align-items-center">
-                    <div class="col-12">
-                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
-                            <nav class="d-flex flex-wrap align-items-center gap-2 small text-muted">
-                                {{ ux_icon('tabler:home', { class: 'icon icon-sm' }) }}
-
-                                {% set providerUrl = folio_provider_url(provider) %}
-                                {% if providerUrl %}
-                                    <a href="{{ providerUrl }}" class="text-reset text-decoration-none">{{ provider }}</a>
-                                {% else %}
-                                    <span>{{ provider }}</span>
-                                {% endif %}
-
-                                <span>/</span>
-                                <a href="{{ path('survos_folio_show', { folioCode: row.folioCode }) }}"
-                                   class="text-reset text-decoration-none">{{ dataset }}</a>
-
-                                <span>/</span>
-                                <a href="{{ path('survos_folio_core_search', { folioCode: row.folioCode, coreCode: core.code }) }}"
-                                   class="text-reset text-decoration-none">{{ ('core.' ~ core.code)|trans }}</a>
-
-                                {% if row.dtoType %}
-                                    <span>/</span>
-                                    <a href="{{ path('survos_folio_core_type_search', { folioCode: row.folioCode, coreCode: core.code, dtoType: row.dtoType }) }}"
-                                       class="text-reset text-decoration-none">{{ row.dtoType }}</a>
-                                {% endif %}
-                            </nav>
-
-                            {# Prev/next document within this core (build order) — keyset nav (LAG/LEAD). #}
-                            {% set adjacent = adjacent|default(null) %}
-                            {% if adjacent and (adjacent.prev or adjacent.next) %}
-                                <div class="btn-group btn-group-sm" role="group" aria-label="Document navigation">
-                                    <a class="btn btn-outline-secondary {{ adjacent.prev ? '' : 'disabled' }}" rel="prev"
-                                       {% if adjacent.prev %}href="{{ path('survos_folio_row_show', {folioCode: row.folioCode, coreCode: core.code, dtoType: adjacent.prev.dtoType, localId: adjacent.prev.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
-                                        {{ ux_icon('tabler:chevron-left', { class: 'icon' }) }} {{ 'prev'|trans({}, 'folio') }}
-                                    </a>
-                                    <a class="btn btn-outline-secondary {{ adjacent.next ? '' : 'disabled' }}" rel="next"
-                                       {% if adjacent.next %}href="{{ path('survos_folio_row_show', {folioCode: row.folioCode, coreCode: core.code, dtoType: adjacent.next.dtoType, localId: adjacent.next.localId}) }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>
-                                        {{ 'next'|trans({}, 'folio') }} {{ ux_icon('tabler:chevron-right', { class: 'icon' }) }}
-                                    </a>
-                                </div>
-                            {% endif %}
-                        </div>
-
-                        {% if dtoTrans != dtoKey %}
-                            <div class="text-muted small text-uppercase mb-1">{{ dtoTrans }}</div>
-                        {% endif %}
-
-                        <h1 class="folio-detail-title mb-2">{{ tombstoneTitle }}</h1>
-
-                        <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                            {% if tombstoneYear %}
-                                <span class="badge rounded-pill bg-warning-lt px-3">
-                                    {{ ux_icon('tabler:calendar', { class: 'icon me-1' }) }}
-                                    {{ tombstoneYear }}
-                                </span>
-                            {% endif %}
-
-                            {% if tombstoneDimensions is iterable and tombstoneDimensions is not empty %}
-                                {# Structured dimensions → dimensions-bundle renderer (icons + units, raw fallback).
-                                   dimensions-bundle is optional: without it, show the source's raw string. #}
-                                {% guard function dim_render %}
-                                    {{ dim_render(tombstoneDimensions, attribute(row.dtoData, 'weight')|default([]), tombstoneDimensionsRaw) }}
-                                {% else %}
-                                    {% if tombstoneDimensionsRaw %}
-                                        <span class="badge rounded-pill bg-white text-muted border px-3">
-                                            {{ ux_icon('tabler:ruler-measure', { class: 'icon me-1' }) }}
-                                            {{ tombstoneDimensionsRaw }}
-                                        </span>
-                                    {% endif %}
-                                {% endguard %}
-                            {% elseif tombstoneDimensions or tombstoneDimensionsRaw %}
-                                <span class="badge rounded-pill bg-white text-muted border px-3">
-                                    {{ ux_icon('tabler:ruler-measure', { class: 'icon me-1' }) }}
-                                    {{ tombstoneDimensions ?: tombstoneDimensionsRaw }}
-                                </span>
-                            {% endif %}
-
-                            {% if citationUrl %}
-                                <a href="{{ citationUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
-                                    {{ 'source'|trans }} {{ ux_icon('tabler:external-link', { class: 'icon ms-1' }) }}
-                                </a>
-                            {% endif %}
-
-                            {% if tombstoneSourceImage %}
-                                <a href="{{ tombstoneSourceImage }}" target="_blank" rel="noopener" class="text-decoration-none">
-                                    Source image {{ ux_icon('tabler:photo', { class: 'icon ms-1' }) }}
-                                </a>
-                            {% endif %}
-
-                            {% if tombstoneCredit %}
-                                <span class="text-muted">&middot; {{ tombstoneCredit }}</span>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% endblock %}
+            {# The item's identity (type, title, badges) is the standard page header's pretitle/title/
+               subtitle -- see the page_* blocks above -- and its breadcrumb is the BREADCRUMB strip
+               (RowMenu::breadcrumb()). This block stays as an override hook for content-specific
+               templates, empty by default. #}
+            {% block folio_hero %}{% endblock %}
 
             {% if pages|length > 0 and (hasOcr or hasLayout or hasHtr) and not isSingleImage and videoPages|length == 0 and audioPages|length == 0 %}
                 <div class="folio-viewer-toolbar-card">
@@ -1106,6 +1079,23 @@
                     border: 1px solid rgba(120,100,70,.12);
                 }
 
+                /* No media and no claims (e.g. a Curatescape stop): the main column renders nothing,
+                   so the narrative takes the row instead of hugging the right third of an empty page.
+                   Capped so prose keeps a readable line length. */
+                /* No DTO to narrate (e.g. a musdig person row): drop the empty card. */
+                .folio-detail-narrative:not(:has(.card-body > *)) {
+                    display: none;
+                }
+
+                #doc-main-col:not(:has(> *)) {
+                    display: none;
+                }
+
+                #folio-viewer-grid:not(:has(> #doc-main-col > *)) > #doc-side-col {
+                    width: 100%;
+                    max-width: 56rem;
+                }
+
                 .folio-detail-title,
                 .folio-detail-section-title,
                 .folio-detail-shell .card-title {
@@ -1201,7 +1191,7 @@
 
                 /* .page-header is intentionally left visible (not hidden) — that's where
                    base.html.twig's own PAGE_ACTIONS rendering shows RowMenu's Show/Edit/Bookmark/
-                   Ask document/OCR/Handwriting/Share, the SAME standard mechanism every other
+                   Ask document/OCR/Handwriting, the SAME standard mechanism every other
                    row-scoped page uses (Edit, item_chat, ...). This hero only supplies its own
                    title/breadcrumb/badges below it — no bespoke action bar here or in a host-app
                    override; see git history (9c52db36, and the churn since) for what happens when

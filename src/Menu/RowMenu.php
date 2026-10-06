@@ -5,17 +5,18 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Menu;
 
 use Survos\DataContracts\Metadata\ContentType;
+use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Entity\Page;
 use Survos\FolioBundle\Entity\Row;
+use Survos\FolioBundle\Twig\FolioCoreTwig;
 use Survos\Folio\Enum\PageType;
 use Survos\TablerBundle\Event\MenuEvent;
 use Survos\TablerBundle\Menu\MenuBuilderTrait;
-use Survos\TablerBundle\Menu\SettingsAwareMenuTrait;
 use Survos\TablerBundle\Service\IconService;
 use Survos\TablerBundle\Service\RouteAliasService;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Routing\RouterInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
 
 /**
  * Document-level action menu for the row-scoped folio pages (row/show, item_chat, page_chat,
@@ -39,15 +40,64 @@ use Symfony\Component\Routing\RouterInterface;
 final class RowMenu
 {
     use MenuBuilderTrait;
-    use SettingsAwareMenuTrait;
 
     public function __construct(
-        #[Autowire('%kernel.environment%')]
-        private readonly string $environment = 'prod',
+        private readonly ?FolioCoreTwig $folioTwig = null,
+        private readonly ?TranslatorInterface $translator = null,
         protected readonly ?RouterInterface $router = null,
         protected readonly ?RouteAliasService $routeAliasService = null,
         protected readonly ?IconService $iconService = null,
     ) {
+    }
+
+    /**
+     * provider / dataset (/ core / type) trail for every folio- and row-scoped page, in the
+     * layout's own BREADCRUMB slot rather than a hand-drawn <nav> inside each page's hero. A
+     * folio-level page names itself with the `crumb` menu option (e.g. 'Search').
+     */
+    #[AsEventListener(event: MenuEvent::BREADCRUMB, priority: 50)]
+    public function breadcrumb(MenuEvent $event): void
+    {
+        $row = $event->getOption('row');
+        $folio = $event->getOption('folio');
+        $folioCode = match (true) {
+            $row instanceof Row => $row->getFolioCode(),
+            $folio instanceof Folio => $folio->code,
+            default => null,
+        };
+        if ($folioCode === null) {
+            return;
+        }
+
+        $menu = $event->getMenu();
+        [$provider, $dataset] = explode('/', $folioCode, 2) + [1 => ''];
+
+        $providerUrl = $this->folioTwig?->providerUrl($provider);
+        $this->add($menu, label: $provider, uri: $providerUrl, icon: 'tabler:home', translationDomain: false, checkRouteExists: false, allowNoLink: $providerUrl === null);
+        $this->add($menu, 'survos_folio_show', ['folioCode' => $folioCode], ($folio instanceof Folio ? $folio->label : null) ?: $dataset, translationDomain: false, inferIcon: false);
+
+        if ($row instanceof Row) {
+            $coreCode = $row->getCoreCode();
+            $this->add($menu, 'survos_folio_core_search', ['folioCode' => $folioCode, 'coreCode' => $coreCode], $this->coreLabel($coreCode), translationDomain: false, inferIcon: false);
+            // stop/stop, story/story: a type named like its core adds nothing to the trail.
+            if ($row->dtoType && $row->dtoType !== $coreCode) {
+                $this->add($menu, 'survos_folio_core_type_search', ['folioCode' => $folioCode, 'coreCode' => $coreCode, 'dtoType' => $row->dtoType], $row->dtoType, translationDomain: false, inferIcon: false);
+            }
+        } elseif (\is_string($crumb = $event->getOption('crumb'))) {
+            $current = $menu->addChild('current', ['label' => $crumb]);
+            $current->setCurrent(true);
+        }
+
+        $event->stopPropagation();
+    }
+
+    /** "Objects" for obj -- the host app's `system` core.<code> key, else the bare code. */
+    private function coreLabel(string $coreCode): string
+    {
+        $key = 'core.'.$coreCode;
+        $label = $this->translator?->trans($key, [], 'system') ?? $key;
+
+        return $label === $key ? $coreCode : $label;
     }
 
     #[AsEventListener(event: MenuEvent::PAGE_ACTIONS, priority: 50)]
@@ -104,25 +154,12 @@ final class RowMenu
                 'localId' => $rp['localId'],
             ];
 
-            // OCR/handwriting recognition isn't tuned/reliable enough yet to expose to production
-            // users by default -- shown unconditionally in 'dev' (developer convenience, as
-            // before), or in any env once the current user has opted into it via the 'ocr'
-            // beta_features setting (see config/packages/survos_settings.yaml). Also never shown
-            // for audio, dev or not (see $isAudio above).
-            $betaFeatures = (array) ($this->settingsManager?->get('beta_features', []) ?? []);
-            $ocrEnabled = 'dev' === $this->environment || \in_array('ocr', $betaFeatures, true);
-
-            if ($ocrEnabled && !$isAudio) {
+            // survos_folio_ai is #[IsGranted('ROLE_ADMIN')] -- add() drops these for everyone else,
+            // so following a menu link never spends AI calls on a non-admin's behalf.
+            if (!$isAudio) {
                 $this->add($menu, 'survos_folio_ai', $aiParams + ['task' => 'ocr_mistral', 'run' => 1, 'page' => 0], 'OCR', icon: 'tabler:file-text');
                 $this->add($menu, 'survos_folio_ai', $aiParams + ['task' => 'handwriting', 'run' => 1, 'page' => 0], 'Handwriting', icon: 'tabler:writing');
             }
         }
-
-        // Not wired yet — "share" hasn't been defined (copy link? citation? social?). Kept as a
-        // disabled placeholder, same pattern as Slideshow/Bookbag in host apps' folio-level menu:
-        // the slot exists so the menu shape is settled, behavior comes once it's decided.
-        $share = $this->add($menu, label: 'Share', uri: '#', icon: 'tabler:share', checkRouteExists: false);
-        $share->setLinkAttribute('tabindex', '-1');
-        $share->setLinkAttribute('aria-disabled', 'true');
     }
 }
