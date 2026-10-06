@@ -9,7 +9,7 @@ use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Survos\FieldBundle\Attribute\EntityMeta;
 use Survos\FieldBundle\Attribute\Field;
-use Survos\FolioBundle\Enum\PageType;
+use Survos\Folio\Enum\PageType;
 use Symfony\Component\Serializer\Attribute\Groups;
 
 /**

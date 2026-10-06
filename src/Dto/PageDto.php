@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Dto;
 
-use Survos\FolioBundle\Enum\PageType;
+use Survos\Folio\Enum\PageType;
 
 /**
  * One line of the page stream (page.jsonl) → one Page entity (the canonical imagery of a folio Row).

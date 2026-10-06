@@ -96,6 +96,49 @@ final class FolioMetadataBuildTest extends TestCase
         self::assertSame($before, hash_file('sha256', $this->folios->path($code)), 'failed staged build leaves the live folio intact');
     }
 
+    public function testPageTypesRoundTripAndInvalidBuildPreservesLiveFolio(): void
+    {
+        $code = 'test/pages';
+        $dataset = new DatasetInfo($code);
+        $dataset->label = 'Page types';
+        $dataset->cores = ['doc'];
+        $dir = $this->paths->stageDir($code, 'normalized');
+        (new Filesystem())->mkdir($dir);
+        file_put_contents($dir.'/doc.jsonl', json_encode(['id' => '1', 'label' => 'Document', 'contentType' => 'document'], JSON_THROW_ON_ERROR)."\n");
+        $pages = [];
+        foreach (\Survos\Folio\Enum\PageType::cases() as $index => $type) {
+            $pages[] = json_encode(new \Survos\FolioBundle\Dto\PageDto(
+                coreCode: 'doc', localId: '1', url: 'https://example.org/page/'.$index,
+                seq: $index + 1, type: $type,
+            ), JSON_THROW_ON_ERROR);
+        }
+        file_put_contents($dir.'/page.jsonl', implode("\n", $pages)."\n");
+        $ingest = new FolioIngestService($this->folios, $this->registry, new FolioDtoTypeResolver(), new FolioSummaryService(), $this->paths, new JsonlCountService(new JsonlStateService()));
+        $this->folios->buildAt($code);
+        $ingest->ingestDataset($dataset, dispatchFinished: false);
+        $this->folios->finalize();
+        $this->folios->finishBuildAt($code);
+        $ctx = $this->folios->context($code);
+        $entities = $ctx->em->getRepository(\Survos\FolioBundle\Entity\Page::class)->findBy([], ['seq' => 'ASC']);
+        self::assertSame(\Survos\Folio\Enum\PageType::cases(), array_map(static fn ($page) => $page->type, $entities));
+        self::assertSame(\Survos\Folio\Enum\PageType::Photo, \Survos\FolioBundle\Enum\PageType::Photo);
+        $this->folios->finalize();
+        $before = hash_file('sha256', $this->folios->path($code));
+        $invalid = json_decode($pages[0], true, flags: JSON_THROW_ON_ERROR);
+        $invalid[\Survos\DataContracts\Vocabulary\ItemField::TYPE] = 'object';
+        file_put_contents($dir.'/page.jsonl', json_encode($invalid, JSON_THROW_ON_ERROR)."\n");
+        $this->folios->buildAt($code);
+        try {
+            $ingest->ingestDataset($dataset, dispatchFinished: false);
+            self::fail('An object genre must never be accepted as a page type');
+        } catch (\ValueError $e) {
+            self::assertStringContainsString('object', $e->getMessage());
+        } finally {
+            $this->folios->discardBuildAt($code);
+        }
+        self::assertSame($before, hash_file('sha256', $this->folios->path($code)));
+    }
+
     public function testInterruptedDirectResetCanRecoverOnRetry(): void
     {
         $code = 'test/recovery';

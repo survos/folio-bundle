@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Survos\DataContracts\Vocabulary\ItemField;
+
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DataContracts\Metadata\ContentType;
@@ -14,6 +16,7 @@ use Survos\FieldBundle\Attribute\Map;
 use Survos\FolioBundle\Configuration\FolioSearchConfiguration;
 use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Str,StrTranslation,Term,TermSet};
 use Survos\FolioBundle\Dto\PageDto;
+use Survos\Folio\Enum\PageType;
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\JsonlBundle\IO\JsonlReader;
 use Survos\JsonlBundle\Service\JsonlCountService;
@@ -338,13 +341,17 @@ final class FolioIngestService
             $url      = $this->requiredString($data, 'url', $pageFile);
             $seq      = (int) ($data['seq'] ?? ($count + 1));
 
+            // Validate the wire value before bulk SQL bypasses Doctrine's enum conversion.
+            // A corrupt page must fail this build, not crash the reader after publication.
+            $pageType = isset($data[ItemField::TYPE]) ? PageType::from($data[ItemField::TYPE]) : null;
+
             // Order must match self::PAGE_COLUMNS.
             $pages->add([
                 Page::id($rowId, $seq),
                 $rowId,
                 $seq,
                 (int) ($data['pageIndex'] ?? 0),
-                is_scalar($data['type'] ?? null) ? (string) $data['type'] : null,
+                $pageType?->value,
                 $url,
                 is_scalar($data['sourceUrl'] ?? null) ? (string) $data['sourceUrl'] : null,
                 is_scalar($data['mediaId'] ?? null) ? (string) $data['mediaId'] : null,
@@ -404,7 +411,8 @@ final class FolioIngestService
             $conn->executeStatement(
                 'INSERT INTO temp.first_page (row_id, url) '
                 // SQLite returns the bare column from the row holding MIN(seq): the first image-like page.
-                . "SELECT row_id, url FROM (SELECT row_id, url, MIN(seq) FROM page WHERE type IS NULL OR type NOT IN ('audio', 'video') GROUP BY row_id)"
+                . "SELECT row_id, url FROM (SELECT row_id, url, MIN(seq) FROM page WHERE type IS NULL OR type NOT IN (?, ?) GROUP BY row_id)",
+                [PageType::Audio->value, PageType::Video->value]
             );
             $conn->executeStatement(
                 "UPDATE item SET dto_data = json_set(dto_data, '$.thumbnailUrl', (SELECT url FROM temp.first_page f WHERE f.row_id = item.id)) "

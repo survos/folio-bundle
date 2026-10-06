@@ -7,7 +7,7 @@ namespace Survos\FolioBundle\Menu;
 use Survos\DataContracts\Metadata\ContentType;
 use Survos\FolioBundle\Entity\Page;
 use Survos\FolioBundle\Entity\Row;
-use Survos\FolioBundle\Enum\PageType;
+use Survos\Folio\Enum\PageType;
 use Survos\TablerBundle\Event\MenuEvent;
 use Survos\TablerBundle\Menu\MenuBuilderTrait;
 use Survos\TablerBundle\Menu\SettingsAwareMenuTrait;
