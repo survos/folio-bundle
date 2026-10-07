@@ -17,4 +17,6 @@ final class WallCardField
     public const string LATITUDE = 'latitude';
     public const string LONGITUDE = 'longitude';
     public const string TAGS = 'tags';
+    public const string PLACE_OF_ORIGIN = 'placeOfOrigin';
+    public const string AUDIO = 'audio';
 }

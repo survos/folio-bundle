@@ -17,7 +17,12 @@ FTS input is literal words joined with AND, not executable FTS query syntax.
 
 The collection contains `folio`, `hydra:totalItems`, `hydra:member`, and `hydra:view`.
 Follow `hydra:next`; it preserves all filters and the original slug/locale URL.
-Cards expose only label, year, geo, size, imagery, empty audio, source URL and rights.
+Cards expose only label, year, geo, size, imagery, audio, tags, subjects, source URL and rights.
+`audio` is `[{url, durationSec, title, tour, tours[{id,title,ordinal}], transcriptUrl}]` from the
+row's `audio` field; transcripts are never inline — `transcriptUrl` is the sound's own row
+(`/api/{folioCode}/rows/{soundId}?core=sound`). `tags` are curator/source tags and `subjects` the
+row's subjects (including AI keywords), both lists of strings for grouping (e.g. "Sports · 1953").
+`label.place` falls back to `placeOfOrigin` when city/state/country are absent.
 The full item operation remains `/api/{folioCode}/rows/{localId}?core=obj` with its
 existing detailed representation. The internal photo grid uses `/rows/grid`; the
 old `/api/folios/{provider}/{dataset}/{coreCode}/rows` shape is removed.

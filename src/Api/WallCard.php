@@ -21,5 +21,9 @@ final readonly class WallCard
         public array $audio,
         public ?string $sourceUrl,
         public ?string $license,
+        /** @var list<string> curator/source tags */
+        public array $tags = [],
+        /** @var list<string> subjects, including AI keywords */
+        public array $subjects = [],
     ) {}
 }

@@ -30,6 +30,40 @@ final class WallCardMapper
         return $width > 0 && $height > 0 ? ['widthMm' => null, 'heightMm' => null, 'depthMm' => null, 'kind' => 'image', 'wPx' => $width, 'hPx' => $height] : null;
     }
 
+    /**
+     * Audio guide stops, lean: no inline transcripts (they run to kilobytes). transcriptUrl is the
+     * stop's own folio row (core=sound), whose full representation carries the transcript.
+     *
+     * @return list<array{url:string, durationSec:?int, title:?string, tour:?string, tours:?list<array<string,mixed>>, transcriptUrl:?string}>
+     */
+    public static function audio(mixed $audio, string $folioCode): array
+    {
+        $stops = [];
+        foreach (is_array($audio) ? $audio : [] as $stop) {
+            if (!is_array($stop) || !is_string($stop['url'] ?? null) || $stop['url'] === '') { continue; }
+            $soundId = is_scalar($stop['soundId'] ?? null) ? (string) $stop['soundId'] : null;
+            $stops[] = [
+                'url' => $stop['url'],
+                'durationSec' => is_numeric($stop['durationSec'] ?? null) ? (int) $stop['durationSec'] : null,
+                'title' => is_string($stop['title'] ?? null) ? $stop['title'] : null,
+                'tour' => is_string($stop['tour'] ?? null) ? $stop['tour'] : null,
+                'tours' => is_array($stop['tours'] ?? null) ? array_values($stop['tours']) : null,
+                'transcriptUrl' => $soundId === null || !isset($stop['transcript']) ? null
+                    : '/api/'.$folioCode.'/rows/'.rawurlencode($soundId).'?core=sound',
+            ];
+        }
+        return $stops;
+    }
+
+    /** @return list<string> */
+    private static function strings(mixed $value): array
+    {
+        $value = is_string($value) ? [$value] : (is_array($value) ? $value : []);
+        return array_values(array_unique(array_filter(array_map(
+            static fn ($v) => is_scalar($v) ? trim((string) $v) : '', $value,
+        ), static fn (string $v) => $v !== '')));
+    }
+
     public static function renderable(?string $url): bool
     {
         return $url !== null && ImageUrl::classify($url)->isRenderable();
@@ -53,6 +87,7 @@ final class WallCardMapper
         $title = $text(ItemField::TITLE) ?? $text(Field::SOURCE_CAPTION) ?? $row['label'];
         $year = $row['card_year'] === null ? null : (int) $row['card_year'];
         $place = implode(', ', array_filter([$text(ItemField::CITY), $text(ItemField::STATE), $text(ItemField::COUNTRY)], static fn ($v) => $v !== null && $v !== ''));
+        $place = $place !== '' ? $place : ($text(Field::PLACE_OF_ORIGIN) ?? '');
         $license = $text(ItemField::LICENSE) ?? $text(Field::RIGHTS_URI) ?? $text(ItemField::RIGHTS);
         $image = null;
         if (self::renderable($row['page_url'])) {
@@ -77,7 +112,8 @@ final class WallCardMapper
             year: $year,
             geo: $row['card_lat'] !== null && $row['card_lon'] !== null ? ['lat' => (float) $row['card_lat'], 'lon' => (float) $row['card_lon']] : null,
             size: self::size($dimensions, $row['page_width'] === null ? null : (int) $row['page_width'], $row['page_height'] === null ? null : (int) $row['page_height']),
-            image: $image, audio: [],
+            image: $image, audio: self::audio($fields[Field::AUDIO] ?? null, $folioCode),
+            tags: self::strings($fields[Field::TAGS] ?? null), subjects: self::strings($fields[ItemField::SUBJECTS] ?? null),
             sourceUrl: $text(ItemField::CITATION_URL) ?? $text(Field::SOURCE_URL) ?? $text(ItemField::URL), license: $license,
         );
     }

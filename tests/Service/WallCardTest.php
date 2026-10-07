@@ -43,6 +43,33 @@ final class WallCardTest extends TestCase
         self::assertLessThan(1000, strlen(json_encode($card)));
     }
 
+    public function testAudioPlaceOfOriginTagsAndSubjects(): void
+    {
+        $transcript = str_repeat('A long narration. ', 500);
+        $row = ['local_id' => '27992', 'label' => 'Grande Jatte', 'dto_data' => json_encode([
+            ItemField::TITLE => 'A Sunday on La Grande Jatte', ItemField::SUBJECTS => ['leisure', 'sailing', 'leisure'],
+        ]), 'extras' => json_encode([
+            Field::PLACE_OF_ORIGIN => 'France', Field::TAGS => ['Sports', ' '],
+            Field::AUDIO => [
+                ['soundId' => '2180', 'url' => 'https://aic-mobile-tours.artic.edu/a.mp3', 'transcript' => $transcript, 'durationSec' => 136,
+                 'tour' => 'The Essentials Tour', 'tours' => [['id' => '2193', 'title' => 'The Essentials Tour', 'ordinal' => 1]]],
+                ['soundId' => '9', 'title' => 'no url, skipped'],
+            ],
+        ]), 'card_year' => 1884, 'card_lat' => null, 'card_lon' => null, 'page_url' => null, 'page_width' => null, 'page_height' => null];
+
+        $card = (new WallCardMapper())->map($row, 'mus/chicago');
+
+        self::assertSame('France', $card->label['place']);
+        self::assertSame(['Sports'], $card->tags);
+        self::assertSame(['leisure', 'sailing'], $card->subjects);
+        self::assertCount(1, $card->audio);
+        self::assertSame('https://aic-mobile-tours.artic.edu/a.mp3', $card->audio[0]['url']);
+        self::assertSame(136, $card->audio[0]['durationSec']);
+        self::assertSame(1, $card->audio[0]['tours'][0]['ordinal']);
+        self::assertSame('/api/mus/chicago/rows/2180?core=sound', $card->audio[0]['transcriptUrl']);
+        self::assertStringNotContainsString('A long narration', json_encode($card), 'transcripts stay off the lean card');
+    }
+
     public function testExistingWebpPresetsAreSignedAndSourceIsPreserved(): void
     {
         $row = ['local_id' => 'a', 'label' => 'A', 'dto_data' => null, 'extras' => null,
