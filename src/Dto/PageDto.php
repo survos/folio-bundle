@@ -48,6 +48,13 @@ final readonly class PageDto
         public ?int $width = null,
         public ?int $height = null,
         /**
+         * ThumbHash (base64) of the image — a ~25-byte blurred preview a client paints before the
+         * real image arrives. Folded in at enrich from mediary's /info; null until mediary has run it.
+         */
+        public ?string $thumbHash = null,
+        /** Average colour "#rrggbb" from /info: the placeholder when there is no thumbHash. */
+        public ?string $color = null,
+        /**
          * Where the image originally came from, when $url no longer says so.
          *
          * $url is what the viewer fetches — our archived S3 copy once mediary has one. That

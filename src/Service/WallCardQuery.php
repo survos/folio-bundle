@@ -94,7 +94,7 @@ final class WallCardQuery
         }
         $predicate = implode(' AND ', $where);
         $total = (int) $connection->fetchOne("SELECT COUNT(*) FROM $from WHERE $predicate", $params);
-        $rows = $connection->fetchAllAssociative("SELECT i.local_id, i.label, i.dto_data, i.extras, $year AS card_year, $lat AS card_lat, $lon AS card_lon, p.url AS page_url, p.width AS page_width, p.height AS page_height FROM $from WHERE $predicate ORDER BY $sort LIMIT $limit OFFSET ".(($page - 1) * $limit), $params + $orderParams);
+        $rows = $connection->fetchAllAssociative("SELECT i.local_id, i.label, i.dto_data, i.extras, $year AS card_year, $lat AS card_lat, $lon AS card_lon, p.url AS page_url, p.width AS page_width, p.height AS page_height, p.thumb_hash AS page_thumb_hash, p.color AS page_color FROM $from WHERE $predicate ORDER BY $sort LIMIT $limit OFFSET ".(($page - 1) * $limit), $params + $orderParams);
         return compact('rows', 'total', 'page', 'limit');
     }
 

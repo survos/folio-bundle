@@ -85,6 +85,18 @@ final class WallCardTest extends TestCase
         self::assertFalse($builder->hasPreset('medium_jpg'));
     }
 
+    public function testPlaceholdersRideAlongWithTheImage(): void
+    {
+        $row = ['local_id' => 'a', 'label' => 'A', 'dto_data' => null, 'extras' => null,
+            'card_year' => null, 'card_lat' => null, 'card_lon' => null,
+            'page_url' => 'https://example.com/image.jpg', 'page_width' => 800, 'page_height' => 600,
+            'page_thumb_hash' => 'GwgGBYB6aGfAeYmZh6doiwAAAAAA', 'page_color' => '#6c6c6c'];
+        $builder = new \Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder('https://images.test', str_repeat('01', 32), str_repeat('02', 32));
+        $card = (new WallCardMapper($builder))->map($row, 'test/one');
+        self::assertSame('GwgGBYB6aGfAeYmZh6doiwAAAAAA', $card->image['thumbhash']);
+        self::assertSame('#6c6c6c', $card->image['color']);
+    }
+
     public function testFiltersComposeBeforePaginationAndIdsKeepOrder(): void
     {
         $conn = $this->fixture();
@@ -125,7 +137,7 @@ final class WallCardTest extends TestCase
     {
         $conn = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         $conn->executeStatement('CREATE TABLE item (id TEXT PRIMARY KEY, core_id TEXT, local_id TEXT, label TEXT, dto_type TEXT, dto_data TEXT, extras TEXT)');
-        $conn->executeStatement('CREATE TABLE page (id TEXT PRIMARY KEY, row_id TEXT, seq INTEGER, url TEXT, width INTEGER, height INTEGER)');
+        $conn->executeStatement('CREATE TABLE page (id TEXT PRIMARY KEY, row_id TEXT, seq INTEGER, url TEXT, width INTEGER, height INTEGER, thumb_hash TEXT, color TEXT)');
         $conn->executeStatement('CREATE TABLE item_facet (item_rowid INTEGER, field TEXT, value TEXT)');
         $conn->executeStatement('CREATE VIRTUAL TABLE item_fts USING fts5(body)');
         foreach (['a', 'b', 'c', 'other-core'] as $index => $id) {

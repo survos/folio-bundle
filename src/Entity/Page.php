@@ -159,6 +159,16 @@ class Page
     #[Field(sortable: true)]
     public ?int $height = null;
 
+    #[ORM\Column(name: 'thumb_hash', length: 64, nullable: true)]
+    #[ApiProperty('ThumbHash (base64) — blurred placeholder to paint while the image loads')]
+    #[Groups(['page:read'])]
+    public ?string $thumbHash = null;
+
+    #[ORM\Column(length: 7, nullable: true)]
+    #[ApiProperty('Average colour #rrggbb — fallback placeholder')]
+    #[Groups(['page:read'])]
+    public ?string $color = null;
+
     public function __construct(Row $row, int $seq, string $url)
     {
         $this->row = $row;

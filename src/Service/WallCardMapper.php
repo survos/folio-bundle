@@ -96,7 +96,8 @@ final class WallCardMapper
             $medium = $this->imgproxy->resizePreset($row['page_url'], MediaPreset::THUMB);
             if (str_contains($thumb, '/insecure/') || str_contains($medium, '/insecure/')) { throw new \LogicException('WallCard imagery requires imgproxy signing key and salt.'); }
             $full = $row['page_url'];
-            $image = ['thumb' => $thumb, 'medium' => $medium, 'full' => $full];
+            // thumbhash/color: paint these the instant the card arrives, then swap in thumb/medium.
+            $image = ['thumb' => $thumb, 'medium' => $medium, 'full' => $full, 'thumbhash' => $row['page_thumb_hash'] ?? null, 'color' => $row['page_color'] ?? null];
         }
         return new WallCard(
             id: $row['local_id'], title: $title,
