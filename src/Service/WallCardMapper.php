@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\DataContracts\Util\ImageUrl;
-use Survos\DataContracts\Vocabulary\{ItemField, MuseumVocab};
+use Survos\DataContracts\Vocabulary\{ItemField, MediaPreset, MuseumVocab};
 use Survos\FolioBundle\Api\{WallCard, WallCardField as Field};
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 
@@ -57,9 +57,9 @@ final class WallCardMapper
         $image = null;
         if (self::renderable($row['page_url'])) {
             if ($this->imgproxy === null) { throw new \LogicException('WallCard imagery requires a configured signed imgproxy service.'); }
-            $thumb = $this->imgproxy->hasPreset('thumb_jpg') ? $this->imgproxy->resizePreset($row['page_url'], 'thumb_jpg') : null;
-            $medium = $this->imgproxy->hasPreset('medium_jpg') ? $this->imgproxy->resizePreset($row['page_url'], 'medium_jpg') : null;
-            if (($thumb !== null && str_contains($thumb, '/insecure/')) || ($medium !== null && str_contains($medium, '/insecure/'))) { throw new \LogicException('WallCard imagery requires imgproxy signing key and salt.'); }
+            $thumb = $this->imgproxy->resizePreset($row['page_url'], 'tiny');
+            $medium = $this->imgproxy->resizePreset($row['page_url'], MediaPreset::THUMB);
+            if (str_contains($thumb, '/insecure/') || str_contains($medium, '/insecure/')) { throw new \LogicException('WallCard imagery requires imgproxy signing key and salt.'); }
             $full = $row['page_url'];
             $image = ['thumb' => $thumb, 'medium' => $medium, 'full' => $full];
         }

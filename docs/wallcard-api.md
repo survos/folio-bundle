@@ -39,22 +39,14 @@ when those properties are absent; per-card rights remain available. A missing ye
 is not reconstructed from a sitter's dates or accession. FTS only searches fields
 that the folio build indexed (current fpus does not index sourceCaption).
 
-## Images and rollout
+## Images
 
-Only canonical page imagery is used. Signed server-side `thumb_jpg` (fit 300) and
-`medium_jpg` (fit 400) presets preserve aspect ratio and force JPEG. Deploy these on
-imgproxy:
-
-```
-thumb_jpg=rs:fit:300:300:0:0/q:80/f:jpg
-medium_jpg=rs:fit:400:400:0:0/q:80/f:jpg
-```
-
-`ImgproxyUrlBuilder::hasPreset()` checks **local PHP configuration**, not the remote
-server. Until server rollout, omit these names from the app's explicit deployed
-preset list. The API then returns null thumb/medium and the source URL in full, as
-agreed for the Unity integration. Do not pass a third `jpg` argument to
-`resizePreset`: that method rejects format overrides under ONLY_PRESETS.
+Only canonical page imagery is used. `image.thumb` uses the existing signed
+`tiny` preset (fit 200, WebP); `image.medium` uses `thumb` (fit 400, WebP).
+Both preserve aspect ratio and reuse the existing imgproxy cache. `image.full`
+remains the source URL. Unity decodes WebP itself; no new server presets or JPEG
+format overrides are needed. The configured presets and signing credentials are
+required; misconfiguration fails explicitly instead of returning null derivatives.
 
 Public catalogue responses allow cross-origin GET/HEAD/OPTIONS, expose ETag, use a
 five-minute public cache lifetime, and honor If-None-Match. ETags hash the actual

@@ -43,21 +43,19 @@ final class WallCardTest extends TestCase
         self::assertLessThan(1000, strlen(json_encode($card)));
     }
 
-    public function testJpegPresetsAreSignedAndAbsentPresetsUseSourceFallback(): void
+    public function testExistingWebpPresetsAreSignedAndSourceIsPreserved(): void
     {
         $row = ['local_id' => 'a', 'label' => 'A', 'dto_data' => null, 'extras' => null,
             'card_year' => null, 'card_lat' => null, 'card_lon' => null,
             'page_url' => 'https://example.com/image.jpg', 'page_width' => 800, 'page_height' => 600];
         $builder = new \Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder('https://images.test', str_repeat('01', 32), str_repeat('02', 32));
         $card = (new WallCardMapper($builder))->map($row, 'test/one');
-        self::assertStringContainsString('/pr:thumb_jpg/', $card->image['thumb']);
-        self::assertStringContainsString('/pr:medium_jpg/', $card->image['medium']);
+        self::assertStringContainsString('/pr:tiny/', $card->image['thumb']);
+        self::assertStringContainsString('/pr:thumb/', $card->image['medium']);
         self::assertStringNotContainsString('/insecure/', $card->image['thumb']);
-        $builder = new \Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder('https://images.test', presets: []);
-        $card = (new WallCardMapper($builder))->map($row, 'test/one');
-        self::assertNull($card->image['thumb']);
-        self::assertNull($card->image['medium']);
         self::assertSame($row['page_url'], $card->image['full']);
+        self::assertFalse($builder->hasPreset('thumb_jpg'));
+        self::assertFalse($builder->hasPreset('medium_jpg'));
     }
 
     public function testFiltersComposeBeforePaginationAndIdsKeepOrder(): void
