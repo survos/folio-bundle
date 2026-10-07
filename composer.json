@@ -12,6 +12,7 @@
         "league/commonmark": "^2.4",
         "survos/babel-bundle": "^2.10",
         "survos/data-contracts": "^2.5",
+        "survos/dimensions-bundle": "^2.10",
         "survos/field-bundle": "^2.5",
         "survos/jsonl-bundle": "^2.5",
         "survos/search-bundle": "^2.5",

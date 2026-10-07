@@ -20,12 +20,12 @@ final class FolioRowProvider implements ProviderInterface
         private readonly ?ImgproxyUrlBuilder $imgproxyUrlBuilder = null,
     ) {}
 
-    public function provide(Operation $operation, array $uriVariables = [], array $context = []): iterable|object
+    public function provide(Operation $operation, array $uriVariables = [], array $context = []): iterable|object|null
     {
-        $provider  = $uriVariables['provider'] ?? '';
-        $dataset   = $uriVariables['dataset'] ?? '';
-        $coreCode  = $uriVariables['coreCode'] ?? 'obj';
-        $folioCode = "$provider/$dataset";
+        $request = $this->requestStack->getCurrentRequest() ?? throw new \LogicException('Folio rows require a request.');
+        $folioCode = $request->attributes->get('folioCode');
+        if (!is_string($folioCode)) { throw new \LogicException('Missing resolved folioCode.'); }
+        $coreCode = $request->query->get('core', 'obj');
 
         $ctx  = $this->folioService->context($folioCode);
         $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode));

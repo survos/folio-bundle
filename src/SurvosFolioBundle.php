@@ -485,6 +485,12 @@ final class SurvosFolioBundle extends AbstractUxBundle
         }
         if (interface_exists(\ApiPlatform\State\ProviderInterface::class)) {
             $services->set(FolioRowProvider::class)->autowire()->autoconfigure()->public();
+            $services->set(\Survos\FolioBundle\State\WallCardProvider::class)->autowire()->autoconfigure()->public();
+            $services->set(\Survos\FolioBundle\Service\WallCardMapper::class)->autowire()->autoconfigure();
+            $services->set(\Survos\FolioBundle\Service\WallCardQuery::class)->autowire()->autoconfigure();
+            $services->set(\Survos\FolioBundle\Serializer\WallCardCollectionNormalizer::class)->autowire()->autoconfigure()
+                ->tag('serializer.normalizer', ['priority' => 100]);
+            $services->set(\Survos\FolioBundle\EventListener\WallCardResponseListener::class)->autowire()->autoconfigure();
         }
         if ($config['admin_navbar_menu'] && class_exists(\Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber::class)) {
             $services->set(FolioMenu::class)->autowire()->autoconfigure()->public()->args([
@@ -531,7 +537,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
 
         $entityDir = dirname(__DIR__) . '/src/Entity';
         if ($builder->hasExtension('api_platform')) {
-            $builder->prependExtensionConfig('api_platform', ['mapping' => ['paths' => [$entityDir]]]);
+            $builder->prependExtensionConfig('api_platform', ['mapping' => ['paths' => [$entityDir, dirname(__DIR__).'/src/Api']]]);
         }
         // FolioRowSearch (the search page) runs on the 'folio_fts' adapter: SQLite FTS5 inside the
         // folio itself. Every app used to add this identical line to survos_search.yaml; an app

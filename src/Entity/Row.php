@@ -35,28 +35,34 @@ use Symfony\Component\Serializer\Attribute\Groups;
     normalizationContext: ['groups' => ['row:read']],
     operations: [
         new GetCollection(
-            uriTemplate: '/folios/{provider}/{dataset}/{coreCode}/rows',
-            uriVariables: [
-                'provider' => new Link(identifiers: ['provider']),
-                'dataset' => new Link(identifiers: ['dataset']),
-                'coreCode' => new Link(identifiers: ['coreCode']),
-            ],
-            provider: FolioRowProvider::class,
+            uriTemplate: '/{folioCode}/rows',
+            uriVariables: ['folioCode' => new Link(identifiers: ['folioCode'])],
+            requirements: ['folioCode' => \Survos\FolioBundle\Controller\FolioController::FOLIO_CODE_PATTERN],
+            provider: \Survos\FolioBundle\State\WallCardProvider::class,
+            output: \Survos\FolioBundle\Api\WallCard::class,
             name: self::API_ROWS,
-            itemUriTemplate: '/folios/{provider}/{dataset}/{coreCode}/rows/{localId}',
+            normalizationContext: ['json_encode_options' => JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE],
+        ),
+        // The browser grid has a separate representation; Unity never receives row:read.
+        new GetCollection(
+            uriTemplate: '/{folioCode}/rows/grid',
+            uriVariables: ['folioCode' => new Link(identifiers: ['folioCode'])],
+            requirements: ['folioCode' => \Survos\FolioBundle\Controller\FolioController::FOLIO_CODE_PATTERN],
+            provider: FolioRowProvider::class,
+            name: self::API_GRID_ROWS,
+            itemUriTemplate: '/{folioCode}/rows/{localId}',
             normalizationContext: ['groups' => ['row:read']],
         ),
         // The ITEM carries its pages; the collection above deliberately does not. This is what a
         // reader fetches when someone opens one interview, and it is the only place the audio URL
         // and transcript are available over HTTP -- see Row::$pages for why it is not in 'row:read'.
         new Get(
-            uriTemplate: '/folios/{provider}/{dataset}/{coreCode}/rows/{localId}',
+            uriTemplate: '/{folioCode}/rows/{localId}',
             uriVariables: [
-                'provider' => new Link(identifiers: ['provider']),
-                'dataset' => new Link(identifiers: ['dataset']),
-                'coreCode' => new Link(identifiers: ['coreCode']),
+                'folioCode' => new Link(identifiers: ['folioCode']),
                 'localId' => new Link(identifiers: ['localId']),
             ],
+            requirements: ['folioCode' => \Survos\FolioBundle\Controller\FolioController::FOLIO_CODE_PATTERN],
             provider: FolioRowProvider::class,
             normalizationContext: ['groups' => ['row:read', 'row:pages', 'page:read']],
         ),
@@ -68,6 +74,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 class Row implements RouteParametersInterface
 {
     public const API_ROWS = 'folio_rows';
+    public const API_GRID_ROWS = 'folio_grid_rows';
 
     #[ORM\Id]
     #[ORM\Column(length: 260, options: ['comment' => 'Composite: folioCode:coreCode:localId'])]
@@ -138,12 +145,6 @@ class Row implements RouteParametersInterface
     // routing (route params collapsed to one {folioCode} segment; see class docblock).
     public function getFolioCode(): string { return explode(':', $this->core->id, 2)[0]; }
     public function getCoreCode(): string  { return explode(':', $this->core->id, 2)[1]; }
-
-    // Kept ONLY for the #[ApiResource] Link(identifiers: ['provider'/'dataset']) above -- that
-    // API is its own separate, not-yet-done migration to a single folioCode segment (see
-    // PhotoGrid's docblock), so IriConverter still needs these two split out by name.
-    public function getProvider(): string { return explode('/', $this->getFolioCode(), 2)[0]; }
-    public function getDataset(): string  { return explode('/', $this->getFolioCode(), 2)[1]; }
 
     #[Groups(['row:read'])]
     public function getCitationUrl(): ?string

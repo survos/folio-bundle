@@ -23,11 +23,8 @@ use Symfony\UX\TwigComponent\Attribute\ExposeInTemplate;
  * filters are hand-wired there, not automatic via #[ApiFilter]):
  *   <twig:folio:photo-grid provider="mus" dataset="cazma" coreCode="obj" :filters="{cfrom: '2025-12-07'}" />
  *
- * The route this targets (Row::API_ROWS = 'folio_rows') is still 2-segment
- * ({provider}/{dataset}/{coreCode}) — folio-bundle is mid-migration toward a single
- * unique dataset/slug segment (survos-sites/scanseum#12/#18), but that hasn't reached
- * Row's #[ApiResource] operations yet. This component targets what's live today;
- * update it alongside that migration when it does.
+ * The grid uses the folio-only /{folioCode}/rows/grid representation; /rows is the
+ * lean WallCard collection for external clients. Core is a query parameter.
  *
  * First page is rendered server-side (getItems(), via $httpClient — optional, nullable
  * so the component degrades to an empty shell without symfony/http-client configured
@@ -104,10 +101,9 @@ final class PhotoGrid
         $this->filters = $filters;
         $this->itemsPerPage = $itemsPerPage;
         $this->homeCountryCode = $homeCountryCode;
-        $this->endpoint = $endpoint ?? $this->urlGenerator->generate(Row::API_ROWS, [
-            'provider' => $provider,
-            'dataset' => $dataset,
-            'coreCode' => $coreCode,
+        $this->endpoint = $endpoint ?? $this->urlGenerator->generate(Row::API_GRID_ROWS, [
+            'folioCode' => $provider.'/'.$dataset,
+            'core' => $coreCode,
         ], UrlGeneratorInterface::ABSOLUTE_URL);
         $this->rowUrlTemplate = $rowUrlTemplate ?? '';
     }
