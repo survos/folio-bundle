@@ -228,14 +228,18 @@ export default class extends Controller {
         this.loading = true;
         this.loaderTarget.classList.add('is-loading');
 
-        const params = new URLSearchParams({
+        const url = new URL(this.endpointValue, window.location.href);
+        const params = {
             ...this.filtersValue,
             page: this.pageValue,
             itemsPerPage: this.itemsPerPageValue,
-        });
+        };
+        for (const [key, value] of Object.entries(params)) {
+            url.searchParams.set(key, value);
+        }
 
         try {
-            const response = await fetch(`${this.endpointValue}?${params}`, {
+            const response = await fetch(url.toString(), {
                 headers: { Accept: 'application/ld+json' },
             });
             const data = await response.json();
