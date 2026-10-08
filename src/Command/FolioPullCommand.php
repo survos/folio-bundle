@@ -112,10 +112,10 @@ final class FolioPullCommand
         $pulled = 0;
         $skipped = 0;
         foreach ($remotes as $remote) {
-            $code = $remote['code'];
-            $io->section($code);
+            [$code, $locale] = self::splitLocale($remote['code']);
+            $io->section($remote['code']);
 
-            $target = $this->folios->path($code);
+            $target = $this->folios->path($code, locale: $locale);
             if (is_file($target) && !$force && $this->isCurrent($target, $remote)) {
                 $io->text('Current, skipping');
                 $skipped++;
@@ -127,7 +127,7 @@ final class FolioPullCommand
                 continue;
             }
 
-            $result = $this->archiveService->restore($downloadedFile, $code, true);
+            $result = $this->archiveService->restore($downloadedFile, $code, true, locale: $locale);
             $inflated = $this->archiveService->inflate($result['target']);
             $this->writeSyncMetadata($result['target'], $repo, $remote);
 
@@ -138,7 +138,7 @@ final class FolioPullCommand
                 $inflated['views'],
                 $inflated['ftsRows'],
             ));
-            $this->registerRestoredFolio($code, $result['target']);
+            $this->registerRestoredFolio($code, $result['target'], $locale);
             $pulled++;
         }
 
@@ -327,10 +327,11 @@ final class FolioPullCommand
 
         $pulled = 0;
         $skipped = 0;
-        foreach ($codes as $code) {
-            $io->section($code);
+        foreach ($codes as $stem) {
+            [$code, $locale] = self::splitLocale($stem);
+            $io->section($stem);
 
-            $target = $this->folios->path($code);
+            $target = $this->folios->path($code, locale: $locale);
             if (is_file($target) && ($this->localPassthrough || !$force)) {
                 $io->text($this->localPassthrough
                     ? 'Local copy found (local_passthrough), skipping fetch'
@@ -339,13 +340,13 @@ final class FolioPullCommand
                 continue;
             }
 
-            $remotePath = $code . '.folio.gz';
+            $remotePath = $stem . '.folio.gz';
             if (!$this->archiveStorage->fileExists($remotePath)) {
                 $io->warning(sprintf('Not in archive: %s', $remotePath));
                 continue;
             }
 
-            $localGz = $tmpDir . '/' . str_replace('/', '_', $code) . '.folio.gz';
+            $localGz = $tmpDir . '/' . str_replace('/', '_', $stem) . '.folio.gz';
             $stream = $this->archiveStorage->readStream($remotePath);
             $out = fopen($localGz, 'wb');
             stream_copy_to_stream($stream, $out);
@@ -356,14 +357,14 @@ final class FolioPullCommand
             $io->text(sprintf('Downloaded: %s (%s)', $remotePath, Bytes::parse(filesize($localGz) ?: 0)->humanize()));
 
             // restore() gunzips → working folio AND inflates (indexes + FTS + views).
-            $result = $this->archiveService->restore($localGz, $code, $force);
+            $result = $this->archiveService->restore($localGz, $code, $force, locale: $locale);
             $io->text(sprintf(
                 'Inflated: %s (%s, %s FTS rows)',
                 $result['target'],
                 Bytes::parse($result['targetBytes'])->humanize(),
                 number_format($result['indexedRows']),
             ));
-            $this->registerRestoredFolio($code, $result['target']);
+            $this->registerRestoredFolio($code, $result['target'], $locale);
             $pulled++;
         }
 
@@ -372,7 +373,26 @@ final class FolioPullCommand
         return Command::SUCCESS;
     }
 
-    /** @return list<string> folio codes (provider/code) available in the archive storage */
+    /**
+     * "mus/jarc" -> ["mus/jarc", null]; "mus/jarc.en" -> ["mus/jarc", "en"].
+     *
+     * Archive stems carry a translated variant's locale as a dot suffix (mus/jarc.en.folio.gz).
+     * Dataset codes are dot-free, as ScanDatasetsCommand::parseFolioFilename() also assumes.
+     *
+     * @return array{0: string, 1: ?string}
+     */
+    public static function splitLocale(string $stem): array
+    {
+        $slash = strrpos($stem, '/');
+        $dot = strrpos($stem, '.');
+        if ($dot === false || ($slash !== false && $dot < $slash) || $dot === strlen($stem) - 1) {
+            return [$stem, null];
+        }
+
+        return [substr($stem, 0, $dot), substr($stem, $dot + 1)];
+    }
+
+    /** @return list<string> archive stems (provider/code or provider/code.locale) in the archive storage */
     private function resolveStorageCodes(?string $dataset, ?string $provider, bool $all): array
     {
         if ($dataset !== null && $dataset !== '') {
