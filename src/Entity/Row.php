@@ -217,6 +217,44 @@ class Row implements RouteParametersInterface
         return $this->resolvedThumbnailUrl ?? $this->getThumbnailSource();
     }
 
+    /**
+     * ThumbHash (base64) of the first page: a blurred preview the grid paints while the
+     * thumbnail loads (PhotoGrid, assets/thumbhash.js). Null until the folio is rebuilt with
+     * /info data.
+     */
+    #[Groups(['row:read'])]
+    public function getThumbHash(): ?string
+    {
+        $page = $this->pages->first();
+
+        return $page instanceof Page ? $page->thumbHash : null;
+    }
+
+    /**
+     * Pixel size of the first page, so the grid can give a lazy <img> width/height attributes:
+     * browsers reserve the exact space from them and the masonry columns don't jump on load.
+     *
+     * @return array{width: int, height: int}|null
+     */
+    #[Groups(['row:read'])]
+    public function getThumbSize(): ?array
+    {
+        $page = $this->pages->first();
+
+        return $page instanceof Page && $page->width > 0 && $page->height > 0
+            ? ['width' => $page->width, 'height' => $page->height]
+            : null;
+    }
+
+    /** Average colour "#rrggbb" of the first page: the placeholder when there is no ThumbHash. */
+    #[Groups(['row:read'])]
+    public function getThumbColor(): ?string
+    {
+        $page = $this->pages->first();
+
+        return $page instanceof Page ? $page->color : null;
+    }
+
     public function setResolvedThumbnailUrl(?string $resolvedThumbnailUrl): void
     {
         $this->resolvedThumbnailUrl = $resolvedThumbnailUrl;

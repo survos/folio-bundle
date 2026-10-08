@@ -1,5 +1,6 @@
 import { Controller } from '@hotwired/stimulus';
 import { path } from '@survos/js-twig/routing';
+import { paintPlaceholder } from '../thumbhash.js';
 
 /*
  * Infinite-scroll photo grid. The server renders page 1 (see PhotoGrid.php's
@@ -59,6 +60,8 @@ export default class extends Controller {
 
         this._layoutColumns();
         this._registerExistingYears();
+        // Page 1 is server-rendered: paint its placeholders (appendItem() does the rest).
+        this.gridTarget.querySelectorAll('img[data-thumbhash], img[data-color]').forEach(paintPlaceholder);
 
         this._resizeObserver = new ResizeObserver(() => this._onResize());
         this._resizeObserver.observe(this.gridTarget);
@@ -317,6 +320,14 @@ export default class extends Controller {
             img.alt = item.label || '';
             img.loading = 'lazy';
             img.decoding = 'async';
+            // Exact proportions reserve the tile's space before the image loads.
+            if (item.thumbSize) {
+                img.width = item.thumbSize.width;
+                img.height = item.thumbSize.height;
+            }
+            if (item.thumbHash) img.dataset.thumbhash = item.thumbHash;
+            if (item.thumbColor) img.dataset.color = item.thumbColor;
+            paintPlaceholder(img);
             a.appendChild(img);
         } else {
             // Mirrors the server-rendered branch in PhotoGrid.html.twig: no renderable image,

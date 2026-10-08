@@ -95,7 +95,12 @@
                     {% set itemAlt = [place, year]|filter(v => v is not empty)|join(', ') ?: item.label %}
                 {% endif %}
                 {% if item.thumbnailUrl|default(null) %}
-                    <img src="{{ item.thumbnailUrl }}" alt="{{ itemAlt|u.truncate(200, '…', false) }}" loading="lazy" decoding="async">
+                    {# data-thumbhash/data-color: the controller paints a blurred placeholder (and the
+                       hash's aspect ratio) behind the lazy image until it loads. #}
+                    <img src="{{ item.thumbnailUrl }}" alt="{{ itemAlt|u.truncate(200, '…', false) }}" loading="lazy" decoding="async"
+                         {% if item.thumbSize|default(null) %}width="{{ item.thumbSize.width }}" height="{{ item.thumbSize.height }}"{% endif %}
+                         {% if item.thumbHash|default(null) %}data-thumbhash="{{ item.thumbHash }}"{% endif %}
+                         {% if item.thumbColor|default(null) %}data-color="{{ item.thumbColor }}"{% endif %}>
                 {% else %}
                     {# No renderable image: either the record genuinely has none, or what was
                        harvested is a viewer config/landing page/PDF that imgproxy cannot
