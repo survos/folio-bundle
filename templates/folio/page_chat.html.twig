@@ -5,7 +5,7 @@
 {% set dataset = parts[1] %}
 {% set title = attribute(row.dtoData, 'title')|default(row.label ?: row.localId) %}
 {% set description = attribute(row.dtoData, 'description')|default(attribute(row.extras, 'dcterms:description')|default(null)) %}
-{% set chatController = 'survos--folio-bundle--chat' %}
+{% set chatController = survos_stimulus('folio-bundle', 'chat') %}
 
 {% block title %}Ask the Scholar · page {{ page.seq }} · {{ title }}{% endblock %}
 
@@ -133,14 +133,14 @@
                                         <div style="white-space: pre-wrap; word-break: break-word;">{{ turn.question }}</div>
                                     </div>
 
-                                    <div data-folio-chat-copy-root data-controller="{{ chatController }}">
+                                    <div data-folio-chat-copy-root {{ stimulus_controller(chatController) }}>
                                         <div class="folio-scholar-bubble folio-scholar-bubble-assistant p-3">
                                             <div class="d-flex gap-2 align-items-center mb-2 text-primary">
                                                 {{ ux_icon('tabler:message-chatbot', {class: 'icon'}) }}
                                                 <strong>Scholar</strong>
                                             </div>
-                                            <template data-folio-chat-copy-source data-{{ chatController }}-target="source">{{ turn.answer }}</template>
-                                            <div class="prose" data-folio-chat-copy-content data-{{ chatController }}-target="content">{{ turn.answer|markdown_to_html }}</div>
+                                            <template data-folio-chat-copy-source {{ stimulus_target(chatController, 'source') }}>{{ turn.answer }}</template>
+                                            <div class="prose" data-folio-chat-copy-content {{ stimulus_target(chatController, 'content') }}>{{ turn.answer|markdown_to_html }}</div>
                                             {% if app.debug and turn.error|default(null) %}
                                                 <div class="alert alert-warning mt-3 mb-0">
                                                     <div class="fw-semibold mb-1">Scholar diagnostic</div>
@@ -156,7 +156,7 @@
                                                 aria-label="Copy Response"
                                                 data-folio-chat-copy-button
                                                 data-copied-content="{{ ux_icon('tabler:check', {class: 'icon'})|e('html_attr') }}"
-                                                data-{{ chatController }}-target="button"
+                                                {{ stimulus_target(chatController, 'button') }}
                                             >
                                                 {{ ux_icon('tabler:copy', {class: 'icon'}) }}
                                             </button>
@@ -464,16 +464,16 @@
                         <div class="small opacity-75 mb-1">You</div>
                         <div style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(question)}</div>
                     </div>
-                    <div data-folio-chat-copy-root data-controller="{{ chatController }}" data-folio-chat-pending>
+                    <div data-folio-chat-copy-root {{ stimulus_controller(chatController) }} data-folio-chat-pending>
                         <div class="folio-scholar-bubble folio-scholar-bubble-assistant p-3">
                             <div class="d-flex gap-2 align-items-center mb-2 text-primary">
                                 <strong>Scholar</strong>
                             </div>
-                            <template data-folio-chat-copy-source data-{{ chatController }}-target="source"></template>
+                            <template data-folio-chat-copy-source {{ stimulus_target(chatController, 'source') }}></template>
                             <div class="folio-scholar-loading text-muted" data-folio-chat-loading>
                                 Thinking<span>.</span><span>.</span><span>.</span>
                             </div>
-                            <div class="prose" data-folio-chat-copy-content data-folio-chat-pending-answer data-{{ chatController }}-target="content"></div>
+                            <div class="prose" data-folio-chat-copy-content data-folio-chat-pending-answer {{ stimulus_target(chatController, 'content') }}></div>
                         </div>
                         <div class="mt-1 d-none" data-folio-chat-actions>
                             <button
@@ -483,7 +483,7 @@
                                 aria-label="Copy Response"
                                 data-folio-chat-copy-button
                                 data-copied-content="{{ ux_icon('tabler:check', {class: 'icon'})|e('html_attr') }}"
-                                data-{{ chatController }}-target="button"
+                                {{ stimulus_target(chatController, 'button') }}
                             >
                                 {{ ux_icon('tabler:copy', {class: 'icon'}) }}
                             </button>

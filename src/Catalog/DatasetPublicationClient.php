@@ -1,0 +1,97 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Survos\FolioBundle\Catalog;
+
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Symfony\Contracts\HttpClient\ResponseInterface;
+
+/** Dataset API transport shared by catalog discovery, pull and incremental synchronization. */
+final readonly class DatasetPublicationClient
+{
+    public function __construct(private HttpClientInterface $http, private string $server, private string $token) {}
+
+    public function source(): string { return rtrim($this->server, '/'); }
+
+    public function get(string $path, array $query = []): array { return $this->request($path, $query)->toArray(); }
+
+    private function request(string $path, array $query = []): ResponseInterface
+    {
+        if ($this->token === '' || !preg_match('#^https?://[^/]+#', $this->server)) {
+            throw new \LogicException('Configure the dataset API server and read token.');
+        }
+        return $this->http->request('GET', $this->source().$path, [
+            'auth_bearer' => $this->token, 'query' => $query, 'timeout' => 10, 'max_duration' => 30,
+            'headers' => ['Accept' => 'application/json'], 'max_redirects' => 0,
+        ]);
+    }
+
+    public function dataset(string $key): ?array
+    {
+        $response = $this->request('/api/datasets/'.implode('/', array_map(rawurlencode(...), explode('/', $key))));
+        return $response->getStatusCode() === 404 ? null : $response->toArray();
+    }
+
+    /** @return array<string, array> */
+    public function datasets(): array
+    {
+        $datasets = [];
+        $after = null;
+        do {
+            $page = $this->get('/api/datasets', $after === null ? [] : ['afterKey' => $after]);
+            foreach ($page[DatasetField::ITEMS] as $dataset) { $datasets[$dataset[DatasetField::DATASET_KEY]] = $dataset; }
+            $next = $page[DatasetField::NEXT];
+            if ($next !== null && $after !== null && strcmp($next, $after) <= 0) {
+                throw new \UnexpectedValueException('Dataset catalog pagination did not advance.');
+            }
+            $after = $next;
+        } while ($after !== null);
+        return $datasets;
+    }
+
+    /** Prepare catch-up without advancing a consumer checkpoint. The caller commits after work. */
+    public function changes(?array $saved, bool $full): array
+    {
+        if ($saved !== null && $saved[DatasetField::SOURCE] !== $this->source()) { $saved = null; }
+        $full = $full || $saved === null;
+        // Capture BEFORE scanning, then replay writes that raced with the scan.
+        $cursor = $full ? $this->get('/api/changes')[DatasetField::CURSOR] : $saved[DatasetField::CURSOR];
+        $datasets = $full ? $this->datasets() : $saved[DatasetField::ITEMS];
+        $through = null;
+        do {
+            $query = ['after' => $cursor];
+            if ($through !== null) { $query[DatasetField::THROUGH] = $through; }
+            $page = $this->get('/api/changes', $query);
+            foreach (array_unique(array_column($page[DatasetField::ITEMS], DatasetField::DATASET_KEY)) as $key) {
+                $dataset = $this->dataset($key);
+                if ($dataset === null) { unset($datasets[$key]); }
+                else { $datasets[$key] = $dataset; }
+            }
+            if ($page[DatasetField::HAS_MORE] && $page[DatasetField::CURSOR] === $cursor) {
+                throw new \UnexpectedValueException('Dataset feed pagination did not advance.');
+            }
+            $cursor = $page[DatasetField::CURSOR];
+            $through = $page[DatasetField::THROUGH];
+        } while ($page[DatasetField::HAS_MORE]);
+        return [DatasetField::VERSION => 1, DatasetField::SOURCE => $this->source(),
+            DatasetField::CURSOR => $cursor, DatasetField::ITEMS => $datasets];
+    }
+
+    public function downloadUrl(string $url): string
+    {
+        if (!str_starts_with($url, '/api/datasets/') || str_contains($url, '://')) {
+            throw new \UnexpectedValueException('Artifact URL is outside the configured dataset API.');
+        }
+        return $this->source().$url;
+    }
+
+    /** Credentials are only sent to validated same-origin dataset artifact URLs. */
+    public function downloadHeaders(string $url): array
+    {
+        if (!str_starts_with($url, $this->source().'/api/datasets/')) {
+            throw new \UnexpectedValueException('Artifact URL is outside the configured dataset API.');
+        }
+        return ['Authorization' => 'Bearer '.$this->token];
+    }
+}

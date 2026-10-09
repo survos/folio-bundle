@@ -823,7 +823,12 @@
                 </script>
             {% endif %}
 
+            {# Built from survos_stimulus() so a namespace rename fails loudly in dev instead of silently matching nothing. #}
+            {% set _iiifViewerId = survos_stimulus_exists('iiif-bundle', 'iiif-viewer')
+                ? survos_stimulus('iiif-bundle', 'iiif-viewer')|trim('@', 'left')|replace({'/': '--', '_': '-'})
+                : null %}
             <script>
+                var iiifViewerSelector = {{ (_iiifViewerId ? '[data-controller~="' ~ _iiifViewerId ~ '"]' : null)|json_encode|raw }};
                 function updateFolioAiLink(pageIndex) {
                     const link = document.getElementById('folio-ai-page-link');
 
@@ -907,9 +912,7 @@
                 }
 
                 function resizeFolioViewer() {
-                    const viewerEl = document.querySelector(
-                        '[data-controller="survos--iiif-bundle--iiif-viewer"]'
-                    );
+                    const viewerEl = (iiifViewerSelector ? document.querySelector(iiifViewerSelector) : null);
 
                     if (viewerEl && viewerEl.viewer && typeof viewerEl.viewer.forceRedraw === 'function') {
                         viewerEl.viewer.forceRedraw();
@@ -970,9 +973,7 @@
                 }
 
                 function initFolioDetailViewerControls() {
-                    const viewerEl = document.querySelector(
-                        '[data-controller="survos--iiif-bundle--iiif-viewer"]'
-                    );
+                    const viewerEl = (iiifViewerSelector ? document.querySelector(iiifViewerSelector) : null);
 
                     if (!viewerEl) {
                         return;

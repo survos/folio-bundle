@@ -9,6 +9,8 @@ use League\Flysystem\FilesystemOperator;
 use Psr\Log\LoggerInterface;
 use Survos\DatasetBundle\Entity\{Artifact,DatasetInfo,Provider};
 use Survos\FetchBundle\Service\ChunkDownloader;
+use Survos\FolioBundle\Catalog\FolioCatalogClient;
+use Survos\FolioBundle\Catalog\FolioCatalogEntry;
 use Survos\FolioBundle\Service\{FolioArchiveService,FolioService,FolioSummaryService};
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -44,6 +46,7 @@ final class FolioPullCommand
         #[Autowire('%survos_folio.local_passthrough%')]
         private readonly bool $localPassthrough = false,
         private readonly ?LoggerInterface $logger = null,
+        private readonly ?FolioCatalogClient $catalog = null,
     ) {}
 
     #[AsCommand('folio:pull', 'Download folio archives from the folio_archive storage (or Hugging Face) and inflate')]
@@ -74,6 +77,20 @@ final class FolioPullCommand
         #[Option('Hugging Face dataset repo (with --hf)')]
         string $repo = 'museado/folios',
     ): int {
+        if (!$hf && !$storage && $api === null && $this->catalog?->usesDatasetApi()) {
+            $entries = $this->catalog->refresh();
+            if (!$all && $dataset === null && $provider === null) {
+                $io->listing(array_map(static fn (FolioCatalogEntry $entry): string => $entry->datasetKey, $entries));
+                return Command::SUCCESS;
+            }
+            $matched = false;
+            foreach ($entries as $entry) {
+                if (($dataset !== null && $entry->datasetKey !== $dataset) || ($provider !== null && $entry->provider !== $provider) || $entry->locale !== null) { continue; }
+                $matched = true;
+                if ($this->pullEntry($io, $entry, $force) !== Command::SUCCESS) { return Command::FAILURE; }
+            }
+            return $matched ? Command::SUCCESS : Command::FAILURE;
+        }
         if (!$hf) {
             // Default to the folio API (folio_server) unless --api overrides it; storage is the
             // fallback. --storage skips the API outright, for a machine whose FOLIO_SERVER points
@@ -152,7 +169,7 @@ final class FolioPullCommand
      * Pull over plain HTTP from a folio API (e.g. zm's read-only `/folio/list.json` + download routes).
      * No SSH/credentials — just GET the JSON registry, download each `.folio.gz`, restore() + inflate().
      */
-    private function pullFromApi(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all, bool $force): int
+    private function pullFromApi(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all, bool $force, ?array $entries = null, array $headers = []): int
     {
         if ($this->http === null) {
             $io->error('No HTTP client available (require symfony/http-client).');
@@ -165,7 +182,7 @@ final class FolioPullCommand
             return $this->showApiList($io, $baseUrl);
         }
 
-        $entries = $this->resolveApiEntries($io, $baseUrl, $dataset, $provider, $all);
+        $entries ??= $this->resolveApiEntries($io, $baseUrl, $dataset, $provider, $all);
         if ($entries === []) {
             $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
             return Command::SUCCESS;
@@ -205,7 +222,7 @@ final class FolioPullCommand
 
             $localGz = $tmpDir . '/' . str_replace('/', '_', $display) . '.folio.gz';
             $this->logger?->info('folio:pull downloading folio', ['code' => $display, 'url' => $downloadUrl]);
-            $bytes = $this->downloader->download($downloadUrl, $localGz, null, ['overwrite' => true, 'timeout' => 120.0]);
+            $bytes = $this->downloader->download($downloadUrl, $localGz, null, ['overwrite' => true, 'timeout' => 120.0, 'headers' => $headers]);
             $io->text(sprintf('Downloaded: %s (%s)', $downloadUrl, Bytes::parse($bytes)->humanize()));
 
             // restore() gunzips → working folio AND inflates (indexes + FTS + views).
@@ -223,6 +240,20 @@ final class FolioPullCommand
         $this->rmdir($tmpDir);
         $io->success(sprintf('Pulled %d folio(s) from API, skipped %d existing', $pulled, $skipped));
         return Command::SUCCESS;
+    }
+
+    /** The shared entry point for dataset-feed consumers; all file handling stays here. */
+    public function pullEntry(SymfonyStyle $io, FolioCatalogEntry $entry, bool $force = false): int
+    {
+        if ($this->folios->exists($entry->datasetKey, $entry->locale) && ($this->localPassthrough || !$force)) {
+            return Command::SUCCESS;
+        }
+        if ($entry->downloadUrl === null || !$entry->compressed) {
+            $io->error($entry->datasetKey.': no published archive is available.');
+            return Command::FAILURE;
+        }
+        return $this->pullFromApi($io, $this->catalog?->url() ?? $entry->downloadUrl, $entry->datasetKey, null, false, $force,
+            entries: [get_object_vars($entry)], headers: $this->catalog?->downloadHeaders($entry->downloadUrl) ?? []);
     }
 
     /**

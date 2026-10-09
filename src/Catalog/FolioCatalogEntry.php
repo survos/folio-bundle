@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Catalog;
 
+use Survos\DataContracts\Metadata\PropertyKey;
+use Survos\DataContracts\Vocabulary\ItemField;
+
 /**
  * One published folio as the hub describes it.
  *
@@ -36,6 +39,7 @@ final readonly class FolioCatalogEntry
         public ?string $updatedAt = null,
         public ?string $downloadUrl = null,
         public bool $compressed = false,
+        public ?string $revision = null,
     ) {
     }
 
@@ -71,7 +75,40 @@ final readonly class FolioCatalogEntry
             updatedAt: self::str($row, 'updatedAt'),
             downloadUrl: self::str($row, 'downloadUrl'),
             compressed: (bool) ($row['compressed'] ?? false),
+            revision: self::str($row, DatasetField::REVISION),
         );
+    }
+
+    /** Convert the dataset/artifact relationship once, for every folio consumer. */
+    public static function fromDataset(array $dataset, DatasetPublicationClient $client): array
+    {
+        $variants = [];
+        foreach ($dataset[DatasetField::ARTIFACTS] as $artifact) {
+            if (!in_array($artifact[ItemField::TYPE], [DatasetField::FOLIO_TYPE, DatasetField::FOLIO_ARCHIVE_TYPE], true)) { continue; }
+            $code = $artifact[DatasetField::CODE];
+            // The downloadable archive is the consumer revision; a local-only folio remains
+            // discoverable on shared-volume readers before compression has been requested.
+            if (!isset($variants[$code]) || $artifact[ItemField::TYPE] === DatasetField::FOLIO_ARCHIVE_TYPE) {
+                $variants[$code] = $artifact;
+            }
+        }
+        $entries = [];
+        foreach ($variants as $code => $artifact) {
+            $url = $artifact[DatasetField::DOWNLOAD_URL];
+            $entries[] = new self(
+                datasetKey: $dataset[DatasetField::DATASET_KEY], provider: $dataset[DatasetField::PROVIDER],
+                code: explode('/', $dataset[DatasetField::DATASET_KEY], 2)[1],
+                title: $dataset[PropertyKey::LABEL] ?? $dataset[DatasetField::DATASET_KEY],
+                description: $dataset[ItemField::DESCRIPTION],
+                locale: $code === DatasetField::DEFAULT_CODE ? null : $code,
+                tags: $dataset[PropertyKey::TAGS], contentType: $dataset[PropertyKey::CONTENT_TYPE],
+                rowCount: $dataset[PropertyKey::ROW_COUNT], sizeBytes: $artifact[DatasetField::SIZE_BYTES],
+                checksum: $artifact[DatasetField::CHECKSUM], updatedAt: $artifact[DatasetField::UPDATED_AT],
+                downloadUrl: $url === null ? null : $client->downloadUrl($url),
+                compressed: $artifact[DatasetField::COMPRESSED], revision: $artifact[DatasetField::REVISION],
+            );
+        }
+        return $entries;
     }
 
     public function hasTag(string $tag): bool

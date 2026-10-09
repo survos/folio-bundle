@@ -31,7 +31,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * now also carries tags. When that becomes a proper API Platform resource — self-documenting,
  * paginated, filterable — this class changes and its callers do not.
  */
-final class FolioCatalogClient
+final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterface
 {
     /** @var list<FolioCatalogEntry>|null */
     private ?array $entries = null;
@@ -40,6 +40,13 @@ final class FolioCatalogClient
 
     private ?int $fetchedAt = null;
 
+    public function reset(): void
+    {
+        $this->entries = null;
+        $this->stale = false;
+        $this->fetchedAt = null;
+    }
+
     public function __construct(
         private readonly HttpClientInterface $http,
         private readonly string $server,
@@ -47,12 +54,13 @@ final class FolioCatalogClient
         private readonly int $ttl = 300,
         private readonly ?LoggerInterface $logger = null,
         private readonly ?Filesystem $filesystem = null,
+        private readonly ?DatasetPublicationClient $datasets = null,
     ) {
     }
 
     public function url(): string
     {
-        return rtrim($this->server, '/') . '/folio/list.json';
+        return $this->datasets !== null ? $this->datasets->source().'/api/datasets' : rtrim($this->server, '/') . '/folio/list.json';
     }
 
     /** Whether the entries currently held came from cache because the hub could not be reached. */
@@ -87,7 +95,9 @@ final class FolioCatalogClient
 
         if (!$fresh) {
             try {
-                $payload = $this->http->request('GET', $this->url(), [
+                $payload = $this->datasets !== null
+                    ? [DatasetField::FOLIOS => $this->datasetRows($this->datasets->datasets())]
+                    : $this->http->request('GET', $this->url(), [
                     // A catalog read sits in front of a page render; a hung hub must not hang the
                     // site when a cached answer is right there.
                     'timeout' => 5,
@@ -120,12 +130,78 @@ final class FolioCatalogClient
     public function find(string $datasetKey): ?FolioCatalogEntry
     {
         foreach ($this->all() as $entry) {
-            if ($entry->datasetKey === $datasetKey) {
+            if ($entry->datasetKey === $datasetKey && $entry->locale === null) {
                 return $entry;
             }
         }
 
         return null;
+    }
+
+    public function usesDatasetApi(): bool { return $this->datasets !== null; }
+
+    public function source(): string { return $this->datasets?->source() ?? rtrim($this->server, '/'); }
+
+    public function downloadHeaders(string $url): array
+    {
+        return $this->datasets?->downloadHeaders($url) ?? [];
+    }
+
+    /** Strict full refresh: an outage is a failure, never a successful empty synchronization. */
+    public function refresh(): array
+    {
+        $this->entries = null;
+        $this->stale = false;
+        if ($this->datasets === null) {
+            $payload = $this->http->request('GET', $this->url())->toArray();
+            $rows = self::rows($payload);
+        } else {
+            $rows = $this->datasetRows($this->datasets->datasets());
+        }
+        $this->publishRows($rows);
+        return $this->entries;
+    }
+
+    /** Make the candidate catalog visible to the caller, but return a checkpoint only on success. */
+    public function synchronize(?array $checkpoint, bool $full, callable $apply): array
+    {
+        if ($this->datasets === null) { throw new \LogicException('Incremental sync requires dataset_api configuration.'); }
+        $prepared = $this->datasets->changes($checkpoint, $full);
+        $previous = $this->entries;
+        $previousFetchedAt = $this->fetchedAt;
+        $previousStale = $this->stale;
+        $rows = $this->datasetRows($prepared[DatasetField::ITEMS]);
+        $this->entries = array_map(FolioCatalogEntry::fromArray(...), $rows);
+        $this->fetchedAt = time();
+        $this->stale = false;
+        try {
+            $apply($this->entries);
+            $prepared[DatasetField::LAST_SUCCESSFUL_SYNC_AT] = (new \DateTimeImmutable())->format(DATE_ATOM);
+            $this->publishRows($rows);
+            return $prepared;
+        } catch (\Throwable $error) {
+            $this->entries = $previous;
+            $this->fetchedAt = $previousFetchedAt;
+            $this->stale = $previousStale;
+            throw $error;
+        }
+    }
+
+    private function datasetRows(array $datasets): array
+    {
+        $rows = [];
+        foreach ($datasets as $dataset) {
+            foreach (FolioCatalogEntry::fromDataset($dataset, $this->datasets) as $entry) { $rows[] = get_object_vars($entry); }
+        }
+        return $rows;
+    }
+
+    private function publishRows(array $rows): void
+    {
+        $this->entries = array_map(FolioCatalogEntry::fromArray(...), $rows);
+        $this->fetchedAt = time();
+        $this->stale = false;
+        $this->writeCache([DatasetField::SOURCE => $this->url(), DatasetField::FETCHED_AT => $this->fetchedAt, DatasetField::FOLIOS => $rows]);
     }
 
     /**

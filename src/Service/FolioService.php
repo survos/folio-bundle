@@ -152,6 +152,11 @@ final class FolioService
             ?? $this->dataPaths->folioFile($folioCode, $this->localizedExtension($locale), $createDirectory);
     }
 
+    public function exists(string $folioCode, ?string $locale = null): bool
+    {
+        return is_readable($this->path($folioCode, locale: $locale));
+    }
+
     public function rootPath(): string
     {
         return $this->dataPaths->folioRootDir;

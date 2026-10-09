@@ -6,6 +6,7 @@ namespace Survos\FolioBundle;
 
 use Survos\DataContracts\Path\DataPaths;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
+use Survos\FolioBundle\Catalog\DatasetPublicationClient;
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
 use Survos\BookmarkBundle\Service\BookmarkManager;
@@ -62,6 +63,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->defaultValue(300)
                 ->info('Seconds a fetched hub catalog stays fresh before FolioCatalogClient refetches. The cached copy is also the outage fallback, so this is a refresh interval, not an expiry.')
             ->end()
+            ->arrayNode('dataset_api')->canBeEnabled()->children()
+                ->scalarNode('server')->defaultNull()->end()
+                ->scalarNode('token')->defaultValue('')->end()
+            ->end()->end()
             ->scalarNode('data_dir')
                 ->defaultValue('%env(APP_DATA_DIR)%')
                 ->info('Root of the data tree folio paths resolve under, same value and default as survos_dataset.data_dir. Only used when dataset-bundle is absent: when it is installed IT registers DataPaths, from its own (richer) path config, and this is ignored.')
@@ -263,6 +268,11 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // The one hub-catalog reader (src/Catalog). Registered unconditionally: it is HTTP only,
         // needs no registry, and replacing each app's own copy is the point of it existing.
         // folio_server is where a reader already points for folio:pull, so the catalog follows it.
+        if ($config['dataset_api']['enabled']) {
+            $services->set(DatasetPublicationClient::class)->autowire()->autoconfigure()->args([
+                '$server' => $config['dataset_api']['server'], '$token' => $config['dataset_api']['token'],
+            ]);
+        }
         $services->set(FolioCatalogClient::class)
             ->autowire()
             ->autoconfigure()
@@ -271,6 +281,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 '$server' => $config['folio_server'] ?? '',
                 '$cacheFile' => '%kernel.project_dir%/var/catalog/folio-catalog.json',
                 '$ttl' => $config['catalog_ttl'],
+                '$datasets' => $config['dataset_api']['enabled'] ? service(DatasetPublicationClient::class) : null,
             ]);
 
         foreach ([FolioRepository::class, CoreRepository::class, RowRepository::class, TermSetRepository::class, TermRepository::class, LinkTypeRepository::class, LinkRepository::class, StrRepository::class, StrTranslationRepository::class] as $class) {
