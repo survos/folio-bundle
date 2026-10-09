@@ -1,7 +1,7 @@
 {% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
 {% set folioLabel = folio.label ?: folio.code %}
-{% set chatController = 'survos--folio-bundle--chat' %}
+{% set chatController = survos_stimulus('folio-bundle', 'chat') %}
 
 {% block body_class %}folio-layout folio-chat-page{% endblock %}
 {% block title %}Chat: {{ ctx.folioCode }}{% endblock %}
@@ -136,7 +136,7 @@
             {% endif %}
 
             {% if result %}
-                <div class="card mb-3" data-controller="{{ chatController }}">
+                <div class="card mb-3" {{ stimulus_controller(chatController) }}>
                     <div class="card-header">
                         <div>
                             <h2 class="card-title mb-0">
@@ -148,8 +148,8 @@
 
                     <div class="card-body">
                         <div data-folio-chat-copy-root>
-                            <template data-folio-chat-copy-source data-{{ chatController }}-target="source">{{ result.answer }}</template>
-                            <div class="markdown folio-answer fs-5" data-folio-chat-copy-content data-{{ chatController }}-target="content">
+                            <template data-folio-chat-copy-source {{ stimulus_target(chatController, 'source') }}>{{ result.answer }}</template>
+                            <div class="markdown folio-answer fs-5" data-folio-chat-copy-content {{ stimulus_target(chatController, 'content') }}>
                                 {{ result.answer|markdown_to_html }}
                             </div>
                             <div class="mt-2">
@@ -160,7 +160,7 @@
                                     aria-label="Copy Response"
                                     data-folio-chat-copy-button
                                     data-copied-content="{{ ux_icon('tabler:check', { class: 'icon' })|e('html_attr') }}"
-                                    data-{{ chatController }}-target="button"
+                                    {{ stimulus_target(chatController, 'button') }}
                                 >
                                     {{ ux_icon('tabler:copy', { class: 'icon' }) }}
                                 </button>
