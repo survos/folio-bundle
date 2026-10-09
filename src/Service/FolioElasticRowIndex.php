@@ -8,7 +8,7 @@ use Psr\Log\LoggerInterface;
 use Survos\FolioBundle\Entity\Folio;
 
 /**
- * Text search for folios that have no FTS index, in one Elasticsearch index shared by every folio.
+ * Shared text projection of all Folio cores, produced by Harvest after publication.
  *
  * A dataset that declares `extras.search: {backend: elasticsearch, allowFtsSkip: true}` is built
  * without `item_fts` (docs/search-policy.md). Its rows are indexed here instead, with the same
@@ -18,8 +18,8 @@ use Survos\FolioBundle\Entity\Folio;
  *
  * One index for all folios, filtered by folioCode, and not per-app prefixed: folios are shared
  * files that harvest builds and zm, Ink and fotostory read, so their index is shared the same way.
- * Documents are keyed by the row's composite id (folioCode:core:localId), which survives rebuilds;
- * rowids do not.
+ * Documents are keyed by artifact scope plus internal row ID, so translated artifacts cannot
+ * overwrite their source. rowId is retained to resolve hits through the Folio API.
  */
 final class FolioElasticRowIndex
 {
@@ -62,10 +62,28 @@ final class FolioElasticRowIndex
      */
     public function index(string $folioCode, ?callable $progress = null): array
     {
+        // All producers on this host share the lock, including explicit CLI reindexes.
+        // Deploy one writer host (Harvest); multiple hosts need a distributed lock.
+        $lock = fopen(sys_get_temp_dir().'/folio-es-'.hash('sha256', $this->index.':'.$folioCode).'.lock', 'c');
+        if ($lock === false) { throw new \RuntimeException('Cannot open Folio index lock.'); }
+        if (!flock($lock, LOCK_EX | LOCK_NB)) {
+            fclose($lock);
+            throw new \RuntimeException('Another index run is active for '.$folioCode);
+        }
+        try {
+            return $this->indexLocked($folioCode, $progress);
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    private function indexLocked(string $folioCode, ?callable $progress): array
+    {
         $this->ensureIndex();
         $pdo = $this->open($this->folios->path($folioCode));
         $properties = $this->fts->searchableProperties($pdo);
-        $stamp = (string) (int) (microtime(true) * 1000);
+        $stamp = bin2hex(random_bytes(16));
 
         $select = $pdo->query('SELECT id, local_id, label, dto_type, dto_data, extras, core_id FROM item ORDER BY rowid');
         if (!$select instanceof \PDOStatement) {
@@ -76,9 +94,10 @@ final class FolioElasticRowIndex
         $buffer = [];
         while ($row = $select->fetch(\PDO::FETCH_ASSOC)) {
             $body = $this->fts->searchBody($row, $properties);
-            $buffer[] = json_encode(['index' => ['_index' => $this->index, '_id' => $row['id']]], JSON_THROW_ON_ERROR);
+            $buffer[] = json_encode(['index' => ['_index' => $this->index, '_id' => hash('sha256', json_encode([$folioCode, $row['id']], JSON_THROW_ON_ERROR))]], JSON_THROW_ON_ERROR);
             $buffer[] = json_encode([
                 'folioCode' => $folioCode,
+                'rowId' => $row['id'],
                 'coreCode' => substr((string) $row['core_id'], strrpos((string) $row['core_id'], ':') + 1),
                 'label' => $row['label'],
                 'body' => $body,
@@ -144,7 +163,7 @@ final class FolioElasticRowIndex
         try {
             $response = $this->elastic->request('POST', $this->index.'/_search', [
                 'size' => $this->matchLimit,
-                '_source' => false,
+                '_source' => ['rowId'],
                 'track_total_hits' => false,
                 'query' => ['bool' => [
                     'filter' => $filter,
@@ -163,7 +182,7 @@ final class FolioElasticRowIndex
         if (!isset($response['hits']['hits'])) {
             return null; // 404: no index at all
         }
-        $ids = array_map(static fn (array $hit): string => (string) $hit['_id'], $response['hits']['hits']);
+        $ids = array_map(static fn (array $hit): string => (string) ($hit['_source']['rowId'] ?? $hit['_id']), $response['hits']['hits']);
         // No match in a folio that was never indexed is not "no match".
         if ($ids === [] && !$this->count($folioCode)) {
             return null;
@@ -192,20 +211,28 @@ final class FolioElasticRowIndex
     private function ensureIndex(): void
     {
         if ($this->elastic->request('HEAD', $this->index, expected: [200, 404]) === 200) {
+            $mappings = $this->elastic->request('GET', $this->index.'/_mapping', decode: true);
+            foreach ($mappings as $definition) {
+                if (($definition['mappings']['_meta']['folioRowVersion'] ?? null) !== 2) {
+                    throw new \RuntimeException('Legacy Folio ES mapping: configure a new elastic_row_index, reindex selected Folios, then switch readers. Existing index was not changed.');
+                }
+            }
             return;
         }
-        // `english` stems and drops stopwords, as the FTS path's porter tokenizer does; label is
-        // text too so a title hit can outrank the same words deep in an OCR body.
+        // Neutral baseline across source and translated Folios. Language-specific stemming
+        // belongs in a future versioned projection, not a universal English analyzer.
         $this->elastic->request('PUT', $this->index, [
             'settings' => ['number_of_replicas' => 0],
             'mappings' => [
                 'dynamic' => 'strict',
+                '_meta' => ['folioRowVersion' => 2],
                 'properties' => [
                     'folioCode' => ['type' => 'keyword'],
+                    'rowId' => ['type' => 'keyword', 'index' => false, 'doc_values' => false],
                     'coreCode' => ['type' => 'keyword'],
                     'build' => ['type' => 'keyword'],
-                    'label' => ['type' => 'text', 'analyzer' => 'english'],
-                    'body' => ['type' => 'text', 'analyzer' => 'english'],
+                    'label' => ['type' => 'text', 'analyzer' => 'standard'],
+                    'body' => ['type' => 'text', 'analyzer' => 'standard'],
                 ],
             ],
         ]);
@@ -234,6 +261,9 @@ final class FolioElasticRowIndex
         $response = $this->elastic->request('POST', $this->index.'/_delete_by_query?refresh=true&conflicts=proceed',
             ['query' => $query], expected: [404], decode: true);
 
+        if (($response['timed_out'] ?? false) || ($response['failures'] ?? []) !== [] || ($response['version_conflicts'] ?? 0) > 0) {
+            throw new \RuntimeException('Folio stale-document cleanup was incomplete; retry indexing.');
+        }
         return (int) ($response['deleted'] ?? 0);
     }
 

@@ -74,9 +74,12 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->defaultValue(500000)
                 ->info('Rows past which a text (FTS) search skips live facet counts, which are aggregated over the matching rows and cannot use the precomputed table. Measured on news/rappnews4909 (966,590 rows): ~5s per first-seen query, essentially all of it facets, against ~1s for hits and counts. Filter-only queries keep their facets either way. 0 = always live.')
             ->end()
+            ->booleanNode('elastic_auto_index')->defaultFalse()
+                ->info('Producer only: queue shared ES row indexing after complete Folio publication. Enable in Harvest, leave disabled in reader apps.')
+            ->end()
             ->scalarNode('elastic_row_index')
                 ->defaultValue('folio_row')
-                ->info('Elasticsearch index holding the text of folios built without an FTS index (docs/search-policy.md). Shared by every folio and every app that reads them, so not app-prefixed. Needs ELASTICSEARCH_DSN.')
+                ->info('Shared Elasticsearch row projection across Folios and cores (docs/search-policy.md). Shared by every folio and every app that reads them, so not app-prefixed. Needs ELASTICSEARCH_DSN.')
             ->end()
             ->integerNode('elastic_match_limit')
                 ->defaultValue(1000)
@@ -337,7 +340,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
         ]);
         $services->set(\Survos\FolioBundle\Service\FolioElasticIndexCommand::class)->autowire()->autoconfigure()->public();
         $services->set(\Survos\FolioBundle\EventListener\FolioElasticIndexListener::class)->autowire()->autoconfigure()
-            ->tag('kernel.event_listener', ['event' => 'Survos\FolioBundle\Event\FolioIngestFinishedEvent']);
+            ->arg('$enabled', $config['elastic_auto_index'])
+            ->tag('kernel.event_listener', ['event' => 'Survos\FolioBundle\Event\FolioPublishedEvent']);
         if (interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
             $services->set(\Survos\FolioBundle\MessageHandler\IndexFolioRowsHandler::class)->autowire()->autoconfigure();
         }

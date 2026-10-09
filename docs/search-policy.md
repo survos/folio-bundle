@@ -45,14 +45,26 @@ fit inside a worker's memory limit.
 
 To one Elasticsearch index shared by every folio, `survos_folio.elastic_row_index` (default
 `folio_row`, deliberately not app-prefixed: harvest writes it, zm/Ink/fotostory read it, like the
-folio files themselves). One document per row, `_id` = the row's composite id, holding
-`folioCode`, `coreCode`, `label` and `body` — the same text `FolioFtsIndexer::searchBody()` would
-have put in `item_fts`, `english`-analysed as FTS is porter-stemmed.
+folio files themselves). One document per row across all cores, holding
+`folioCode`, `coreCode`, `rowId`, `label`, `body`, and a build stamp. Schema version 2
+uses the `standard` analyzer as a language-neutral baseline (no English stemming).
+The ES ID hashes the artifact scope plus internal row ID; source and translated
+Folios therefore cannot overwrite one another. Hits return the internal `rowId`.
 
-- **Filling it.** A finished build with `fts_content = off` dispatches `IndexFolioRowsMessage`
-  (route it to an async transport; unrouted it runs inline). By hand:
-  `folio:elastic:index <folioCode>… [--queue] [--remove]`. A reindex writes under a new build stamp,
-  then deletes the folio's older rows, so searches never see an empty folio mid-reindex.
+- **Filling it.** Enable `survos_folio.elastic_auto_index: true` only in the producer
+  (Harvest). `FolioPublishedEvent` fires after the working file is closed and
+  `finishBuildAt()` has atomically installed it, once per successfully built locale.
+  No event is emitted for an empty, skipped, failed or archive-only build. It carries
+  datasetKey, locale, final dbFile, rowCount, and locale-qualified folioCode.
+  The listener queues `IndexFolioRowsMessage` for every published working Folio,
+  independently of whether its local FTS was retained. Route it to an async worker.
+  The old per-core `FolioIngestFinishedEvent` no longer triggers ES indexing.
+  By hand: `folio:elastic:index <folioCode>… [--queue] [--remove]`.
+  A reindex bulk-upserts under a new build stamp, then removes stale rows only in
+  that Folio. A failed bulk skips cleanup; partial upserts can already be visible.
+  This is retryable replacement, not an atomic snapshot of all search hits.
+  Runs for one Folio/index are serialized by a local file lock. Use one producer
+  host with a shared temporary directory; multiple writer hosts require a distributed lock.
 - **Querying it.** `FolioRowSearch` gives the SQLite adapter a `textMatcher` when the folio has no
   `item_fts`. ES returns up to `elastic_match_limit` (1,000) row ids, best first, filtered by
   folio and core; SQLite treats them as the match (a `__fts` CTE of rowid + rank), so scope,
@@ -63,6 +75,15 @@ have put in `item_fts`, `english`-analysed as FTS is porter-stemmed.
 - **When it can't answer** (node down, 5 s timeout, index missing, folio not indexed yet) the
   matcher returns null and the search falls back to `textFallbackColumns` (label LIKE): narrower,
   never unfiltered. A folio that is indexed and matches nothing returns no hits.
+
+Version-1 indexes (English analyzer, row IDs as ES IDs) are still readable but
+cannot be populated with the new writer. Set `elastic_row_index` to a new name,
+index selected Folios, verify, then switch readers. The writer refuses a legacy
+mapping instead of silently changing analysis or mixing identities. Do not delete
+the old index until consumers are migrated. Reader and producer must agree on the
+configured index; translated browser requests include their content locale in ES scope.
+
+Historical version-1 measurements (not an analyzer-parity claim for version 2):
 
 Measured on a no-FTS copy of `news/rappnews-digital` (584 articles): hit counts identical to FTS
 on every probe query, same first page (one ranking swap), 6–24 ms per search. At scale,

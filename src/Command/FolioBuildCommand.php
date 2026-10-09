@@ -362,6 +362,15 @@ final class FolioBuildCommand implements SignalableCommandInterface
                 throw $e;
             }
             $workingPath = $this->folios->finishBuildAt($code, $buildLocale);
+            if ($inflate) {
+                $this->dispatcher?->dispatch(new \Survos\FolioBundle\Event\FolioPublishedEvent(
+                    datasetKey: $code,
+                    dbFile: $workingPath,
+                    rowCount: (int) $result['rows'],
+                    locale: $buildLocale,
+                ));
+            }
+
 
             $built++;
             } // end foreach ($requestedLocales as $requestedLocale)

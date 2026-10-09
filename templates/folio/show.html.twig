@@ -26,7 +26,7 @@
         <div class="mb-3"><a class="btn btn-primary" href="{{ readerUrl }}">Read in Ink</a></div>
     {% endif %}
     {% if timeline %}
-        {% set controllerName = survos_stimulus('folio-bundle', 'slideshow') %}
+        {% set controllerName = 'survos--folio-bundle--slideshow' %}
 
         <div class="folio-slideshow mb-4" {{ stimulus_controller(controllerName, {slides: timeline.slides}) }}>
             <div class="row g-3 align-items-stretch">

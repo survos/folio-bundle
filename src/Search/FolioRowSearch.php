@@ -80,6 +80,10 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             throw new \InvalidArgumentException('Folio row search requires a folioCode option like "dc/05747667f".');
         }
 
+        // Routes resolve the base Folio ID separately from its selected content locale.
+        // ES is scoped to the physical artifact, while returned row IDs remain base IDs.
+        $contentLocale = $this->folios->requestContentLocale;
+        $searchFolioCode = $folioCode.($contentLocale !== null ? '.'.$contentLocale : '');
         $ctx = $this->folios->context($folioCode);
         [$provider, $dataset] = explode('/', $folioCode, 2);
         $connection = $ctx->em->getConnection();
@@ -202,7 +206,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             // null when it can't (node down, folio not indexed yet), and the label search above
             // applies — a narrower search, never an unfiltered one.
             'textMatcher' => !$hasFts && $this->elastic?->isConfigured()
-                ? fn (string $text): ?array => $this->elastic->match($folioCode, $text, $selectedCore)
+                ? fn (string $text): ?array => $this->elastic->match($searchFolioCode, $text, $selectedCore)
                 : null,
             'joinExpression' => 'f.rowid = d.rowid',
             'selectColumns' => [

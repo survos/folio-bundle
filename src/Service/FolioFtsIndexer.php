@@ -156,7 +156,8 @@ final class FolioFtsIndexer
     public static function ftsContent(\PDO $pdo): string
     {
         try {
-            $mode = $pdo->query('SELECT fts_content FROM folio LIMIT 1')?->fetchColumn();
+            // Schema templates may retain their bootstrap row before the real Folio.
+            $mode = $pdo->query("SELECT fts_content FROM folio WHERE code <> '_bootstrap/_bootstrap' LIMIT 1")?->fetchColumn();
         } catch (\PDOException) {
             return Folio::FTS_CONTENT_STORED;
         }
