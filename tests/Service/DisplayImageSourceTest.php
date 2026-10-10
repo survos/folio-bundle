@@ -18,11 +18,17 @@ final class DisplayImageSourceTest extends TestCase
         self::assertSame(self::H700, DisplayImageSource::pick(self::ORIGINAL, $dto));
     }
 
-    public function testMirroredPageBeatsStaleDtoThumbnail(): void
+    public function testS3MirrorPageBeatsDisplayRendition(): void
     {
-        // mus/rijk: the page is the s3:// mirror, dto_data still holds the old public URL.
-        $dto = ['largeImageUrl' => 'https://old.example/a.jpg', 'displayImageUrl' => 'https://old.example/a-small.jpg'];
+        $dto = ['displayImageUrl' => self::H700];
         self::assertSame('s3://museado/orig/a.jpg', DisplayImageSource::pick('s3://museado/orig/a.jpg', $dto));
+    }
+
+    public function testEnrichedLargeImageUrlDoesNotDisableTheRendition(): void
+    {
+        // prod: enrich points largeImageUrl at mediary's archived copy; the page stays the original.
+        $dto = ['largeImageUrl' => 'https://fsn1.your-objectstorage.com/museado/orig/f7/47/f747.jpg', 'displayImageUrl' => self::H700];
+        self::assertSame(self::H700, DisplayImageSource::pick(self::ORIGINAL, $dto));
     }
 
     public function testSmallThumbnailUrlIsNotADisplaySource(): void

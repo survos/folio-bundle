@@ -213,8 +213,8 @@ class Row implements RouteParametersInterface
     }
 
     /**
-     * Source for the small imgproxy presets (thumb/display/…): the provider's declared smaller
-     * rendition when the page is still the harvested original, else the page itself. Downloads,
+     * Source for the small imgproxy presets (thumb/display/…): the provider-declared displayImageUrl
+     * when set (unless the page is an s3:// mirror), else the page itself. Downloads,
      * the 'archive' preset and schema.org contentUrl stay on {@see getThumbnailSource()}.
      */
     public function getDisplaySource(): ?string
