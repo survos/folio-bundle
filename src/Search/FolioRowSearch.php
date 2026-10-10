@@ -239,11 +239,11 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 // page, and a results list was a column of identical grey rectangles.
                 "CASE WHEN json_extract(d.dto_data, '$.thumbnailUrl') GLOB '*/[0-9]*,[0-9]*,[0-9]*,[0-9]*/*/*' "
                     . "THEN json_extract(d.dto_data, '$.thumbnailUrl') "
-                    // DisplayImageSource's rule: a smaller declared rendition while the page is
-                    // still the harvested original (mus/fpus h700 vs a 9 MB original).
-                    . "WHEN json_extract(d.dto_data, '$.thumbnailUrl') <> json_extract(d.dto_data, '$.largeImageUrl') "
+                    // DisplayImageSource's rule: an opt-in displayImageUrl while the page is still
+                    // the harvested original (mus/fpus h700 vs a 9 MB original).
+                    . "WHEN json_extract(d.dto_data, '$.displayImageUrl') IS NOT NULL "
                     . "AND json_extract(d.dto_data, '$.largeImageUrl') = (SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) "
-                    . "THEN json_extract(d.dto_data, '$.thumbnailUrl') "
+                    . "THEN json_extract(d.dto_data, '$.displayImageUrl') "
                     . "ELSE (SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) END AS thumbnailUrl",
                 "(SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) AS largeImageUrl",
                 "json_extract(d.dto_data, '$.pageCount') AS pageCount",

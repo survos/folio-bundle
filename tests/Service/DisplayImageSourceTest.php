@@ -14,20 +14,26 @@ final class DisplayImageSourceTest extends TestCase
 
     public function testDeclaredRenditionWinsWhilePageIsTheHarvestedOriginal(): void
     {
-        $dto = ['largeImageUrl' => self::ORIGINAL, 'thumbnailUrl' => self::H700];
+        $dto = ['largeImageUrl' => self::ORIGINAL, 'displayImageUrl' => self::H700];
         self::assertSame(self::H700, DisplayImageSource::pick(self::ORIGINAL, $dto));
     }
 
     public function testMirroredPageBeatsStaleDtoThumbnail(): void
     {
         // mus/rijk: the page is the s3:// mirror, dto_data still holds the old public URL.
-        $dto = ['largeImageUrl' => 'https://old.example/a.jpg', 'thumbnailUrl' => 'https://old.example/a-small.jpg'];
+        $dto = ['largeImageUrl' => 'https://old.example/a.jpg', 'displayImageUrl' => 'https://old.example/a-small.jpg'];
         self::assertSame('s3://museado/orig/a.jpg', DisplayImageSource::pick('s3://museado/orig/a.jpg', $dto));
+    }
+
+    public function testSmallThumbnailUrlIsNotADisplaySource(): void
+    {
+        $dto = ['largeImageUrl' => self::ORIGINAL, 'thumbnailUrl' => 'https://ids.si.edu/ids/download?id=X_thumb'];
+        self::assertSame(self::ORIGINAL, DisplayImageSource::pick(self::ORIGINAL, $dto));
     }
 
     public function testNoPageMeansNoImageAndSameUrlIsThePage(): void
     {
-        self::assertNull(DisplayImageSource::pick(null, ['thumbnailUrl' => self::H700]));
-        self::assertSame(self::ORIGINAL, DisplayImageSource::pick(self::ORIGINAL, ['largeImageUrl' => self::ORIGINAL, 'thumbnailUrl' => self::ORIGINAL]));
+        self::assertNull(DisplayImageSource::pick(null, ['displayImageUrl' => self::H700]));
+        self::assertSame(self::ORIGINAL, DisplayImageSource::pick(self::ORIGINAL, ['largeImageUrl' => self::ORIGINAL, 'displayImageUrl' => self::ORIGINAL]));
     }
 }

@@ -47,7 +47,7 @@ final class FolioFacetFieldResolver implements ResetInterface
     private const NEVER_FACET = [
         'id', 'localId', 'sourceId', 'title', 'label', 'description', 'hasImages', 'hasTranscription',
         'imageCount', 'itemCount', 'pageCount', 'dctermsDescription', 'dctermsDate', 'iiifBase',
-        'thumbnailUrl', 'largeImageUrl', 'citationUrl', 'sourceUrl', 'url', 'image', 'latitude', 'longitude',
+        'thumbnailUrl', 'largeImageUrl', 'displayImageUrl', 'citationUrl', 'sourceUrl', 'url', 'image', 'latitude', 'longitude',
         'ai:denseSummary', 'externalResources', 'wikidata',
     ];
 

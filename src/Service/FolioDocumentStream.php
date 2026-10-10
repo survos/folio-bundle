@@ -19,7 +19,7 @@ final class FolioDocumentStream
     public const IDENTITY = ['id', 'folioCode', 'provider', 'dataset', 'coreCode', 'localId', 'dtoType', 'label', 'rp'];
 
     /** Media/thumbnail + outbound-link keys carried over verbatim when present (used by hit templates). */
-    public const MEDIA = ['pageUrl', 'thumbnailUrl', 'largeImageUrl', 'iiifBase', 'sourceUrl', 'citationUrl'];
+    public const MEDIA = ['pageUrl', 'thumbnailUrl', 'largeImageUrl', 'displayImageUrl', 'iiifBase', 'sourceUrl', 'citationUrl'];
 
     /** Whitelisted field -> candidate source keys (first non-empty wins). Normalises ai:-prefixed keys. */
     public const SOURCES = [
