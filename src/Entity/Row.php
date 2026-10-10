@@ -18,6 +18,7 @@ use Doctrine\ORM\Mapping as ORM;
 use SortDirection;
 use Survos\DataContracts\Util\ImageUrl;
 use Survos\DataContracts\Util\ImageUrlVerdict;
+use Survos\FolioBundle\Service\DisplayImageSource;
 use Survos\DataContracts\Vocabulary\ItemField;
 use Survos\FieldBundle\Attribute\EntityMeta;
 use Survos\FieldBundle\Entity\RouteParametersInterface;
@@ -209,6 +210,16 @@ class Row implements RouteParametersInterface
         $raw = $this->getRawThumbnailSource();
 
         return $raw !== null && ImageUrl::classify($raw)->isRenderable() ? $raw : null;
+    }
+
+    /**
+     * Source for the small imgproxy presets (thumb/display/…): the provider's declared smaller
+     * rendition when the page is still the harvested original, else the page itself. Downloads,
+     * the 'archive' preset and schema.org contentUrl stay on {@see getThumbnailSource()}.
+     */
+    public function getDisplaySource(): ?string
+    {
+        return DisplayImageSource::pick($this->getThumbnailSource(), $this->dtoData ?? []);
     }
 
     #[Groups(['row:read'])]

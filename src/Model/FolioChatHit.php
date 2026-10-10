@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Model;
 
+use Survos\FolioBundle\Service\DisplayImageSource;
 use Survos\IiifBundle\Service\IiifUrl;
 
 final readonly class FolioChatHit
@@ -54,7 +55,7 @@ final readonly class FolioChatHit
     public function thumbnailSource(): ?string
     {
         if ($this->pageUrl !== null && trim($this->pageUrl) !== '') {
-            return $this->pageUrl;
+            return DisplayImageSource::pick($this->pageUrl, $this->dtoData);
         }
 
         return $this->stringValue('iiif_base')

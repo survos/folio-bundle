@@ -21,8 +21,10 @@
     ]|filter(v => v is not empty)|join(', ') %}
     {% set sourceCaption = attribute(row.dtoData, 'sourceCaption')|default(attribute(row.extras, 'sourceCaption')|default(null)) %}
     {% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
-    {% set imageSource = row.thumbnailSource %}
-    {% set downloadUrl = attribute(row.dtoData, 'largeImageUrl')|default(imageSource) %}
+    {# imageSource feeds only the 'display' preset, so it may be the provider's smaller rendition;
+       the download stays on the original. #}
+    {% set imageSource = row.displaySource %}
+    {% set downloadUrl = attribute(row.dtoData, 'largeImageUrl')|default(row.thumbnailSource) %}
     {% set tombstoneLicense = attribute(row.dtoData, 'rightsUri')|default(null) %}
     {% set downloadFilename = dataset ~ '-' ~ row.localId ~ '.jpg' %}
     {% set downloadCitation = [tombstoneTitle, tombstoneCredit, citationUrl]|filter(v => v is not empty)|join(' — ') %}

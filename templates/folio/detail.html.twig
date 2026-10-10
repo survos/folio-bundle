@@ -311,7 +311,7 @@
                             {% set pageHires = page.url %}
                             {% set pageInfoUrl = null %}
                             {% guard filter imgproxy %}
-                                {% set pageImg = page.url|folio_image('thumb') %}
+                                {% set pageImg = (loop.first ? row.displaySource|default(page.url) : page.url)|folio_image('thumb') %}
                                 {% set pageHires = page.url|folio_image('archive') %}
                                 {% set pageInfoUrl = path('survos_imgproxy_info', {url: page.url}) %}
                             {% endguard %}
@@ -848,7 +848,7 @@
 
             {% set firstPage = pages|first %}
             {% if firstPage and firstPage.url %}
-                {% set aspectProbe = firstPage.url %}
+                {% set aspectProbe = row.displaySource|default(firstPage.url) %}
                 {% guard filter imgproxy %}{% set aspectProbe = aspectProbe|folio_image('thumb') %}{% endguard %}
                 <script>
                     (function () {

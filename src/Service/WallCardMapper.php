@@ -92,8 +92,10 @@ final class WallCardMapper
         $image = null;
         if (self::renderable($row['page_url'])) {
             if ($this->imgproxy === null) { throw new \LogicException('WallCard imagery requires a configured signed imgproxy service.'); }
-            $thumb = $this->imgproxy->resizePreset($row['page_url'], 'tiny');
-            $medium = $this->imgproxy->resizePreset($row['page_url'], MediaPreset::THUMB);
+            // Small presets read the provider's display rendition when it has one; 'full' stays the original.
+            $display = DisplayImageSource::pick($row['page_url'], $dto);
+            $thumb = $this->imgproxy->resizePreset($display, 'tiny');
+            $medium = $this->imgproxy->resizePreset($display, MediaPreset::THUMB);
             if (str_contains($thumb, '/insecure/') || str_contains($medium, '/insecure/')) { throw new \LogicException('WallCard imagery requires imgproxy signing key and salt.'); }
             $full = $row['page_url'];
             // thumbhash/color: paint these the instant the card arrives, then swap in thumb/medium.

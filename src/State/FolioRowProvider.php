@@ -162,7 +162,7 @@ final class FolioRowProvider implements ProviderInterface
         }
 
         foreach ($rows as $row) {
-            $source = $row->getThumbnailSource();
+            $source = $row->getDisplaySource();
             if ($source) {
                 $row->setResolvedThumbnailUrl($this->imgproxyUrlBuilder->resizePreset($source, 'thumb'));
             }
