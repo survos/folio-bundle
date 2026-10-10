@@ -40,6 +40,9 @@ final readonly class FolioCatalogEntry
         public ?string $downloadUrl = null,
         public bool $compressed = false,
         public ?string $revision = null,
+        // The registry artifact this entry was read from (folio or folio_archive); with datasetKey
+        // and artifactCode() it is the variant a publisher receipt names.
+        public ?string $artifactType = null,
     ) {
     }
 
@@ -76,6 +79,7 @@ final readonly class FolioCatalogEntry
             downloadUrl: self::str($row, 'downloadUrl'),
             compressed: (bool) ($row['compressed'] ?? false),
             revision: self::str($row, DatasetField::REVISION),
+            artifactType: self::str($row, 'artifactType'),
         );
     }
 
@@ -106,9 +110,16 @@ final readonly class FolioCatalogEntry
                 checksum: $artifact[DatasetField::CHECKSUM], updatedAt: $artifact[DatasetField::UPDATED_AT],
                 downloadUrl: $url === null ? null : $client->downloadUrl($url),
                 compressed: $artifact[DatasetField::COMPRESSED], revision: $artifact[DatasetField::REVISION],
+                artifactType: $artifact[ItemField::TYPE],
             );
         }
         return $entries;
+    }
+
+    /** The registry artifact code: a locale variant's code, else "default". */
+    public function artifactCode(): string
+    {
+        return $this->locale ?? DatasetField::DEFAULT_CODE;
     }
 
     public function hasTag(string $tag): bool

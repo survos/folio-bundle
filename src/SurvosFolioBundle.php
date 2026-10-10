@@ -7,6 +7,9 @@ namespace Survos\FolioBundle;
 use Survos\DataContracts\Path\DataPaths;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\FolioBundle\Catalog\DatasetPublicationClient;
+use Survos\FolioBundle\Publisher\PublisherApiClient;
+use Survos\FolioBundle\Publisher\PublisherRegistrar;
+use Survos\FolioBundle\Publisher\PublisherSelection;
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
 use Survos\BookmarkBundle\Service\BookmarkManager;
@@ -21,6 +24,7 @@ use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioA
 use Survos\FolioBundle\Command\FolioSitemapCommand;
 use Survos\FolioBundle\Sitemap\FolioSitemapPopulator;
 use Survos\FolioBundle\Sitemap\FolioSitemapRegistry;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\Kit\AbstractUxBundle;
@@ -67,6 +71,17 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->scalarNode('server')->defaultNull()->end()
                 ->scalarNode('token')->defaultValue('')->end()
             ->end()->end()
+            ->arrayNode('publisher')->canBeEnabled()
+                ->info('This app publishes folios publicly and confirms them to Harvest (PublisherRegistrar). Uses dataset_api.server; see docs/publisher-registration.md.')
+                ->children()
+                    ->scalarNode('code')->isRequired()->info('Publisher identifier in Harvest HARVEST_PUBLISHER_TOKENS, e.g. ink, zm, vox.')->end()
+                    ->scalarNode('environment')->defaultValue('prod')->info('Deployment (prod, local, …); each has its own generation.')->end()
+                    ->scalarNode('token')->defaultValue('')->info('This publisher\'s token, not HARVEST_READ_TOKEN.')->end()
+                    ->scalarNode('label')->defaultNull()->end()
+                    ->scalarNode('base_url')->defaultNull()->info('When set, Harvest (and the client) reject confirmed URLs on another host.')->end()
+                    ->variableNode('selection')->defaultValue(['mode' => 'all'])->info('Intent sent on reset: {mode: all} | {mode: tags, tags: [...]} | {mode: datasets, datasetKeys: [...]} | {mode: manual}.')->end()
+                ->end()
+            ->end()
             ->scalarNode('data_dir')
                 ->defaultValue('%env(APP_DATA_DIR)%')
                 ->info('Root of the data tree folio paths resolve under, same value and default as survos_dataset.data_dir. Only used when dataset-bundle is absent: when it is installed IT registers DataPaths, from its own (richer) path config, and this is ignored.')
@@ -273,6 +288,21 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 '$server' => $config['dataset_api']['server'], '$token' => $config['dataset_api']['token'],
             ]);
         }
+        if ($config['publisher']['enabled']) {
+            if (!$config['dataset_api']['enabled']) {
+                throw new \LogicException('survos_folio.publisher requires survos_folio.dataset_api (its server).');
+            }
+            $publisher = $config['publisher'];
+            $services->set(PublisherApiClient::class)->autowire()->args([
+                '$server' => $config['dataset_api']['server'], '$token' => $publisher['token'],
+                '$publisher' => $publisher['code'], '$environment' => $publisher['environment'],
+            ]);
+            $services->set(PublisherRegistrar::class)->autowire()->public()->args([
+                '$selection' => inline_service(PublisherSelection::class)->factory([PublisherSelection::class, 'fromArray'])->args([$publisher['selection']]),
+                '$label' => $publisher['label'], '$baseUrl' => $publisher['base_url'],
+                '$clock' => service('clock')->nullOnInvalid(),
+            ]);
+        }
         $services->set(FolioCatalogClient::class)
             ->autowire()
             ->autoconfigure()
@@ -432,7 +462,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->arg('$slugResolver', service(FolioSlugResolverInterface::class)->ignoreOnInvalid());
         $services->set(\Survos\FolioBundle\Twig\FolioReaderCatalog::class)->autowire()->autoconfigure()
             ->arg('$server', $config['reader_server'])
-            ->arg('$proxy', $config['reader_proxy']);
+            ->arg('$proxy', $config['reader_proxy'])
+            ->arg('$datasets', $config['dataset_api']['enabled'] ? service(DatasetPublicationClient::class) : null);
         $services->set(\Survos\FolioBundle\Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public()
             ->arg('$searchRoute', $config['search_route'])
             ->arg('$searchProviderParam', $config['search_provider_param'])

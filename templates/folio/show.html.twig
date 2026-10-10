@@ -21,8 +21,16 @@
 
 {% block body %}
     {% include '@SurvosFolioBundle/folio/_properties.html.twig' with {folio: folio} only %}
-    {% set readerUrl = folio_reader_url(ctx.folioCode) %}
-    {% if readerUrl %}
+    {# Confirmed publisher receipts first; the reader_server probe only when there are none. Neither configured → no links. #}
+    {% set publications = folio_publications(ctx.folioCode) %}
+    {% set readerUrl = publications is empty ? folio_reader_url(ctx.folioCode) : null %}
+    {% if publications is not empty %}
+        <div class="mb-3 d-flex flex-wrap gap-2">
+            {% for publication in publications %}
+                <a class="btn btn-primary" href="{{ publication.url }}">Read on {{ publication.name }}</a>
+            {% endfor %}
+        </div>
+    {% elseif readerUrl %}
         <div class="mb-3"><a class="btn btn-primary" href="{{ readerUrl }}">Read in Ink</a></div>
     {% endif %}
     {% if timeline %}

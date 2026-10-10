@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Catalog;
 
+use Survos\FolioBundle\Publisher\Publication;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -31,8 +32,24 @@ final readonly class DatasetPublicationClient
 
     public function dataset(string $key): ?array
     {
-        $response = $this->request('/api/datasets/'.implode('/', array_map(rawurlencode(...), explode('/', $key))));
+        $response = $this->request(self::datasetPath($key));
         return $response->getStatusCode() === 404 ? null : $response->toArray();
+    }
+
+    /**
+     * Where the dataset's folios are confirmed published (publisher receipts), current or stale.
+     *
+     * @return list<Publication> empty for an unknown dataset
+     */
+    public function publications(string $key): array
+    {
+        $response = $this->request(self::datasetPath($key).'/publications');
+        return $response->getStatusCode() === 404 ? [] : array_map(Publication::fromArray(...), array_values($response->toArray()['publications']));
+    }
+
+    private static function datasetPath(string $key): string
+    {
+        return '/api/datasets/'.implode('/', array_map(rawurlencode(...), explode('/', $key)));
     }
 
     /** @return array<string, array> */
