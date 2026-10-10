@@ -48,6 +48,12 @@ final class FolioMigrateCommand extends Command
             return Command::SUCCESS;
         }
 
+        if (!$this->registry->hasDatasetRegistry()) {
+            $io->error('folio:migrate selects datasets from the dataset registry, which only Harvest owns. Run it on Harvest, or pass --file=<folio> to convert one file here.');
+
+            return Command::FAILURE;
+        }
+
         $datasets = $this->registry->datasets(
             datasetKey: (string) ($input->getArgument('dataset') ?? '') ?: null,
             provider: (string) ($input->getOption('provider') ?? '') ?: null,

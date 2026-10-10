@@ -7,6 +7,7 @@ namespace Survos\FolioBundle\Service;
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\DataContracts\Path\DataPaths;
+use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\JsonlBundle\Sqlite\SidecarDb;
 use Symfony\Component\DependencyInjection\Attribute\Target;
 
@@ -33,7 +34,15 @@ final class FolioRegistry
         // folios — only datasets() needs it; every other method works off a DatasetInfo + DataPaths.
         #[Target('doctrine.orm.dataset_entity_manager')]
         private readonly ?EntityManagerInterface $datasetEntityManager = null,
+        // An app on Harvest's dataset API is a consumer: datasets() refuses even with an EM wired.
+        private readonly ?FolioCatalogClient $catalog = null,
     ) {}
+
+    /** Whether datasets() can answer here: a registry is wired and this app is not a dataset-API consumer. */
+    public function hasDatasetRegistry(): bool
+    {
+        return $this->datasetEntityManager !== null && !$this->catalog?->usesDatasetApi();
+    }
 
     /** @return list<DatasetInfo> */
     public function datasets(
@@ -42,10 +51,10 @@ final class FolioRegistry
         bool $all = false,
         bool $requireSource = false,
     ): array {
-        if ($this->datasetEntityManager === null) {
+        if (!$this->hasDatasetRegistry()) {
             throw new \LogicException(
-                'FolioRegistry::datasets() needs the dataset registry (dataset-bundle), which is not loaded. '
-                . 'A bare folio app pulls and displays folios directly, without listing the dataset registry.'
+                'FolioRegistry::datasets() needs the dataset registry, which only Harvest owns. '
+                . 'This app reads folios from the Harvest API/feed — run this on Harvest.'
             );
         }
         $repo = $this->datasetEntityManager->getRepository(DatasetInfo::class);

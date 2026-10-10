@@ -235,9 +235,10 @@ fotostory's hero content. It never decides membership.
 | `--force` (implies `--pull`) | `folio:pull` | re-pulled and re-inflated |
 
 `local_passthrough` overrides all three: the app does not own its data dir (production fotostory
-and ink read zm's `/platform`), so it never writes a folio file **or** the dataset registry there
-— `APP_DATA_DIR/datasets.db` on production is zm's registry, and `folio:pull`'s bookkeeping would
-write into it. When `--pull`/`--force` is refused for that reason, sync says so as a warning
+and ink read zm's `/platform`), so it never writes a folio file there. Passthrough is file-only:
+folio files may be shared, the dataset registry may not. Harvest alone owns the registry, and
+`folio:pull` no longer writes to any registry at all — not under passthrough, not otherwise; a
+consumer learns what exists from the Harvest API/feed. When `--pull`/`--force` is refused for that reason, sync says so as a warning
 naming the folio; today `folio:pull` prints a plain "skipping fetch" line even under `--force`,
 which is how a laptop with passthrough hardcoded on drifted from the published folios unnoticed.
 Passthrough is an env value (`FOLIO_LOCAL_PASSTHROUGH`): true where the builder shares the disk,

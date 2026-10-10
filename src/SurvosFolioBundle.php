@@ -145,7 +145,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->defaultFalse()
             ->end()
             ->enumNode('folio_sets_source')
-                ->info('What folio sets resolve against. auto: the hub catalog (<folio_server>/folio/list.json) when folio_server is set — a reading app — else the local dataset registry — the app that builds folios.')
+                ->info('What folio sets resolve against. auto: the hub catalog (<folio_server>/folio/list.json, or the Harvest dataset API when dataset_api is enabled) when either is set — a reading app — else the local dataset registry — the app that builds folios.')
                 ->values(['auto', 'catalog', 'registry'])
                 ->defaultValue('auto')
             ->end()

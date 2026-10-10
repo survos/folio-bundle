@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\DatasetBundle\Repository\DatasetInfoRepository;
+use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\MeiliBundle\Service\IndexNameResolver;
 use Survos\MeiliBundle\Service\MeiliNdjsonUploader;
 use Survos\MeiliBundle\Service\MeiliServerKeyService;
@@ -38,6 +39,8 @@ final class FolioMeiliBuildSetCommand
         // for an app with folio-bundle but not dataset-bundle. Used only for the best-effort
         // raw-index locale hint below; the --locale-explicit case never touches it.
         private readonly ?DatasetInfoRepository $datasets = null,
+        // With the dataset API enabled this app is a consumer, and the registry is off limits even when present.
+        private readonly ?FolioCatalogClient $catalog = null,
     ) {
     }
 
@@ -67,7 +70,9 @@ final class FolioMeiliBuildSetCommand
             return [['locales' => [strtolower($locale)], 'attributePatterns' => ['*']]];
         }
 
-        if ($this->datasets === null) {
+        // The catalog publishes no source language, so a consumer gets no hint rather than a
+        // registry read: Harvest alone owns the registry.
+        if ($this->datasets === null || $this->catalog?->usesDatasetApi()) {
             return null;
         }
 

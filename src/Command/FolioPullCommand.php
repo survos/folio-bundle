@@ -4,15 +4,13 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
-use Doctrine\ORM\EntityManagerInterface;
 use League\Flysystem\FilesystemOperator;
 use Psr\Log\LoggerInterface;
-use Survos\DatasetBundle\Entity\{Artifact,DatasetInfo,Provider};
 use Survos\FetchBundle\Service\ChunkDownloader;
 use Survos\FolioBundle\Catalog\ArtifactChecksumException;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\FolioBundle\Catalog\FolioCatalogEntry;
-use Survos\FolioBundle\Service\{FolioArchiveService,FolioService,FolioSummaryService};
+use Survos\FolioBundle\Service\{FolioArchiveService,FolioService};
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
@@ -35,9 +33,6 @@ final class FolioPullCommand
         private readonly ?FilesystemOperator $archiveStorage = null,
         private readonly ?HttpClientInterface $http = null,
         private readonly ?ChunkDownloader $downloader = null,
-        #[Target('doctrine.orm.dataset_entity_manager')]
-        private readonly ?EntityManagerInterface $datasetEntityManager = null,
-        private readonly ?FolioSummaryService $summaryService = null,
         // survos_folio.folio_server — the live folio site; the default API source for pulls.
         #[Autowire('%survos_folio.folio_server%')]
         private readonly ?string $folioServer = null,
@@ -156,7 +151,6 @@ final class FolioPullCommand
                 $inflated['views'],
                 $inflated['ftsRows'],
             ));
-            $this->registerRestoredFolio($code, $result['target'], $locale);
             $pulled++;
         }
 
@@ -236,7 +230,6 @@ final class FolioPullCommand
                 Bytes::parse($result['targetBytes'])->humanize(),
                 number_format($result['indexedRows']),
             ));
-            $this->registerRestoredFolio($code, $result['target'], $locale);
             $pulled++;
         }
 
@@ -407,7 +400,6 @@ final class FolioPullCommand
                 Bytes::parse($result['targetBytes'])->humanize(),
                 number_format($result['indexedRows']),
             ));
-            $this->registerRestoredFolio($code, $result['target'], $locale);
             $pulled++;
         }
 
@@ -668,125 +660,5 @@ final class FolioPullCommand
             $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
         }
         rmdir($dir);
-    }
-
-    /**
-     * Best-effort dataset-registry bookkeeping. The folio file itself is already downloaded
-     * and inflated by the time this runs -- that's the actual job of folio:pull, and it's
-     * already done. A failure here (e.g. a stale/mismatched Artifact row from an older schema)
-     * shouldn't crash the whole pull, and especially shouldn't leave $datasetEntityManager
-     * closed for a caller (like tenants:load) that reuses this same command across a loop of
-     * many datasets -- one bad registration would otherwise cascade into "EntityManager is
-     * closed" for every dataset pulled after it.
-     */
-    private function registerRestoredFolio(string $code, string $dbFile, ?string $locale = null): void
-    {
-        try {
-            $this->doRegisterRestoredFolio($code, $dbFile, $locale);
-        } catch (\Throwable $e) {
-            // Swallow (see docblock above) — but leave a trace so a broken registration is
-            // diagnosable instead of silently producing a half-updated registry.
-            $this->logger?->warning('folio:pull registry bookkeeping failed', [
-                'dataset' => $code,
-                'locale' => $locale,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    private function doRegisterRestoredFolio(string $code, string $dbFile, ?string $locale = null): void
-    {
-        if ($this->datasetEntityManager === null || $this->summaryService === null || !is_file($dbFile)) {
-            return;
-        }
-
-        $em = $this->datasetEntityManager;
-        $dataset = $em->find(DatasetInfo::class, $code);
-        if (!$dataset instanceof DatasetInfo) {
-            $dataset = new DatasetInfo($code);
-            $dataset->aggregator = $dataset->provider();
-            $em->persist($dataset);
-        }
-
-        $providerCode = $dataset->provider();
-        $provider = $em->find(Provider::class, $providerCode);
-        if (!$provider instanceof Provider) {
-            $provider = new Provider($providerCode);
-            $em->persist($provider);
-        }
-        $provider->setSyncedAt(new \DateTime());
-        $dataset->setProviderEntity($provider);
-        // Flush before the Artifact lookup below: on a re-pull of an already-registered
-        // dataset, $dataset/$provider are pre-existing (found, not created) so this flush is
-        // a no-op there -- but on the FIRST pull of a brand-new dataset they were just
-        // persist()'d above and have no committed row yet. Querying findOneBy(['dataset' =>
-        // $dataset, ...]) against an unflushed parent can miss the not-yet-existing Artifact
-        // and fall through to `new Artifact(...)`, which then collides with the
-        // (dataset_key, type, code) unique constraint on the INSERT once $dataset itself
-        // flushes moments later in the same transaction.
-        $em->flush();
-
-        $summary = $this->summaryService->summarize($dbFile);
-        if (isset($summary->coreCounts['obj'])) {
-            $dataset->objCount = (int) $summary->coreCounts['obj'];
-        } elseif ($summary->rowCount !== null) {
-            $dataset->objCount = $summary->rowCount;
-        }
-
-        // A translated variant registers under its own artifact code (e.g. "en"), the same
-        // convention folio:build uses, so the source-language artifact keeps CODE_DEFAULT.
-        $artifactCode = $locale ?? Artifact::CODE_DEFAULT;
-        $artifact = $this->findArtifact($em, $dataset, $artifactCode)
-            ?? new Artifact($dataset, Artifact::TYPE_FOLIO, $artifactCode);
-
-        $artifact->uri = $dbFile;
-        $artifact->sizeBytes = filesize($dbFile) ?: null;
-        $artifact->rowCount = $summary->rowCount;
-        $artifact->dtoCounts = $summary->dtoCounts ?: null;
-        $artifact->updatedAt = (new \DateTimeImmutable())->setTimestamp((int) filemtime($dbFile));
-        $artifact->discoveredAt = new \DateTimeImmutable();
-        $artifact->metadata = [
-            'relativePath' => $code . ($locale !== null ? '.' . $locale : '') . '.folio',
-            'cores' => $summary->cores,
-            'coreCounts' => $summary->coreCounts,
-            'registeredBy' => 'folio:pull',
-        ];
-
-        $dataset->addArtifact($artifact);
-        $em->persist($artifact);
-
-        // Surface the variant on the default artifact so consumers discover it without
-        // enumerating locales (mirrors DatasetRegistryUpdater's availableLocales bookkeeping).
-        if ($locale !== null) {
-            $default = $this->findArtifact($em, $dataset, Artifact::CODE_DEFAULT);
-            if ($default !== null && !in_array($locale, $default->availableLocales, true)) {
-                $default->availableLocales = [...$default->availableLocales, $locale];
-                $em->persist($default);
-            }
-        }
-        $provider->setDatasetCount((int) $em->createQuery(
-            'SELECT COUNT(d) FROM ' . DatasetInfo::class . ' d WHERE d.providerEntity = :provider'
-        )->setParameter('provider', $provider)->getSingleScalarResult());
-        $em->flush();
-    }
-
-    /**
-     * Look up a folio Artifact through $em itself, NOT $em->getRepository(): ArtifactRepository
-     * is a ServiceEntityRepository, so getRepository() returns the container service bound to
-     * whichever entity manager ManagerRegistry resolves first for Artifact. In an app whose
-     * default EM also maps the dataset entities (openfoto), that's the DEFAULT EM's (empty)
-     * tables — every lookup misses, each re-pull double-inserts, and the unique constraint on
-     * (dataset_key, type, code) kills the flush. Querying via $em keeps the read on the same
-     * connection we flush to.
-     */
-    private function findArtifact(EntityManagerInterface $em, DatasetInfo $dataset, string $code): ?Artifact
-    {
-        return $em->createQuery(
-            'SELECT a FROM ' . Artifact::class . ' a WHERE a.dataset = :dataset AND a.type = :type AND a.code = :code'
-        )
-            ->setParameter('dataset', $dataset)
-            ->setParameter('type', Artifact::TYPE_FOLIO)
-            ->setParameter('code', $code)
-            ->getOneOrNullResult();
     }
 }

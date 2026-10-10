@@ -83,9 +83,8 @@ bin/console folio:pull --dataset=loc/voices-remembering-slavery --api=https://mu
 bin/console folio:pull --provider=loc --api=https://museado.org
 ```
 
-`folio:pull` records what it pulled into the registry **when one is present**, and skips that step
-silently when it is not (`FolioPullCommand::doRegisterRestoredFolio()` early-returns on a null EM).
-The pull itself is identical either way.
+`folio:pull` never writes to the dataset registry, whether or not one is present: Harvest alone
+owns the registry, and a pull only puts files on disk. The pull is identical in every app.
 
 A note on picking datasets by tag: datasets carry editorial tags (`newspaper-source`,
 `oral-history`) that folio sets select on, and `/folio/list.json` does not currently publish them —

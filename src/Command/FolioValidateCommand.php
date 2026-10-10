@@ -6,6 +6,7 @@ namespace Survos\FolioBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DatasetBundle\Entity\DatasetInfo;
+use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\FolioBundle\Event\FolioInvalidatedEvent;
 use Survos\FolioBundle\Service\FolioService;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -66,6 +67,10 @@ final class FolioValidateCommand
          */
         #[Target('doctrine.orm.dataset_entity_manager')]
         private readonly ?EntityManagerInterface $datasetEntityManager = null,
+        // An app on Harvest's dataset API (dataset_api enabled) is a consumer: it answers "is this a
+        // real dataset?" from that catalog, even when a registry is reachable on a shared disk —
+        // the registry belongs to Harvest alone. folio_server is no signal: Harvest sets it too.
+        private readonly ?FolioCatalogClient $catalog = null,
     ) {
     }
 
@@ -107,7 +112,7 @@ final class FolioValidateCommand
 
         $known = $this->knownDatasetKeys();
         if ($known === null) {
-            $io->note('No dataset registry available — orphan detection skipped.');
+            $io->note('No dataset catalog or registry available — orphan detection skipped.');
         }
 
         $io->progressStart(count($files));
@@ -298,6 +303,21 @@ final class FolioValidateCommand
     /** @return array<string, true>|null */
     private function knownDatasetKeys(): ?array
     {
+        if ($this->catalog?->usesDatasetApi()) {
+            $entries = $this->catalog->all();
+            // An unreachable catalog with nothing cached is "don't know", never "nothing is real":
+            // the latter would mark every folio on disk an orphan.
+            if ($entries === [] && $this->catalog->isStale()) {
+                return null;
+            }
+            $keys = [];
+            foreach ($entries as $entry) {
+                $keys[$entry->datasetKey] = true;
+            }
+
+            return $keys;
+        }
+
         if ($this->datasetEntityManager === null) {
             return null;
         }

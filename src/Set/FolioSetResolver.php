@@ -19,7 +19,7 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * Membership is derived and can always be rebuilt. See docs/folio-sets.md.
  *
  * Two sources answer the same criteria with the same {@see matches()}: the hub catalog
- * (`<folio_server>/folio/list.json`), which is what a reading app sees, and the local dataset
+ * (`<folio_server>/folio/list.json`, or the Harvest dataset API), which is what a reading app sees, and the local dataset
  * registry, which is what the app that builds the folios sees. folio:sets:sync records the result;
  * members() reads it back.
  */
@@ -40,7 +40,7 @@ final class FolioSetResolver
         private readonly ?DatasetInfoRepository $datasets = null,
         private readonly ?FolioCatalogClient $catalog = null,
         private readonly ?FolioService $folios = null,
-        /** auto: the hub catalog when folio_server is set, else the local registry */
+        /** auto: the hub catalog when folio_server or the dataset API is set, else the local registry */
         #[Autowire('%survos_folio.folio_sets_source%')]
         private readonly string $source = 'auto',
         #[Autowire('%survos_folio.folio_server%')]
@@ -64,7 +64,9 @@ final class FolioSetResolver
             return $this->source;
         }
 
-        return $this->catalog !== null && ($this->folioServer ?? '') !== '' ? 'catalog' : 'registry';
+        // A consumer reads Harvest's API/feed, never its registry: the dataset API counts as a
+        // catalog even with folio_server empty.
+        return $this->catalog !== null && (($this->folioServer ?? '') !== '' || $this->catalog->usesDatasetApi()) ? 'catalog' : 'registry';
     }
 
     /**
@@ -196,7 +198,7 @@ final class FolioSetResolver
         }
 
         if ($this->datasets === null) {
-            throw new \RuntimeException('Folio sets resolve against the local dataset registry here, and it is not available. Set survos_folio.folio_server to resolve against the hub catalog instead.');
+            throw new \RuntimeException('Folio sets resolve against the local dataset registry here, and it is not available. Set survos_folio.folio_server or enable survos_folio.dataset_api to resolve against the hub catalog instead.');
         }
         foreach ($this->datasets->findAll() as $info) {
             if (($candidate = $this->fromRegistry($info, $criteria)) !== null) {
