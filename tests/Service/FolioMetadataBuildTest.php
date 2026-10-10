@@ -46,6 +46,62 @@ final class FolioMetadataBuildTest extends TestCase
         (new Filesystem())->remove($this->root);
     }
 
+    public function testBuildAnnouncesTheFinalReadableArtifact(): void
+    {
+        $code = 'test/published';
+        $dataset = new DatasetInfo($code);
+        $dataset->label = 'Published fixture';
+        $dataset->cores = ['doc'];
+        $dir = $this->paths->stageDir($code, 'normalized');
+        (new Filesystem())->mkdir($dir);
+        file_put_contents($dir.'/doc.jsonl', json_encode([
+            \Survos\DataContracts\Vocabulary\ItemField::ID => '1',
+            \Survos\DataContracts\Vocabulary\ItemField::TITLE => 'Published issue',
+            \Survos\DataContracts\Vocabulary\ItemField::CONTENT_TYPE => \Survos\DataContracts\Metadata\ContentType::NEWSPAPER,
+        ], JSON_THROW_ON_ERROR)."\n");
+
+        $repo = $this->createMock(\Doctrine\ORM\EntityRepository::class);
+        $repo->expects(self::once())->method('find')->with($code)->willReturn($dataset);
+        $em = $this->createMock(\Doctrine\ORM\EntityManagerInterface::class);
+        $em->expects(self::once())->method('getRepository')->with(DatasetInfo::class)->willReturn($repo);
+        $registry = new FolioRegistry($this->paths, $em);
+        $state = new JsonlStateService();
+        $resolver = new FolioDtoTypeResolver();
+        $ingest = new FolioIngestService($this->folios, $registry, $resolver, new FolioSummaryService(), $this->paths, new JsonlCountService($state));
+        $views = new \Survos\FolioBundle\Service\FolioViewBuilder();
+        $preparer = new \Survos\FolioBundle\Service\FolioArchivePreparer(
+            new \Survos\FolioBundle\Service\FolioSchemaSnapshotter($resolver),
+            $views,
+            new \Survos\FolioBundle\Service\FolioDocsBuilder(),
+        );
+        $archive = new \Survos\FolioBundle\Service\FolioArchiveService($this->folios, new \Survos\FolioBundle\Service\FolioFtsIndexer(), $preparer, $views);
+        $dispatcher = new \Symfony\Component\EventDispatcher\EventDispatcher();
+        $events = [];
+        $finalPath = $this->folios->path($code);
+        $dispatcher->addListener(\Survos\DatasetBundle\Event\DatasetArtifactUpdatedEvent::class, function ($event) use (&$events, $finalPath): void {
+            self::assertSame(\Survos\DatasetBundle\Entity\Artifact::TYPE_FOLIO, $event->type);
+            self::assertSame($finalPath, $event->uri);
+            self::assertFileIsReadable($event->uri);
+            self::assertFileDoesNotExist($finalPath.'.building');
+            $pdo = new \PDO('sqlite:file:'.$event->uri.'?mode=ro');
+            self::assertSame(1, (int) $pdo->query('SELECT count(*) FROM item')->fetchColumn());
+            self::assertSame(1, $event->rowCount);
+            $events[] = $event;
+        });
+        $command = new \Survos\FolioBundle\Command\FolioBuildCommand(
+            $ingest, $registry, $this->folios, $archive, $preparer,
+            $this->createStub(\Symfony\Component\Routing\Generator\UrlGeneratorInterface::class),
+            $state, '/folio', $dispatcher,
+        );
+        $io = new \Symfony\Component\Console\Style\SymfonyStyle(
+            new \Symfony\Component\Console\Input\ArrayInput([]),
+            new \Symfony\Component\Console\Output\NullOutput(),
+        );
+        self::assertSame(0, $command($io, dataset: $code));
+        self::assertCount(1, $events);
+        $state->closeAll();
+    }
+
     public function testBuildRebuildAndFailurePreserveHumanMetadata(): void
     {
         $code = 'test/paper';

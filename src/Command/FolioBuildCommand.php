@@ -332,6 +332,19 @@ final class FolioBuildCommand implements SignalableCommandInterface
                         $this->coreLink($code, (string) $coreCode),
                     ));
                 }
+                $this->finishWorkingFolio($workingPath, $io);
+            } elseif (is_file($workingPath)) {
+                unlink($workingPath);
+            }
+            } catch (\Throwable $e) {
+                // A failed build leaves the live folio exactly as it was.
+                $this->folios->discardBuildAt($code, $buildLocale);
+
+                throw $e;
+            }
+            $workingPath = $this->folios->finishBuildAt($code, $buildLocale);
+            if ($inflate) {
+                // Announce only the published file, after the atomic rename succeeds.
                 $this->dispatchArtifactUpdated(
                     datasetKey: $code,
                     type: Artifact::TYPE_FOLIO,
@@ -351,18 +364,6 @@ final class FolioBuildCommand implements SignalableCommandInterface
                     ],
                     code: $buildLocale ?? Artifact::CODE_DEFAULT,
                 );
-                $this->finishWorkingFolio($workingPath, $io);
-            } elseif (is_file($workingPath)) {
-                unlink($workingPath);
-            }
-            } catch (\Throwable $e) {
-                // A failed build leaves the live folio exactly as it was.
-                $this->folios->discardBuildAt($code, $buildLocale);
-
-                throw $e;
-            }
-            $workingPath = $this->folios->finishBuildAt($code, $buildLocale);
-            if ($inflate) {
                 $this->dispatcher?->dispatch(new \Survos\FolioBundle\Event\FolioPublishedEvent(
                     datasetKey: $code,
                     dbFile: $workingPath,
