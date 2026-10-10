@@ -9,6 +9,7 @@ use League\Flysystem\FilesystemOperator;
 use Psr\Log\LoggerInterface;
 use Survos\DatasetBundle\Entity\{Artifact,DatasetInfo,Provider};
 use Survos\FetchBundle\Service\ChunkDownloader;
+use Survos\FolioBundle\Catalog\ArtifactChecksumException;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\FolioBundle\Catalog\FolioCatalogEntry;
 use Survos\FolioBundle\Service\{FolioArchiveService,FolioService,FolioSummaryService};
@@ -169,7 +170,7 @@ final class FolioPullCommand
      * Pull over plain HTTP from a folio API (e.g. zm's read-only `/folio/list.json` + download routes).
      * No SSH/credentials — just GET the JSON registry, download each `.folio.gz`, restore() + inflate().
      */
-    private function pullFromApi(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all, bool $force, ?array $entries = null, array $headers = []): int
+    private function pullFromApi(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all, bool $force, ?array $entries = null, array $headers = [], ?\Closure $download = null): int
     {
         if ($this->http === null) {
             $io->error('No HTTP client available (require symfony/http-client).');
@@ -187,7 +188,7 @@ final class FolioPullCommand
             $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
             return Command::SUCCESS;
         }
-        if ($this->downloader === null) {
+        if ($download === null && $this->downloader === null) {
             $io->error('HTTP folio downloads require survos/fetch-bundle. Install it to use folio:pull from a folio server.');
             return Command::FAILURE;
         }
@@ -222,7 +223,9 @@ final class FolioPullCommand
 
             $localGz = $tmpDir . '/' . str_replace('/', '_', $display) . '.folio.gz';
             $this->logger?->info('folio:pull downloading folio', ['code' => $display, 'url' => $downloadUrl]);
-            $bytes = $this->downloader->download($downloadUrl, $localGz, null, ['overwrite' => true, 'timeout' => 120.0, 'headers' => $headers]);
+            $bytes = $download !== null
+                ? $download($downloadUrl, $localGz)
+                : $this->downloader->download($downloadUrl, $localGz, null, ['overwrite' => true, 'timeout' => 120.0, 'headers' => $headers]);
             $io->text(sprintf('Downloaded: %s (%s)', $downloadUrl, Bytes::parse($bytes)->humanize()));
 
             // restore() gunzips → working folio AND inflates (indexes + FTS + views).
@@ -238,6 +241,7 @@ final class FolioPullCommand
         }
 
         $this->rmdir($tmpDir);
+
         $io->success(sprintf('Pulled %d folio(s) from API, skipped %d existing', $pulled, $skipped));
         return Command::SUCCESS;
     }
@@ -252,8 +256,16 @@ final class FolioPullCommand
             $io->error($entry->datasetKey.': no published archive is available.');
             return Command::FAILURE;
         }
-        return $this->pullFromApi($io, $this->catalog?->url() ?? $entry->downloadUrl, $entry->datasetKey, null, false, $force,
-            entries: [get_object_vars($entry)], headers: $this->catalog?->downloadHeaders($entry->downloadUrl) ?? []);
+        // Dataset API artifacts are verified against X-Artifact-Sha256 before they replace anything.
+        $download = $this->catalog?->usesDatasetApi() ? $this->catalog->download(...) : null;
+        try {
+            return $this->pullFromApi($io, $this->catalog?->url() ?? $entry->downloadUrl, $entry->datasetKey, null, false, $force,
+                entries: [get_object_vars($entry)], headers: $download === null ? ($this->catalog?->downloadHeaders($entry->downloadUrl) ?? []) : [],
+                download: $download);
+        } catch (ArtifactChecksumException $mismatch) {
+            $io->error($entry->datasetKey.': '.$mismatch->getMessage());
+            return Command::FAILURE;
+        }
     }
 
     /**

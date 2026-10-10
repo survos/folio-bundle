@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Catalog;
 
+use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
@@ -50,11 +52,27 @@ final readonly class DatasetPublicationClient
         return $datasets;
     }
 
-    /** Prepare catch-up without advancing a consumer checkpoint. The caller commits after work. */
+    /**
+     * Prepare catch-up without advancing a consumer checkpoint. The caller commits after work.
+     *
+     * A 410 on an incremental replay means the saved cursor belongs to another (or a rebuilt)
+     * registry, so the checkpoint is worthless: start over with a full sync instead of failing
+     * every scheduled run until someone passes --full by hand.
+     */
     public function changes(?array $saved, bool $full): array
     {
         if ($saved !== null && $saved[DatasetField::SOURCE] !== $this->source()) { $saved = null; }
         $full = $full || $saved === null;
+        try {
+            return $this->catchUp($saved, $full);
+        } catch (HttpExceptionInterface $gone) {
+            if ($full || $gone->getResponse()->getStatusCode() !== 410) { throw $gone; }
+            return $this->catchUp(null, true);
+        }
+    }
+
+    private function catchUp(?array $saved, bool $full): array
+    {
         // Capture BEFORE scanning, then replay writes that raced with the scan.
         $cursor = $full ? $this->get('/api/changes')[DatasetField::CURSOR] : $saved[DatasetField::CURSOR];
         $datasets = $full ? $this->datasets() : $saved[DatasetField::ITEMS];
@@ -76,6 +94,54 @@ final readonly class DatasetPublicationClient
         } while ($page[DatasetField::HAS_MORE]);
         return [DatasetField::VERSION => 1, DatasetField::SOURCE => $this->source(),
             DatasetField::CURSOR => $cursor, DatasetField::ITEMS => $datasets];
+    }
+
+    /**
+     * Stream an artifact to $destination, verifying the bytes against X-Artifact-Sha256.
+     *
+     * Harvest hashes the opened file before streaming it; anything else (truncation, a proxy, a
+     * file swapped mid-publication) leaves no file at $destination, so a working folio is never
+     * replaced by bytes the provider did not vouch for.
+     *
+     * @return int bytes written
+     */
+    public function download(string $url, string $destination): int
+    {
+        $url = str_starts_with($url, '/') ? $this->downloadUrl($url) : $url;
+        $response = $this->http->request('GET', $url, [
+            'headers' => $this->downloadHeaders($url), 'timeout' => 120, 'max_redirects' => 0, 'buffer' => false,
+        ]);
+        if (($status = $response->getStatusCode()) !== 200) {
+            throw new \RuntimeException(sprintf('Artifact download failed with HTTP %d: %s', $status, $url));
+        }
+        $expected = strtolower($response->getHeaders()['x-artifact-sha256'][0] ?? '');
+        if (!preg_match('/^[0-9a-f]{64}$/', $expected)) {
+            throw new ArtifactChecksumException(sprintf('Artifact response carries no valid X-Artifact-Sha256: %s', $url));
+        }
+
+        $filesystem = new Filesystem();
+        $temp = $destination.'.part';
+        $filesystem->mkdir(\dirname($destination));
+        $out = new \SplFileObject($temp, 'wb');
+        $hash = hash_init('sha256');
+        $bytes = 0;
+        try {
+            foreach ($this->http->stream($response) as $chunk) {
+                $content = $chunk->getContent();
+                hash_update($hash, $content);
+                $bytes += $out->fwrite($content);
+            }
+            $out = null;
+            $actual = hash_final($hash);
+            if (!hash_equals($expected, $actual)) {
+                throw new ArtifactChecksumException(sprintf('Artifact checksum mismatch for %s: expected %s, got %s.', $url, $expected, $actual));
+            }
+            $filesystem->rename($temp, $destination, true);
+        } finally {
+            $out = null;
+            $filesystem->remove($temp);
+        }
+        return $bytes;
     }
 
     public function downloadUrl(string $url): string

@@ -147,6 +147,13 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
         return $this->datasets?->downloadHeaders($url) ?? [];
     }
 
+    /** Download a dataset API artifact, verified against the provider's X-Artifact-Sha256. */
+    public function download(string $url, string $destination): int
+    {
+        if ($this->datasets === null) { throw new \LogicException('Verified artifact downloads require dataset_api configuration.'); }
+        return $this->datasets->download($url, $destination);
+    }
+
     /** Strict full refresh: an outage is a failure, never a successful empty synchronization. */
     public function refresh(): array
     {
