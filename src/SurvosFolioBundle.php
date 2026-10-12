@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle;
 
-use Survos\DataContracts\Path\DataPaths;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\FolioBundle\Catalog\DatasetPublicationClient;
 use Survos\FolioBundle\Publisher\PublisherApiClient;
@@ -78,10 +77,6 @@ final class SurvosFolioBundle extends AbstractUxBundle
                     ->scalarNode('base_url')->defaultNull()->info('When set, Harvest (and the client) reject confirmed URLs on another host.')->end()
                     ->variableNode('selection')->defaultValue(['mode' => 'all'])->info('Intent sent on reset: {mode: all} | {mode: tags, tags: [...]} | {mode: datasets, datasetKeys: [...]} | {mode: manual}.')->end()
                 ->end()
-            ->end()
-            ->scalarNode('data_dir')
-                ->defaultValue('%env(APP_DATA_DIR)%')
-                ->info('Root of the data tree folio paths resolve under, Used unless the application supplies its own DataPaths service.')
             ->end()
             ->integerNode('fts_max_rows')
                 ->defaultValue(0)
@@ -213,12 +208,6 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $builder->setParameter('survos_folio.archive_api_prefix', $config['archive_api_prefix']);
         $builder->setParameter('survos_folio.local_passthrough', $config['local_passthrough']);
         $services = $container->services();
-
-        // Applications may supply richer path configuration themselves.
-        if (!$builder->hasDefinition(DataPaths::class) && !$builder->hasAlias(DataPaths::class)) {
-            $services->set(DataPaths::class)->autowire()->autoconfigure()->public()
-                ->args(['$dataDir' => $config['data_dir']]);
-        }
 
         // The one hub-catalog reader (src/Catalog). Registered unconditionally: it is HTTP only,
         // needs no registry, and replacing each app's own copy is the point of it existing.

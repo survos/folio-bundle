@@ -7,7 +7,8 @@ Folio stores normalized/enriched dataset JSONL as portable SQLite archive files.
 Required: `survos/field-bundle`, `survos/data-contracts`.
 Suggested for ingest/write workflows: `survos/jsonl-bundle`, `survos/import-bundle`.
 
-See `docs/configuration.md` for the required multi-connection Doctrine setup.
+The application must explicitly register `Survos\DataContracts\Path\DataPaths`; FolioBundle never supplies a fallback.
+See `docs/configuration.md` for that service and the required multi-connection Doctrine setup.
 See `docs/archive-metadata.md` for the standalone archive metadata contract.
 See `docs/publisher-registration.md` for how a publishing app confirms and withdraws folios with Harvest (`PublisherRegistrar`).
 See `docs/presentation-layer.md` for the proposal to use folios as narrative institutional presentation packages.

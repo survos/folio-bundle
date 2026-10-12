@@ -50,15 +50,18 @@ That is why they are removed rather than left to fail late.
 
 ## Configuration
 
-Set `data_dir` so folio paths resolve. Same value and default as `survos_dataset.data_dir`; ignored
-when dataset-bundle is installed, because then it registers `DataPaths` itself from its own config.
+The application must explicitly register `Survos\DataContracts\Path\DataPaths`.
+FolioBundle does not create or override it. Harvest already supplies this service;
+a standalone reader can configure it in `config/services.yaml`:
 
 ```yaml
-# config/packages/survos_folio.yaml
-survos_folio:
-    data_dir: '%env(APP_DATA_DIR)%'   # the default; set it explicitly if your app's tree differs
-    folio_server: 'https://museado.org'
+services:
+    Survos\DataContracts\Path\DataPaths:
+        arguments:
+            $dataDir: '%env(APP_DATA_DIR)%'
 ```
+
+The former `survos_folio.data_dir` option is removed; configure the service directly.
 
 `DataPaths` and the `Stage` enum now live in `survos/data-contracts` (a plain library, no Doctrine),
 which this bundle already requires. The old names still work — `Survos\DatasetBundle\Service\DataPaths`

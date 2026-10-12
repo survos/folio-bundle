@@ -30,7 +30,7 @@ final class FolioServicesTest extends TestCase
     public function testReaderAndBuilderServicesHaveNoDatasetDependencies(): void
     {
         $builder = $this->build();
-        self::assertTrue($builder->hasDefinition(DataPaths::class));
+        self::assertFalse($builder->hasDefinition(DataPaths::class));
         foreach ([FolioService::class, FolioController::class, FolioSearchController::class,
             \Survos\FolioBundle\Service\FolioBuilder::class, FolioPullCommand::class, FolioValidateCommand::class] as $class) {
             self::assertTrue($builder->hasDefinition($class), $class);
@@ -40,6 +40,30 @@ final class FolioServicesTest extends TestCase
             self::assertFalse($builder->hasDefinition($class), $class);
         }
         self::assertSame([], $this->hardDatasetReferences($builder));
+    }
+
+    public function testMergedApplicationPathsAreNotOverwritten(): void
+    {
+        $application = new ContainerBuilder();
+        $paths = $application->register(DataPaths::class)
+            ->setArgument('$dataDir', '/harvest')
+            ->setArgument('$captureRoot', '%env(DATASET_CAPTURE_ROOT)%');
+
+        // Symfony merges each extension's isolated builder into the application.
+        $application->merge($this->build());
+
+        self::assertSame($paths, $application->getDefinition(DataPaths::class));
+        self::assertSame('%env(DATASET_CAPTURE_ROOT)%', $paths->getArgument('$captureRoot'));
+    }
+
+    public function testApplicationPathsAliasIsPreserved(): void
+    {
+        $application = new ContainerBuilder();
+        $application->setAlias(DataPaths::class, 'app.paths');
+        $application->merge($this->build());
+
+        self::assertSame('app.paths', (string) $application->getAlias(DataPaths::class));
+        self::assertFalse($application->hasDefinition(DataPaths::class));
     }
 
     /**
