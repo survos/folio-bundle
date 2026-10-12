@@ -189,7 +189,7 @@
     {% set isSingleImage = pages|length == 1 and not (dto ? dto.pdfUrl : attribute(row.dtoData, 'pdfUrl')|default(null)) %}
     {% set pdfUrl = dto ? dto.pdfUrl : attribute(row.dtoData, 'pdfUrl')|default(null) %}
     {% set docPageCount = dto ? (dto.pageCount ?: 0) : attribute(row.dtoData, 'pageCount')|default(0) %}
-    {% set videoPages = pages|filter(p => p.url matches '/\\.(mp4|mpe?g|mov|avi|wmv|m4v|webm)($|\\?)/i') %}
+    {% set videoPages = pages|filter(p => p.url matches '/\\.(mp4|mpe?g|mov|avi|wmv|m4v|webm)($|\\?)/i')|merge([]) %}
     {% set ocrText = dto ? dto.ocrText : attribute(row.dtoData, 'ocrText')|default(null) %}
     {% set ocrPageCount = dto ? dto.pageCount : attribute(row.dtoData, 'pageCount')|default(null) %}
     {% set aiTasks = dto ? dto.aiTasks : attribute(row.dtoData, 'aiTasks')|default(null) %}
