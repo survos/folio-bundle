@@ -4,61 +4,33 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Sitemap;
 
-use Survos\DatasetBundle\Entity\Artifact;
-use Survos\DatasetBundle\Repository\ArtifactRepository;
+use Survos\FolioBundle\Catalog\FolioCatalogClient;
+use Survos\FolioBundle\Service\FolioService;
 
-/**
- * Which folios belong in the sitemap, and when each was last built.
- *
- * Kept separate from FolioSitemapPopulator so "what is publishable" is one decision in one place:
- * a folio with no artifact row, or no file on disk, must not appear in a sitemap -- submitting
- * URLs that 404 is worse than omitting them, and /en/f/mus/larco is a live example of a folio
- * code that exists in code and docs but has no build on the volume.
- */
-final class FolioSitemapRegistry
+/** Published catalog entries that have a local folio available for item enumeration. */
+final readonly class FolioSitemapRegistry
 {
-    public function __construct(
-        private readonly ArtifactRepository $artifacts,
-    ) {
-    }
+    public function __construct(private FolioCatalogClient $catalog, private FolioService $folios) {}
 
     /** @return list<string> */
     public function publishedFolioCodes(): array
     {
-        $rows = $this->artifacts->createQueryBuilder('artifact')
-            ->select('dataset.datasetKey AS code', 'artifact.uri AS uri')
-            ->join('artifact.dataset', 'dataset')
-            ->where('artifact.type = :type')
-            ->setParameter('type', Artifact::TYPE_FOLIO)
-            ->orderBy('dataset.datasetKey', 'ASC')
-            ->getQuery()
-            ->getArrayResult();
-
-        $codes = [];
-        foreach ($rows as $row) {
-            $uri = $row['uri'] ?? null;
-            if (!\is_string($uri) || !is_file($uri)) {
-                continue;
-            }
-            $codes[] = (string) $row['code'];
+        $entries = $this->catalog->all();
+        if ($entries === [] && $this->catalog->isStale()) {
+            throw new \RuntimeException('Cannot build a sitemap without a published folio catalog.');
         }
-
-        return $codes;
+        $codes = [];
+        foreach ($entries as $entry) {
+            if ($entry->locale === null && is_file($this->folios->path($entry->datasetKey))) {
+                $codes[] = $entry->datasetKey;
+            }
+        }
+        return array_values(array_unique($codes));
     }
 
     public function lastModified(string $folioCode): ?\DateTimeInterface
     {
-        $row = $this->artifacts->createQueryBuilder('artifact')
-            ->select('artifact.updatedAt AS updatedAt')
-            ->join('artifact.dataset', 'dataset')
-            ->where('artifact.type = :type')
-            ->andWhere('dataset.datasetKey = :code')
-            ->setParameter('type', Artifact::TYPE_FOLIO)
-            ->setParameter('code', $folioCode)
-            ->setMaxResults(1)
-            ->getQuery()
-            ->getOneOrNullResult();
-
-        return $row['updatedAt'] ?? null;
+        $file = $this->folios->path($folioCode);
+        return is_file($file) ? (new \DateTimeImmutable())->setTimestamp(filemtime($file)) : null;
     }
 }

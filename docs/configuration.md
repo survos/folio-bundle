@@ -1,3 +1,8 @@
+> Command migration: historical `folio:build` / `folio:ingest` /
+> `folio:archive` / `folio:translate` recipes below are obsolete. Use the
+> [current build service and workflow entry points](folio-build-pipeline.md).
+> Dataset registry integration and `folio_sets_source: registry` are removed.
+
 # Folio Bundle Configuration
 
 Folio needs a dedicated SQLite DBAL connection and ORM entity manager. The wrapper is required because `FolioService::context($folioCode)` switches the same entity manager to the selected folio file before reads.

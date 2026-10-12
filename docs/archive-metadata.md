@@ -1,3 +1,8 @@
+> Command migration: historical `folio:build` / `folio:ingest` /
+> `folio:archive` / `folio:translate` recipes below are obsolete. Use the
+> [current build service and workflow entry points](folio-build-pipeline.md).
+> Dataset registry integration and `folio_sets_source: registry` are removed.
+
 # Folio Archive Metadata
 
 Folio archives are portable SQLite files for normalized dataset rows. The canonical storage table remains `item`: rows keep a stable local id, label, DTO type, DTO-shaped JSON, and extra source fields. The archive also stores enough metadata for a consumer to understand the file without having the PHP DTO library installed.

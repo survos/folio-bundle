@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
-use Doctrine\ORM\EntityManagerInterface;
-use Survos\DatasetBundle\Entity\DatasetInfo;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\FolioBundle\Event\FolioInvalidatedEvent;
 use Survos\FolioBundle\Service\FolioService;
@@ -13,7 +11,6 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\DependencyInjection\Attribute\Target;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 /**
@@ -59,17 +56,6 @@ final class FolioValidateCommand
     public function __construct(
         private readonly FolioService $folios,
         private readonly EventDispatcherInterface $dispatcher,
-        /**
-         * Optional exactly as in {@see \Survos\FolioBundle\Service\FolioRegistry}: a bare app that
-         * only pulls and displays folios has no dataset registry, and must still be able to run the
-         * open/migrate half of this command. Orphan detection is skipped when it is null rather
-         * than guessed at — see validate()'s note on why that distinction matters before deleting.
-         */
-        #[Target('doctrine.orm.dataset_entity_manager')]
-        private readonly ?EntityManagerInterface $datasetEntityManager = null,
-        // An app on Harvest's dataset API (dataset_api enabled) is a consumer: it answers "is this a
-        // real dataset?" from that catalog, even when a registry is reachable on a shared disk —
-        // the registry belongs to Harvest alone. folio_server is no signal: Harvest sets it too.
         private readonly ?FolioCatalogClient $catalog = null,
     ) {
     }
@@ -318,18 +304,7 @@ final class FolioValidateCommand
             return $keys;
         }
 
-        if ($this->datasetEntityManager === null) {
-            return null;
-        }
-
-        $keys = [];
-        foreach ($this->datasetEntityManager->getConnection()->iterateColumn(
-            sprintf('SELECT dataset_key FROM %s', $this->datasetEntityManager->getClassMetadata(DatasetInfo::class)->getTableName()),
-        ) as $key) {
-            $keys[(string) $key] = true;
-        }
-
-        return $keys;
+        return null;
     }
 
     /**

@@ -13,14 +13,14 @@ use Survos\FolioBundle\Publisher\PublisherSelection;
 use Survos\IiifBundle\SurvosIiifBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
 use Survos\BookmarkBundle\Service\BookmarkManager;
-use Survos\FolioBundle\Command\{FolioArchiveCommand,FolioBrowseCommand,FolioBuildCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioIngestCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand,FolioTranslateCommand,FolioValidateCommand};
+use Survos\FolioBundle\Command\{FolioBrowseCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand,FolioValidateCommand};
 use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioFtsIndexListener,FolioRouteAttributeListener};
 use Survos\FolioBundle\Menu\FolioMenu;
 use Survos\FolioBundle\Menu\RowMenu;
-use Survos\FolioBundle\Controller\{FolioAiController,FolioCollectionController,FolioController,FolioSearchController};
+use Survos\FolioBundle\Controller\{FolioAiController,FolioController,FolioSearchController};
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioElasticBuildSetCommand,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFacetFieldResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRegistry,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioTermCloudService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
+use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioElasticBuildSetCommand,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFacetFieldResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioTermCloudService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
 use Survos\FolioBundle\Command\FolioSitemapCommand;
 use Survos\FolioBundle\Sitemap\FolioSitemapPopulator;
 use Survos\FolioBundle\Sitemap\FolioSitemapRegistry;
@@ -57,9 +57,6 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('Set false to disable this bundle\'s admin navbar menu entries.')
             ->end()
             ->integerNode('archive_compression_level')->min(0)->max(9)->defaultValue(1)->end()
-            ->booleanNode('build_archive')->defaultFalse()
-                ->info('Also build the compressed .folio.gz archive + register the FOLIO_ARCHIVE artifact on inline workflow builds (set true on publishing/prod hosts; off locally — the .gz is slow and unused for browsing).')
-            ->end()
             ->booleanNode('read_only')->defaultFalse()->info('Open published folios without schema updates, writes or journal-mode changes.')->end()
             ->scalarNode('archive_api_prefix')->defaultValue('/folio')->info('Remote archive API prefix, independent of browse routes.')->end()
             ->scalarNode('extension')->defaultValue('folio')->end()
@@ -84,7 +81,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->end()
             ->scalarNode('data_dir')
                 ->defaultValue('%env(APP_DATA_DIR)%')
-                ->info('Root of the data tree folio paths resolve under, same value and default as survos_dataset.data_dir. Only used when dataset-bundle is absent: when it is installed IT registers DataPaths, from its own (richer) path config, and this is ignored.')
+                ->info('Root of the data tree folio paths resolve under, Used unless the application supplies its own DataPaths service.')
             ->end()
             ->integerNode('fts_max_rows')
                 ->defaultValue(0)
@@ -160,8 +157,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->defaultFalse()
             ->end()
             ->enumNode('folio_sets_source')
-                ->info('What folio sets resolve against. auto: the hub catalog (<folio_server>/folio/list.json, or the Harvest dataset API when dataset_api is enabled) when either is set — a reading app — else the local dataset registry — the app that builds folios.')
-                ->values(['auto', 'catalog', 'registry'])
+                ->info('Resolve membership from the configured published folio catalog.')
+                ->values(['auto', 'catalog'])
                 ->defaultValue('auto')
             ->end()
             ->arrayNode('folio_sets')
@@ -197,10 +194,6 @@ final class SurvosFolioBundle extends AbstractUxBundle
                     ->end()
                 ->end()
             ->end()
-            ->scalarNode('reviewed_translations_dir')
-                ->info('Directory of hand-reviewed translation overrides, one <code.locale>.jsonl per dataset+locale (same {code,locale,text} shape dataset:intl:pull writes to the gitignored working trans/ dir) — but THIS directory is meant to be committed to the app\'s own repo, same convention as translations/messages.*.yaml. Checked by folio:build --locale, taking precedence over whatever Lingua returned for the same code: a small, human/AI-correctable vocabulary (dataset tags, term labels — hundreds of entries, not thousands) is worth reviewing once and keeping stable, rather than trusting a machine-translation engine\'s output verbatim forever. Null (default) disables the override entirely.')
-                ->defaultNull()
-            ->end()
         ->end();
     }
 
@@ -208,41 +201,6 @@ final class SurvosFolioBundle extends AbstractUxBundle
     {
         parent::build($container);
         $this->addRouteLoaderCompilerPass($container);
-    }
-
-    /**
-     * Whether survos/dataset-bundle's production registry is installed.
-     *
-     * Cached in a property rather than recomputed so the bare-reader path is testable: this class
-     * is final by design, so a test presets the property by reflection to assert both branches.
-     * See tests/Bundle/DatasetRegistryOptionalTest.php.
-     */
-    private ?bool $datasetRegistryAvailable = null;
-
-    private function hasDatasetRegistry(?ContainerBuilder $builder = null): bool
-    {
-        // What matters is whether THIS app ENABLED dataset-bundle, not whether the class is
-        // reachable on the autoloader: an app that drops it from config/bundles.php still has it
-        // in vendor/ (and every app symlinks it from ~/sites/mono, so it is always "installed"),
-        // and in that state class_exists() says yes while the registry's services do not exist —
-        // so anything registered on the strength of it fails to autowire and takes the container
-        // down at compile time.
-        //
-        // kernel.bundles, not hasExtension(): loadExtension() runs against Symfony's temporary
-        // MergeExtensionConfigurationContainerBuilder, which does not carry the other bundles'
-        // extensions, so hasExtension('survos_dataset') is false even in harvest where the bundle
-        // is very much enabled. The parameter bag IS proxied through, and kernel.bundles is set
-        // before any extension loads.
-        if ($this->datasetRegistryAvailable !== null) {
-            return $this->datasetRegistryAvailable;
-        }
-
-        $bundles = $builder?->hasParameter('kernel.bundles') === true
-            ? (array) $builder->getParameter('kernel.bundles')
-            : [];
-
-        return $this->datasetRegistryAvailable = isset($bundles['SurvosDatasetBundle'])
-            || in_array(\Survos\DatasetBundle\SurvosDatasetBundle::class, $bundles, true);
     }
 
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
@@ -254,29 +212,11 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $builder->setParameter('survos_folio.route_prefix', $config['route_prefix']);
         $builder->setParameter('survos_folio.archive_api_prefix', $config['archive_api_prefix']);
         $builder->setParameter('survos_folio.local_passthrough', $config['local_passthrough']);
-        $builder->setParameter('survos_folio.reviewed_translations_dir', $config['reviewed_translations_dir']);
         $services = $container->services();
 
-        // survos/dataset-bundle is a SUGGEST, not a require: it carries the production registry
-        // (a second Doctrine connection, its entities and API Platform resources) that an app which
-        // only displays folios has no business installing. Everything below that touches the
-        // registry is registered only when it is actually present.
-        //
-        // class_exists, not hasExtension: every consuming app resolves vendor/survos/folio-bundle
-        // to a symlink into ~/sites/mono and runs this code against ITS OWN vendor tree, so a
-        // composer requirement never proved presence here anyway (same reasoning as the presta
-        // guard below).
-        $hasDatasetRegistry = $this->hasDatasetRegistry($builder);
-
-        // DataPaths is the one piece of dataset-bundle a reader genuinely needs — it resolves every
-        // folio path under APP_DATA_DIR. It lives in survos/data-contracts (a plain library) so a
-        // bare app can have it without the registry; dataset-bundle registers the same class from
-        // its own richer config, so only define it when nobody else has.
-        if (!$hasDatasetRegistry) {
-            $services->set(DataPaths::class)
-                ->autowire()
-                ->autoconfigure()
-                ->public()
+        // Applications may supply richer path configuration themselves.
+        if (!$builder->hasDefinition(DataPaths::class) && !$builder->hasAlias(DataPaths::class)) {
+            $services->set(DataPaths::class)->autowire()->autoconfigure()->public()
                 ->args(['$dataDir' => $config['data_dir']]);
         }
 
@@ -321,10 +261,6 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // belongs in the build dir where cache:clear (i.e. every deploy) wipes it.
         $services->set(FolioSchemaManager::class)->autowire()->autoconfigure()->public()
             ->arg('$cache', service('cache.system'));
-        $services->set(FolioRegistry::class)->autowire()->autoconfigure()->public()
-            // Auto-wire the dataset registry EM only if dataset-bundle is loaded; null otherwise,
-            // so a bare app can require folio-bundle, pull a folio, and display it — no dataset infra.
-            ->arg('$datasetEntityManager', service('doctrine.orm.dataset_entity_manager')->ignoreOnInvalid());
         $services->set(FolioSummaryService::class)->autowire()->autoconfigure()->public();
         $services->set(FolioFtsIndexer::class)->autowire()->autoconfigure()->public()
             ->arg('$maxRows', $config['fts_max_rows']);
@@ -359,13 +295,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $services->set(\Survos\FolioBundle\Service\FolioDocumentStream::class)->autowire()->autoconfigure()->public();
         if (class_exists(\Survos\MeiliBundle\Service\MeiliService::class)) {
             $services->set(FolioMeiliIndexer::class)->autowire()->autoconfigure()->public();
-            // $datasets nullable/optional -- same "erroring clearly at runtime, not a container
-            // compile failure" pattern as FolioTranslateCommand's own registration below, for an
-            // app with folio-bundle but not dataset-bundle. Used only for the best-effort
-            // raw-index Meili locale hint (see the command's own resolveLocalizedAttributes()).
-            $services->set(FolioMeiliBuildSetCommand::class)->autowire()->autoconfigure()->public()->args([
-                '$datasets' => service(\Survos\DatasetBundle\Repository\DatasetInfoRepository::class)->ignoreOnInvalid(),
-            ]);
+            $services->set(FolioMeiliBuildSetCommand::class)->autowire()->autoconfigure()->public();
         }
         // The Elasticsearch twin, registered unconditionally: it talks to the cluster over plain
         // HTTP through the bundle's existing symfony/http-client, so unlike the Meili commands it
@@ -407,22 +337,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
             '$extension' => $config['extension'],
             '$readOnly' => $config['read_only'],
         ]);
-        $services->set(FolioBuildCommand::class)->autowire()->autoconfigure()->public()->args([
-            '$folioServer' => $config['folio_server'],
-            '$routePrefix' => $config['route_prefix'],
-            '$folioServerRoutePrefix' => $config['folio_server_route_prefix'],
-            '$folioServerLocalePrefix' => $config['folio_server_locale_prefix'],
-            '$kernelDebug' => '%kernel.debug%',
-        ]);
-        // Same "null if the optional collaborator isn't installed" pattern as FolioRegistry above
-        // — a bare app with folio-bundle but not dataset-bundle/lingua-bundle gets folio:translate
-        // registered but erroring clearly at runtime, not a container compile failure.
-        $services->set(FolioTranslateCommand::class)->autowire()->autoconfigure()->public()->args([
-            '$intl' => service(\Survos\DatasetBundle\Service\DatasetIntlService::class)->ignoreOnInvalid(),
-            '$datasets' => service(\Survos\DatasetBundle\Repository\DatasetInfoRepository::class)->ignoreOnInvalid(),
-            '$dataPaths' => service(\Survos\DataContracts\Path\DataPaths::class)->ignoreOnInvalid(),
-        ]);
-        foreach ([FolioMigrateCommand::class, FolioIngestCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioArchiveCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
+        $services->set(\Survos\FolioBundle\Service\FolioBuilder::class)->autowire()->autoconfigure()->public();
+        foreach ([FolioMigrateCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
         foreach ($config['sites'] as $siteCode => $site) {
@@ -437,24 +353,6 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $builder->setParameter('survos_folio.folio_sets_source', $config['folio_sets_source']);
         // Sets and sites: resolver, site registry and host listener, wired by their own attributes.
         $services->load('Survos\\FolioBundle\\Set\\', $this->bundleRootPath().'/src/Set/')->autowire()->autoconfigure();
-        // Bare #[AsEventListener] (no event named): Symfony infers the event by reflecting on
-        // __invoke(BuildFolioRequestedEvent), so registering this without dataset-bundle fails at
-        // compile time. Nothing dispatches that event in a reader app anyway — it is how the
-        // producer asks for a build.
-        if ($hasDatasetRegistry) {
-            $services->set(BuildFolioRequestedListener::class)->autowire()->autoconfigure()->public()
-                ->arg('$buildArchive', $config['build_archive']);
-        } else {
-            $builder->removeDefinition(BuildFolioRequestedListener::class);
-            // Producer commands: each one's job is to WRITE the registry (build a folio, archive
-            // it, validate its rows, translate it). They are auto-scanned like the controllers, and
-            // without dataset-bundle they can only fail confusingly part-way, so a reader app
-            // should not be offered them at all. Pulling and displaying published folios —
-            // folio:pull, folio:info, folio:browse, folio:migrate — stays available.
-            foreach ([FolioBuildCommand::class, FolioArchiveCommand::class, FolioTranslateCommand::class, FolioValidateCommand::class] as $producerCommand) {
-                $builder->removeDefinition($producerCommand);
-            }
-        }
         // No implementation required — a bare app without a slug registry just gets slug
         // routes that 404 (see FolioRouteAttributeListener), and its direct {folioCode}
         // routes keep working unchanged.
@@ -496,31 +394,14 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // src/Sitemap/ is wired by hand, so it is enough not to register it. src/Command/ is
         // auto-scanned by the kit base (already done by parent::loadExtension() above), so
         // FolioSitemapCommand has to be actively removed instead.
-        if (interface_exists(\Presta\SitemapBundle\Service\DumperInterface::class) && $hasDatasetRegistry) {
-            // FolioSitemapRegistry enumerates published Artifact rows, so it needs the registry as
-            // well as presta. A reader app's sitemap comes from whatever it pulled, not from here.
+        if (interface_exists(\Presta\SitemapBundle\Service\DumperInterface::class)) {
             $services->set(FolioSitemapRegistry::class)->autowire()->autoconfigure()->public();
             $services->set(FolioSitemapPopulator::class)->autowire()->autoconfigure()->public();
         } elseif ($builder->hasDefinition(FolioSitemapCommand::class)) {
             $builder->removeDefinition(FolioSitemapCommand::class);
         }
         if ($config['routes_enabled']) {
-            // FolioCollectionController browses the registry's Artifact rows (its action
-            // type-hints ArtifactRepository, which the controller-argument pass reflects at
-            // compile time). The collection index is a producer/hub view; a reader app reaches
-            // folios by code, and its catalog comes from the hub over HTTP.
-            $collectionControllers = $hasDatasetRegistry
-                ? [FolioCollectionController::class, FolioSearchController::class]
-                : [FolioSearchController::class];
-            foreach ($collectionControllers as $class) {
-                $services->set($class)->autowire()->autoconfigure()->public();
-            }
-            if (!$hasDatasetRegistry) {
-                // src/Controller/ is auto-scanned by the kit base (parent::loadExtension above),
-                // so leaving it out of the list is not enough — it has to be actively removed,
-                // exactly like FolioSitemapCommand below.
-                $builder->removeDefinition(FolioCollectionController::class);
-            }
+            $services->set(FolioSearchController::class)->autowire()->autoconfigure()->public();
             // $rowSchemaOrg null when schema-org-bundle isn't installed (the service above is
             // then never defined) — rowShow() skips the JSON-LD rather than failing to compile.
             $services->set(FolioController::class)->autowire()->autoconfigure()->public()
@@ -553,7 +434,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         if (trait_exists(\Survos\TablerBundle\Menu\MenuBuilderTrait::class)) {
             $services->set(RowMenu::class)->autowire()->autoconfigure()->public();
         }
-        // Same "null if the optional collaborator isn't configured" pattern as FolioRegistry
+        // Same "null if the optional collaborator isn't configured" optional service pattern
         // above — a host app that hasn't set bookmark_class/folder_class simply doesn't get
         // this service, rather than a container compile failure.
         if ($config['bookmark_class'] !== null && $config['folder_class'] !== null) {

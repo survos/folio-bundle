@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
-use Survos\DatasetBundle\Repository\DatasetInfoRepository;
-use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\MeiliBundle\Service\IndexNameResolver;
 use Survos\MeiliBundle\Service\MeiliNdjsonUploader;
 use Survos\MeiliBundle\Service\MeiliServerKeyService;
@@ -34,63 +32,12 @@ final class FolioMeiliBuildSetCommand
         private readonly MeiliNdjsonUploader $uploader,
         private readonly IndexNameResolver $indexNameResolver,
         private readonly MeiliServerKeyService $serverKeyService,
-        // Nullable/optional -- same "erroring clearly at runtime, not a container compile
-        // failure" pattern as FolioTranslateCommand's own $datasets param (SurvosFolioBundle.php)
-        // for an app with folio-bundle but not dataset-bundle. Used only for the best-effort
-        // raw-index locale hint below; the --locale-explicit case never touches it.
-        private readonly ?DatasetInfoRepository $datasets = null,
-        // With the dataset API enabled this app is a consumer, and the registry is off limits even when present.
-        private readonly ?FolioCatalogClient $catalog = null,
     ) {
     }
 
-    /**
-     * Meilisearch `localizedAttributes` hint for THIS build -- a real language hint improves
-     * stemming/tokenization relevance (confirmed nothing in this pipeline has ever set one:
-     * fs_fortepan, fs_smith, even the working zmmus_enterreno/zmmus_enterreno_en bilingual demo
-     * all have localizedAttributes unset today, checked live against the Meili server).
-     *
-     * $locale explicit (the caller is building a named-locale index, e.g. --locale=en) is
-     * high-confidence -- the caller is asserting the resulting index's language, no lookup
-     * needed. The raw/unsuffixed pool (no --locale) is the opposite case: it can genuinely mix
-     * languages (fs_fortepan pools Hungarian + English + French folios), so nothing here may
-     * assert a single locale from CLI args alone. DatasetInfo::$locale (dataset-bundle, already
-     * a bundle-level -- not app-level -- concept, the same per-folio source-of-truth
-     * FolioIngestService/FolioTranslateCommand/zm's own FolioLabelExtension already read this
-     * exact way) is consulted as a best-effort signal instead, but ONLY returns a hint if every
-     * pooled folio's DatasetInfo agrees on one non-empty locale -- any missing row or
-     * disagreement means "don't know", never a guess.
-     *
-     * @param list<string> $folioCodes
-     * @return list<array{locales: list<string>, attributePatterns: list<string>}>|null
-     */
-    private function resolveLocalizedAttributes(?string $locale, array $folioCodes): ?array
+    private function resolveLocalizedAttributes(?string $locale): ?array
     {
-        if ($locale !== null) {
-            return [['locales' => [strtolower($locale)], 'attributePatterns' => ['*']]];
-        }
-
-        // The catalog publishes no source language, so a consumer gets no hint rather than a
-        // registry read: Harvest alone owns the registry.
-        if ($this->datasets === null || $this->catalog?->usesDatasetApi()) {
-            return null;
-        }
-
-        $agreed = null;
-        foreach ($folioCodes as $folioCode) {
-            $folioLocale = $this->datasets->find($folioCode)?->locale;
-            if ($folioLocale === null || $folioLocale === '') {
-                return null;
-            }
-            $folioLocale = strtolower($folioLocale);
-            if ($agreed === null) {
-                $agreed = $folioLocale;
-            } elseif ($agreed !== $folioLocale) {
-                return null;
-            }
-        }
-
-        return $agreed !== null ? [['locales' => [$agreed], 'attributePatterns' => ['*']]] : null;
+        return $locale !== null ? [['locales' => [strtolower($locale)], 'attributePatterns' => ['*']]] : null;
     }
 
     /**
@@ -155,7 +102,7 @@ final class FolioMeiliBuildSetCommand
             )),
             'sortableAttributes' => $sortable,
         ];
-        $localizedAttributes = $this->resolveLocalizedAttributes($locale, $folioCodes);
+        $localizedAttributes = $this->resolveLocalizedAttributes($locale);
         if ($localizedAttributes !== null) {
             $settingsPayload['localizedAttributes'] = $localizedAttributes;
         }

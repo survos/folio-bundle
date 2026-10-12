@@ -1351,7 +1351,7 @@ final class FolioController extends AbstractController
         // Content locale (e.g. folioCode="jarc.en") is already stripped and applied by
         // FolioRouteAttributeListener before this method runs — context() picks it up via
         // FolioService::$requestContentLocale, no need to read the request here.
-        // See FolioBuildCommand's --locale build, survos-sites/scanseum#18.
+        // See the builder's localized output, survos-sites/scanseum#18.
         $ctx = $this->folios->context($folio->code);
         $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);

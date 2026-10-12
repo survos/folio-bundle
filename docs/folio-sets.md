@@ -1,3 +1,8 @@
+> Command migration: historical `folio:build` / `folio:ingest` /
+> `folio:archive` / `folio:translate` recipes below are obsolete. Use the
+> [current build service and workflow entry points](folio-build-pipeline.md).
+> Dataset registry integration and `folio_sets_source: registry` are removed.
+
 # Folio sets: which folios an app shows
 
 Status: 2026-09-28. Tags, the resolver and `folio:sets:sync` are implemented and resolve against a

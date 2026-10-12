@@ -1,3 +1,8 @@
+> Command migration: historical `folio:build` / `folio:ingest` /
+> `folio:archive` / `folio:translate` recipes below are obsolete. Use the
+> [current build service and workflow entry points](folio-build-pipeline.md).
+> Dataset registry integration and `folio_sets_source: registry` are removed.
+
 # Term Sets & Facets — architecture + status
 
 Session handoff for the term-set / facet / harvest-dataset work. Companion to

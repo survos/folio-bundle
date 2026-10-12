@@ -12,7 +12,6 @@ use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\FolioBundle\Command\FolioMigrateCommand;
 use Survos\FolioBundle\Command\FolioPullCommand;
 use Survos\FolioBundle\Command\FolioValidateCommand;
-use Survos\FolioBundle\Service\FolioRegistry;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\FolioBundle\Set\FolioSetResolver;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -57,12 +56,12 @@ final class RegistryFreeConsumerTest extends TestCase
         self::assertSame('catalog', $this->resolver($this->apiCatalog(), folioServer: '')->source());
         self::assertSame('catalog', $this->resolver($this->plainCatalog('https://zm.example'), folioServer: 'https://zm.example')->source());
         // The builder: no dataset API, no folio_server.
-        self::assertSame('registry', $this->resolver($this->plainCatalog(''), folioServer: '')->source());
+        self::assertSame('catalog', $this->resolver($this->plainCatalog(''), folioServer: '')->source());
     }
 
     public function testValidateReadsKnownDatasetsFromTheApiNotTheRegistry(): void
     {
-        $command = new FolioValidateCommand($this->folioService(), new EventDispatcher(), $this->untouchableEm(), $this->apiCatalog(['mus/a', 'mus/b']));
+        $command = new FolioValidateCommand($this->folioService(), new EventDispatcher(), $this->apiCatalog(['mus/a', 'mus/b']));
 
         self::assertSame(['mus/a' => true, 'mus/b' => true], $this->knownDatasetKeys($command));
     }
@@ -72,34 +71,9 @@ final class RegistryFreeConsumerTest extends TestCase
         // No cache and the hub is down: "don't know", not "every folio on disk is an orphan".
         $http = new MockHttpClient(static fn () => throw new \RuntimeException('connection refused'));
         $catalog = new FolioCatalogClient($http, '', $this->dir.'/missing.json', datasets: new DatasetPublicationClient($http, self::SERVER, 'token'));
-        $command = new FolioValidateCommand($this->folioService(), new EventDispatcher(), $this->untouchableEm(), $catalog);
+        $command = new FolioValidateCommand($this->folioService(), new EventDispatcher(), $catalog);
 
         self::assertNull($this->knownDatasetKeys($command));
-    }
-
-    public function testRegistryRefusesOnADatasetApiConsumer(): void
-    {
-        $registry = new FolioRegistry(new DataPaths($this->dir), $this->untouchableEm(), $this->apiCatalog());
-        self::assertFalse($registry->hasDatasetRegistry());
-
-        $this->expectException(\LogicException::class);
-        $this->expectExceptionMessage('run this on Harvest');
-        $registry->datasets(all: true);
-    }
-
-    public function testRegistryStillAnswersOnTheBuilder(): void
-    {
-        $em = $this->createStub(EntityManagerInterface::class);
-        self::assertTrue((new FolioRegistry(new DataPaths($this->dir), $em, $this->plainCatalog('https://zm.example')))->hasDatasetRegistry());
-        self::assertFalse((new FolioRegistry(new DataPaths($this->dir)))->hasDatasetRegistry());
-    }
-
-    public function testMigrateWithoutARegistrySaysRunOnHarvest(): void
-    {
-        $tester = new CommandTester(new FolioMigrateCommand($this->folioService(), new FolioRegistry(new DataPaths($this->dir), $this->untouchableEm(), $this->apiCatalog())));
-
-        self::assertSame(1, $tester->execute(['--all' => true]));
-        self::assertStringContainsString('Run it on Harvest', preg_replace('/\s+/', ' ', $tester->getDisplay()));
     }
 
     /** A registry EM a consumer must never use: any call fails the test. */

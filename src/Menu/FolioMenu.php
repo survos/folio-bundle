@@ -40,7 +40,6 @@ class FolioMenu extends AbstractAdminMenuSubscriber
             return;
         }
 
-        $this->add($submenu, 'survos_folio_collection', label: 'Folios', icon: 'mdi:database-search');
         $this->add($submenu, 'survos_folio_schema', ['folioCode' => '_bootstrap/_bootstrap'], 'Bootstrap Schema', icon: 'mdi:table-cog');
     }
 }

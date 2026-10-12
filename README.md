@@ -2,7 +2,7 @@
 
 Folio stores normalized/enriched dataset JSONL as portable SQLite archive files. It is the database, archive, and browsing layer for data that has already been normalized by dataset/import tooling.
 
-`harvest` and `md` produce normalized JSONL. `folio:ingest` turns that JSONL into a standalone folio SQLite file. Consumers such as `zm` can use the Symfony/DataContracts stack when present, while Python/R/SQLite users can query the archive directly.
+`FolioBuilder` turns explicit JSONL inputs into a standalone folio SQLite file. The owning application selects inputs and manages its workflow. Consumers such as `zm` can use the Symfony/DataContracts stack when present, while Python/R/SQLite users can query the archive directly.
 
 Required: `survos/field-bundle`, `survos/data-contracts`.
 Suggested for ingest/write workflows: `survos/jsonl-bundle`, `survos/import-bundle`.
@@ -11,6 +11,12 @@ See `docs/configuration.md` for the required multi-connection Doctrine setup.
 See `docs/archive-metadata.md` for the standalone archive metadata contract.
 See `docs/publisher-registration.md` for how a publishing app confirms and withdraws folios with Harvest (`PublisherRegistrar`).
 See `docs/presentation-layer.md` for the proposal to use folios as narrative institutional presentation packages.
+
+## Building and command cleanup
+
+See [Building folios](docs/folio-build-pipeline.md) for the service API and supported
+commands. Dataset-specific build, archive, translate and ingest CLI shortcuts are
+removed; no replacement shortcuts are installed in another bundle.
 
 ## Archive Contract
 
@@ -26,9 +32,9 @@ The metadata snapshot describes actual observed data, not the entire DTO contrac
 
 ## Search and Publication Notes
 
-- `folio:ingest` loads rows, snapshots observed schema/docs/views, and rebuilds the SQLite FTS5 table `item_fts`.
+- `FolioBuilder` loads rows, snapshots observed schema/docs/views, and rebuilds the SQLite FTS5 table `item_fts`.
 - Existing folios can rebuild search with `bin/console folio:fts:rebuild <provider/dataset> --query="search terms"`.
-- `folio:archive` refreshes archive metadata before packaging.
+- `FolioArchiveService` refreshes archive metadata before packaging.
 - FTS tables are derived data. Published archive files may drop `item_fts`, `VACUUM`, compress, ship, then rebuild FTS on the consuming side.
 - SQLite views and docs are also derived from persisted metadata, but they are intentionally lightweight and useful for standalone consumers.
 - Vector search is intentionally deferred. When added, start with a hybrid SQLite design: FTS5/BM25 for exact keyword strength, sqlite-vec for semantic retrieval, and Reciprocal Rank Fusion to merge ranks without normalizing incompatible score scales. Reference: https://ceaksan.com/en/hybrid-search-fts5-vector-rrf
@@ -52,8 +58,7 @@ select id, type, audience, body from docs order by position;
 ### Catalog consumers and published shared folios
 
 `survos_folio.read_only: true` opens FolioService contexts using SQLite `mode=ro`, disables
-schema auto-migration/folio-row creation and avoids WAL mode changes. DatasetBundle's SQLite
-middleware must also include read-only parameter support. Publish a compatible, completed,
+schema auto-migration/folio-row creation and avoids WAL mode changes. Publish a compatible, completed,
 checkpointed folio before sharing; the reader will not upgrade it. Explicit archive restore
 and inflate commands still write their selected local targets.
 
@@ -67,14 +72,8 @@ and returns counts plus per-issue details. It scans folio rows: run it offline w
 catalog summaries, never as a directory-page cache-miss fallback. zm's publisher command
 persists the compact versioned summary in its registry; Ink consumes that recorded API data.
 
-## Optional collection table
+## Catalog UI
 
-The collection catalogue uses `survos/grid-bundle` for its server-rendered cells.
-It is suggested, not required: install and enable it in applications that use
-`survos_folio_collection`. Without it, the page displays an installation warning.
-Folio does not require Simple DataTables or `pentiminax/ux-datatables`.
-
-Search and pagination remain server-side (50 folio artifacts per page); the grid's
-client-side paging, search and ordering are disabled so they cannot misleadingly
-operate on only the current page. Row and photo browsing can use the existing
-optional API Platform integration independently of the catalogue grid.
+The former dataset-registry collection controller and grid are removed. Applications
+render published catalog entries using `FolioCatalogClient`; the demo shows this
+without a dataset database. Reader routes for individual folios remain available.

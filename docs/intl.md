@@ -1,3 +1,8 @@
+> Command migration: historical `folio:build` / `folio:ingest` /
+> `folio:archive` / `folio:translate` recipes below are obsolete. Use the
+> [current build service and workflow entry points](folio-build-pipeline.md).
+> Dataset registry integration and `folio_sets_source: registry` are removed.
+
 # Multilingual Folios
 
 A folio stores normalized rows whose translatable text lives inside the `dto_data` JSON column. This document describes how those rows are served in a non-source language, where translations are produced, and how they enter the folio.

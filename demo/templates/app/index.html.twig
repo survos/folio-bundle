@@ -1,66 +1,14 @@
 {% extends 'base.html.twig' %}
-
 {% block title %}Folio Browser{% endblock %}
-
 {% block body %}
 <div class="container-xl py-4">
-    <div class="page-header mb-4">
-        <div class="row align-items-center">
-            <div class="col">
-                <h2 class="page-title">Folios</h2>
-                <div class="text-muted mt-1">{{ artifacts|length }} folio(s)</div>
-            </div>
-        </div>
-    </div>
-
-    <twig:simple_datatables
-        :data="artifacts"
-        :columns="[
-            {name: 'uri', title: 'Dataset'},
-            {name: 'rowCount', title: 'Rows'},
-            {name: 'liveSize', title: 'Size'},
-            {name: 'dtoCounts', title: 'By Type'},
-            {name: 'metadata', title: 'By Core'},
-        ]"
-        perPage="25"
-        :caller="_self"
-    >
-        <twig:block name="uri">
-            <a href="{{ path('survos_folio_show', {folioCode: row.dataset.datasetKey}) }}">
-                {{ row.dataset.datasetKey }}
-            </a>
-            {% if row.dataset.label %}
-                <div class="text-muted small">{{ row.dataset.label }}</div>
-            {% endif %}
-        </twig:block>
-
-        <twig:block name="liveSize">
-            {{ row.liveSize ? (row.liveSize / 1024)|round ~ ' KB' : '—' }}
-        </twig:block>
-
-        <twig:block name="dtoCounts">
-            {% if row.dtoCounts %}
-                {% for dtoType, count in row.dtoCounts %}
-                    <a href="{{ path('survos_folio_core_dto', {folioCode: row.dataset.datasetKey, coreCode: 'obj', dtoType: dtoType}) }}"
-                       class="badge bg-azure-lt text-decoration-none me-1 mb-1">
-                        {{ dtoType|replace({'-': ' ', '_': ' '})|title }} <span class="ms-1 text-muted">{{ count }}</span>
-                    </a>
-                {% endfor %}
-            {% else %}
-                <span class="text-muted">—</span>
-            {% endif %}
-        </twig:block>
-
-        <twig:block name="metadata">
-            {% if row.metadata.coreCounts %}
-                {% for core, count in row.metadata.coreCounts %}
-                    <span class="badge bg-secondary-lt me-1">{{ core }}: {{ count }}</span>
-                {% endfor %}
-            {% else %}
-                <span class="text-muted">—</span>
-            {% endif %}
-        </twig:block>
-
-    </twig:simple_datatables>
+    <h1>Folios</h1>
+    <ul>
+        {% for folio in folios %}
+            <li><a href="{{ path('survos_folio_show', {folioCode: folio.datasetKey}) }}">{{ folio.title ?? folio.datasetKey }}</a></li>
+        {% else %}
+            <li>No published folios in the configured catalog.</li>
+        {% endfor %}
+    </ul>
 </div>
 {% endblock %}

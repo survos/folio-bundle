@@ -37,8 +37,8 @@ final class PdfPageClaimsTest extends TestCase
             $em->method('getConnection')->willReturn($conn);
             $reflection = new \ReflectionClass(FolioIngestService::class);
             $service = $reflection->newInstanceWithoutConstructor();
-            $reflection->getProperty('dataPaths')->setValue($service, $paths);
-            $reflection->getMethod('ingestPageClaims')->invoke($service, $em, 'test/pdf');
+            $input = new \Survos\FolioBundle\Dto\FolioBuildInput('test/pdf', ['doc' => $paths->claimsFile('test/pdf')], [], 'en', files: ['claims' => $paths->claimsFile('test/pdf')]);
+            $reflection->getMethod('ingestPageClaims')->invoke($service, $em, $input);
             self::assertSame(['First page', 'Second page', 'Existing image OCR'], $conn->fetchFirstColumn('SELECT text FROM page ORDER BY rowid'));
             self::assertSame('First page Second page', json_decode($conn->fetchOne('SELECT dto_data FROM item'), true)['ocrText']);
         } finally {

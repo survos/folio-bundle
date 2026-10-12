@@ -9,9 +9,8 @@ use Survos\DataContracts\Vocabulary\ItemField;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DataContracts\Metadata\ContentType;
-use Survos\DatasetBundle\Entity\DatasetInfo;
-use Survos\DataContracts\Path\Stage;
-use Survos\DataContracts\Path\DataPaths;
+use Survos\FolioBundle\Dto\FolioBuildInput;
+use Survos\JsonlBundle\Sqlite\SidecarDb;
 use Survos\FieldBundle\Attribute\Map;
 use Survos\FolioBundle\Configuration\FolioSearchConfiguration;
 use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Str,StrTranslation,Term,TermSet};
@@ -23,16 +22,14 @@ use Survos\JsonlBundle\Service\JsonlCountService;
 use Survos\Lingua\Contracts\Util\TranslatableReflector;
 use Survos\Lingua\Core\Identity\HashUtil;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Restore normalized JSONL into a row-only folio (no secondary indexes, FTS, or views).
  *
- * Extracted from FolioIngestCommand so both folio:ingest and folio:build can reuse it.
- * When $dispatchFinished is true, a FolioIngestFinishedEvent is fired per core (the
- * FtsIndexListener rebuilds FTS) — this preserves folio:ingest's behavior. folio:build
- * passes false so it can snapshot the index-free archive *before* anything is indexed.
+ * Receives explicit row and auxiliary files through FolioBuildInput. When requested,
+ * dispatches FolioIngestFinishedEvent per core; FolioBuilder disables that event until
+ * the bare snapshot has been captured and handles inflation itself.
  */
 final class FolioIngestService
 {
@@ -57,62 +54,36 @@ final class FolioIngestService
 
     public function __construct(
         private readonly FolioService $folios,
-        private readonly FolioRegistry $registry,
         private readonly FolioDtoTypeResolver $dtoTypeResolver,
         private readonly FolioSummaryService $summaryService,
-        private readonly DataPaths $dataPaths,
         private readonly JsonlCountService $counter,
         private readonly ?EventDispatcherInterface $dispatcher = null,
-        #[Autowire('%survos_folio.reviewed_translations_dir%')]
-        private readonly ?string $reviewedTranslationsDir = null,
     ) {}
-
-    /**
-     * Resolve the row-bearing source files for a dataset's cores.
-     *
-     * @return array<string,string> core => source JSONL path
-     */
-    public function resolveSources(DatasetInfo $dataset, ?string $coreFilter = null): array
-    {
-        $sources = [];
-        foreach ($this->registry->cores($dataset, $coreFilter) as $core) {
-            $file = $this->registry->sourceFile($dataset, $core);
-            if ($file !== null) {
-                $sources[$core] = $file;
-            }
-        }
-
-        return $sources;
-    }
 
     /**
      * @return array{rows:int,skipped:int,terms:int,links:int,pages:int,pagesSkipped:int,cores:array<string,array{count:int,file:string}>}
      */
-    public function ingestDataset(
-        DatasetInfo $dataset,
-        ?string $coreFilter = null,
+    public function ingest(
+        FolioBuildInput $input,
         string $idField = 'id',
         string $labelField = 'label',
         int $batch = 500,
         bool $dispatchFinished = true,
         ?SymfonyStyle $io = null,
-        ?string $locale = null,
     ): array {
         $batch = max(1, $batch);
-        $sources = $this->resolveSources($dataset, $coreFilter);
-        if ($sources === []) {
-            return ['rows' => 0, 'terms' => 0, 'links' => 0, 'cores' => []];
-        }
+        $sources = $input->sources;
 
         // A build locale equal to the dataset's own source locale is not a translation --
         // build the plain (untranslated) folio, same as $locale === null.
-        $sourceLocale = $dataset->locale ?? 'en';
+        $sourceLocale = $input->sourceLocale;
+        $locale = $input->locale;
         $buildLocale = ($locale !== null && $locale !== '' && $locale !== $sourceLocale) ? $locale : null;
-        $translations = $buildLocale !== null ? $this->loadTranslationMap($dataset->datasetKey, $buildLocale) : [];
+        $translations = $buildLocale !== null ? $this->loadTranslationMap($input, $buildLocale) : [];
 
         // Restore once per dataset, then ingest every selected core into the same folio.
-        $this->folios->reset($dataset->datasetKey, $buildLocale);
-        $ctx = $this->folios->context($dataset->datasetKey, ensureSchema: true, locale: $buildLocale);
+        $this->folios->reset($input->code, $buildLocale);
+        $ctx = $this->folios->context($input->code, ensureSchema: true, locale: $buildLocale);
 
         // Bulk load into a freshly-reset, rebuildable folio we are the sole writer of: trade durability
         // for speed. One transaction (no per-batch commits, no mid-ingest WAL checkpoints) +
@@ -123,8 +94,7 @@ final class FolioIngestService
         $conn->beginTransaction();
 
         $folio = $ctx->em->find(Folio::class, $ctx->folioCode);
-        $metadata = $dataset->meta;
-        $metadata['label'] = $dataset->label;
+        $metadata = $input->metadata;
         $properties = \Survos\DataContracts\Metadata\DatasetMetadata::properties($metadata);
         $owners = [];
         foreach ($folio->properties() as $property) {
@@ -132,8 +102,8 @@ final class FolioIngestService
         }
         foreach ($properties as $key => $property) { $owners[$property->owner][$key] = $property; }
         foreach ($owners as $owner => $snapshot) { $folio->replaceProperties($owner, $snapshot); }
-        $folio->datasetKey = $dataset->datasetKey;
-        $extras = is_array($dataset->meta['extras'] ?? null) ? $dataset->meta['extras'] : [];
+        $folio->datasetKey = $input->code;
+        $extras = is_array($input->metadata['extras'] ?? null) ? $input->metadata['extras'] : [];
 
         // extras.search is the dataset's declared search policy (docs/search-policy.md): a folio
         // whose text search lives in Elasticsearch may be published with no FTS table at all, and
@@ -149,14 +119,14 @@ final class FolioIngestService
         // #2: drop non-unique secondary indexes for the duration of the load. Maintaining them per-row
         // across millions of inserts is a large slice of ingest cost; we rebuild each in a single
         // sorted pass once the data is in (far cheaper). Self-contained: the same DDL is replayed
-        // before we return, so every caller (folio:build, folio:ingest) ends with the full index set.
+        // before we return, so every caller (including FolioBuilder) ends with the full index set.
         $deferredIndexes = $this->deferSecondaryIndexes($conn);
 
         // Seed the bar from sidecar row counts (no full scan) when an $io is supplied. It spans every
         // row-bearing phase — cores, terms, links — so one bar covers the whole ingest. (claims and
         // translations will join this list; the per-phase ingest calls below all advance the same bar.)
         if ($io !== null) {
-            $this->startIngestProgress($io, $this->expectedRows($dataset->datasetKey, $sources));
+            $this->startIngestProgress($io, $this->expectedRows($input));
         }
 
         $coreResults = [];
@@ -233,14 +203,14 @@ final class FolioIngestService
                     AND json_extract(dto_data, '\$.longitude') IS NOT NULL",
                 [$coreId],
             )->fetchOne();
-            $coreEntity->fieldSummary = $this->registry->populatedFields($dataset, $core);
+            $coreEntity->fieldSummary = $this->populatedFields($file);
             $ctx->em->flush();
             $this->advanceIngestProgress($io, $count % $batch);
 
             if ($dispatchFinished) {
                 $summary = $this->summaryService->summarize($ctx->path);
                 $this->dispatcher?->dispatch(new FolioIngestFinishedEvent(
-                    datasetKey: $dataset->datasetKey,
+                    datasetKey: $input->code,
                     core: $core,
                     dbFile: $ctx->path,
                     sourceFile: $file,
@@ -251,12 +221,12 @@ final class FolioIngestService
             $coreResults[$core] = ['count' => $count, 'file' => $file];
         }
 
-        $termCount = $this->timedPhase($io, 'terms', fn () => $this->ingestTerms($ctx->em, $folio, $dataset->datasetKey, $dataset->locale, $batch, $io));
-        $linkResult = $this->timedPhase($io, 'links', fn () => $this->ingestLinks($ctx->em, $folio, $dataset->datasetKey, $batch, $sinceCommit, $io));
-        $pageResult = $this->timedPhase($io, 'pages', fn () => $this->ingestPages($ctx->em, $dataset, $batch, $sinceCommit, $io));
-        $claimResult = $this->timedPhase($io, 'claims', fn () => $this->ingestClaims($ctx->em, $dataset->datasetKey, $batch, $sinceCommit, $io));
-        $this->timedPhase($io, 'page claims', fn () => $this->ingestPageClaims($ctx->em, $dataset->datasetKey));
-        $this->timedPhase($io, 'claim runs', fn () => $this->ingestClaimRuns($ctx->em, $dataset->datasetKey));
+        $termCount = $this->timedPhase($io, 'terms', fn () => $this->ingestTerms($ctx->em, $folio, $input, $input->sourceLocale, $batch, $io));
+        $linkResult = $this->timedPhase($io, 'links', fn () => $this->ingestLinks($ctx->em, $folio, $input, $batch, $sinceCommit, $io));
+        $pageResult = $this->timedPhase($io, 'pages', fn () => $this->ingestPages($ctx->em, $input, $batch, $sinceCommit, $io));
+        $claimResult = $this->timedPhase($io, 'claims', fn () => $this->ingestClaims($ctx->em, $input, $batch, $sinceCommit, $io));
+        $this->timedPhase($io, 'page claims', fn () => $this->ingestPageClaims($ctx->em, $input));
+        $this->timedPhase($io, 'claim runs', fn () => $this->ingestClaimRuns($ctx->em, $input));
 
         $this->finishIngestProgress($io);
 
@@ -277,7 +247,7 @@ final class FolioIngestService
 
         $conn->commit();
         $conn->executeStatement('PRAGMA synchronous = NORMAL');
-        $this->folios->finishMetadataReset($dataset->datasetKey, $buildLocale);
+        $this->folios->finishMetadataReset($input->code, $buildLocale);
 
         return [
             'rows' => $totalCount,
@@ -296,18 +266,14 @@ final class FolioIngestService
      * {coreCode, localId}; per-page AI fields (text/denseSummary/ledger/layout) are
      * folded in by the enriched build and carried straight through here.
      *
-     * Resolved through FolioRegistry::sourceFile() like any core, so _folio/page.jsonl shadows
-     * norm/page.jsonl under the same freshness rule the object core has always used. Reading
-     * norm/ unconditionally, as this did, meant everything enrich folds onto a page — the
-     * archived S3 url, width/height from mediary — was written to a file folio:build never
-     * opened.
+     * The caller selects the page file using the same policy as its row sources.
      *
      * @return array{count:int,skipped:int}
      */
-    private function ingestPages(EntityManagerInterface $em, DatasetInfo $dataset, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
+    private function ingestPages(EntityManagerInterface $em, FolioBuildInput $input, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
     {
-        $datasetKey = $dataset->datasetKey;
-        $pageFile = $this->registry->sourceFile($dataset, PageDto::CORE);
+        $datasetKey = $input->code;
+        $pageFile = $input->file('page');
         if ($pageFile === null) {
             return ['count' => 0, 'skipped' => 0];
         }
@@ -436,10 +402,10 @@ final class FolioIngestService
      *
      * @return array{count:int}
      */
-    private function ingestClaims(EntityManagerInterface $em, string $datasetKey, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
+    private function ingestClaims(EntityManagerInterface $em, FolioBuildInput $input, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
     {
-        $claimsFile = $this->dataPaths->claimsFile($datasetKey);
-        if (!is_file($claimsFile)) {
+        $claimsFile = $input->file('claims');
+        if ($claimsFile === null) {
             return ['count' => 0];
         }
 
@@ -577,7 +543,7 @@ final class FolioIngestService
      * claim's run_id) renders the prompt/model/tokens/response offline — no live claims DB at view
      * time. Table is created inline (same pattern as the FTS tables); a missing runs file is a no-op.
      */
-    private function ingestClaimRuns(EntityManagerInterface $em, string $datasetKey): void
+    private function ingestClaimRuns(EntityManagerInterface $em, FolioBuildInput $input): void
     {
         $conn = $em->getConnection();
         $conn->executeStatement(
@@ -588,8 +554,8 @@ final class FolioIngestService
             )'
         );
 
-        $runsFile = $this->dataPaths->claimsFile($datasetKey, 'claim-runs.jsonl');
-        if (!is_file($runsFile)) {
+        $runsFile = $input->file('claimRuns');
+        if ($runsFile === null) {
             return;
         }
 
@@ -656,10 +622,10 @@ final class FolioIngestService
      * what surfaces per-page OCR in the document viewer / "summarize this document". Only fills an
      * EMPTY column, so source OCR is never clobbered.
      */
-    private function ingestPageClaims(EntityManagerInterface $em, string $datasetKey): int
+    private function ingestPageClaims(EntityManagerInterface $em, FolioBuildInput $input): int
     {
-        $claimsFile = $this->dataPaths->claimsFile($datasetKey);
-        if (!is_file($claimsFile)) {
+        $claimsFile = $input->file('claims');
+        if ($claimsFile === null) {
             return 0;
         }
 
@@ -771,23 +737,20 @@ final class FolioIngestService
     /**
      * Load <dataset>/25_intl/tr.<locale>.jsonl (written by dataset:intl:pull) into a
      * hash-code => translated-text map, then let a committed, hand-reviewed override file
-     * (survos_folio.reviewed_translations_dir, if configured) replace any entries it also
+     * (FolioBuildInput::reviewedTranslationFile, if supplied) replace any entries it also
      * covers. Missing files (never pushed/pulled, or nothing reviewed yet for this
      * dataset+locale) just mean "no translations available" at that layer — build proceeds
      * with every field falling back to source text.
      *
      * @return array<string,string>
      */
-    private function loadTranslationMap(string $datasetKey, string $locale): array
+    private function loadTranslationMap(FolioBuildInput $input, string $locale): array
     {
-        $file = $this->dataPaths->stageDir($datasetKey, Stage::Intl->value) . '/tr.' . $locale . '.jsonl';
-        $map = $this->readTranslationJsonl($file);
-
-        if ($this->reviewedTranslationsDir !== null && $this->reviewedTranslationsDir !== '') {
-            $reviewedFile = sprintf('%s/%s.%s.jsonl', rtrim($this->reviewedTranslationsDir, '/'), $datasetKey, $locale);
-            $map = [...$map, ...$this->readTranslationJsonl($reviewedFile)];
+        $file = $input->translations[$locale] ?? null;
+        $map = $file !== null ? $this->readTranslationJsonl($file) : [];
+        if ($input->reviewedTranslationFile !== null) {
+            $map = [...$map, ...$this->readTranslationJsonl($input->reviewedTranslationFile)];
         }
-
         return $map;
     }
 
@@ -978,23 +941,22 @@ final class FolioIngestService
     /**
      * @param array<string,string> $sources
      */
-    private function expectedRows(string $datasetKey, array $sources): int
+    private function expectedRows(FolioBuildInput $input): int
     {
-        $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
         $expected = 0;
         // This only seeds the progress bar — a count that can't be read (a locked or
         // unreadable sidecar, fd pressure, …) must never abort the build, so a failure
         // here just leaves the estimate approximate.
-        foreach ($sources as $sourceFile) {
+        foreach ($input->sources as $sourceFile) {
             try {
                 $expected += $this->counter->rows($sourceFile);
             } catch (\Throwable) {
                 // skip — estimate stays approximate
             }
         }
-        foreach (['term.jsonl', 'link.jsonl'] as $phaseFile) {
-            $path = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/' . $phaseFile);
-            if (is_file($path)) {
+        foreach (['term', 'link'] as $phaseFile) {
+            $path = $input->file($phaseFile);
+            if ($path !== null && is_file($path)) {
                 try {
                     $expected += $this->counter->rows($path);
                 } catch (\Throwable) {
@@ -1050,11 +1012,10 @@ final class FolioIngestService
      * it at generation time -- worth threading through properly if/when
      * multiple engines can produce competing rows for the same phrase.
      */
-    private function ingestTermTranslations(EntityManagerInterface $em, string $datasetKey, string $sourceLocale, int $batch = 500): void
+    private function ingestTermTranslations(EntityManagerInterface $em, FolioBuildInput $input, string $sourceLocale, int $batch = 500): void
     {
-        $intlDir = $this->dataPaths->stageDir($datasetKey, Stage::Intl->value);
-        $phrasesFile = "$intlDir/phrases.$sourceLocale.jsonl";
-        if (!is_file($phrasesFile)) {
+        $phrasesFile = $input->file('phrases');
+        if ($phrasesFile === null) {
             return;
         }
 
@@ -1107,11 +1068,7 @@ final class FolioIngestService
         $em->flush();
 
         $trRepo = $em->getRepository(StrTranslation::class);
-        foreach (glob("$intlDir/tr.*.jsonl") ?: [] as $trFile) {
-            if (!preg_match('/tr\.([a-zA-Z_-]+)\.jsonl$/', $trFile, $m)) {
-                continue;
-            }
-            $targetLocale = $m[1];
+        foreach ($input->translations as $targetLocale => $trFile) {
             if ($targetLocale === $sourceLocale) {
                 continue;
             }
@@ -1165,13 +1122,12 @@ final class FolioIngestService
         return $out;
     }
 
-    private function ingestTerms(EntityManagerInterface $em, Folio $folio, string $datasetKey, ?string $sourceLocale, int $batch, ?SymfonyStyle $io = null): int
+    private function ingestTerms(EntityManagerInterface $em, Folio $folio, FolioBuildInput $input, ?string $sourceLocale, int $batch, ?SymfonyStyle $io = null): int
     {
-        $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
-        $termSetFile = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/termSet.jsonl');
-        $termFile = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/term.jsonl');
+        $termSetFile = $input->file('termSet');
+        $termFile = $input->file('term');
 
-        if (!is_file($termSetFile) || !is_file($termFile)) {
+        if ($termSetFile === null || $termFile === null) {
             return 0;
         }
 
@@ -1190,7 +1146,7 @@ final class FolioIngestService
         }
         $em->flush();
 
-        $this->ingestTermTranslations($em, $datasetKey, $sourceLocale ?? 'en', $batch);
+        $this->ingestTermTranslations($em, $input, $sourceLocale ?? 'en', $batch);
 
         $pendingParents = [];
         $count = 0;
@@ -1262,13 +1218,12 @@ final class FolioIngestService
     /**
      * @return array{count:int,skipped:int}
      */
-    private function ingestLinks(EntityManagerInterface $em, Folio $folio, string $datasetKey, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
+    private function ingestLinks(EntityManagerInterface $em, Folio $folio, FolioBuildInput $input, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
     {
-        $normalizeDir = $this->dataPaths->stageDir($datasetKey, 'normalize');
-        $linkTypeFile = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/linkType.jsonl');
-        $linkFile = \Survos\JsonlBundle\Util\Jsonl::resolvePath($normalizeDir . '/link.jsonl');
+        $linkTypeFile = $input->file('linkType');
+        $linkFile = $input->file('link');
 
-        if (!is_file($linkTypeFile) || !is_file($linkFile)) {
+        if ($linkTypeFile === null || $linkFile === null) {
             return ['count' => 0, 'skipped' => 0];
         }
 
@@ -1276,8 +1231,8 @@ final class FolioIngestService
         // $folio passed in; persisting a LinkType that points at a detached Folio makes Doctrine
         // treat the Folio as a new, un-cascaded entity and throw. Re-fetch the managed instance
         // (ORM 3 has no merge()). It must exist — we just ingested rows into it — so fail loudly.
-        $folio = $em->find(Folio::class, $datasetKey)
-            ?? throw new \RuntimeException(sprintf('Folio "%s" vanished before link ingest.', $datasetKey));
+        $folio = $em->find(Folio::class, $input->code)
+            ?? throw new \RuntimeException(sprintf('Folio "%s" vanished before link ingest.', $input->code));
 
         $types = [];
         foreach (JsonlReader::open($linkTypeFile) as $data) {
@@ -1410,4 +1365,27 @@ final class FolioIngestService
 
         return [$dtoData, $extras];
     }
+
+    private function populatedFields(string $source): ?array
+    {
+        $dbPath = $source . '.db';
+        if (!is_file($dbPath)) {
+            return null;
+        }
+
+        try {
+            $populated = [];
+            foreach ((new SidecarDb($dbPath))->loadFieldStats() as $stats) {
+                $name = $stats['path'] ?? null;
+                if (is_string($name) && $name !== '' && (int) ($stats['non_null'] ?? 0) > 0) {
+                    $populated[] = $name;
+                }
+            }
+
+            return $populated ?: null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
 }

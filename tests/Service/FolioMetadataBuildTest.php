@@ -10,10 +10,10 @@ use Doctrine\ORM\Mapping\UnderscoreNamingStrategy;
 use PHPUnit\Framework\TestCase;
 use Survos\DataContracts\Metadata\DatasetDocument;
 use Survos\DataContracts\Path\DataPaths;
-use Survos\DatasetBundle\Entity\DatasetInfo;
+use Survos\FolioBundle\Dto\FolioBuildInput;
 use Survos\FolioBundle\DBAL\FolioConnectionWrapper;
 use Survos\FolioBundle\Entity\Folio;
-use Survos\FolioBundle\Service\{FolioService,FolioSchemaManager,FolioRegistry,FolioIngestService,FolioDtoTypeResolver,FolioSummaryService};
+use Survos\FolioBundle\Service\{FolioService,FolioSchemaManager,FolioIngestService,FolioDtoTypeResolver,FolioSummaryService};
 use Survos\Folio\PropertyStore;
 use Survos\JsonlBundle\Service\{JsonlCountService,JsonlStateService};
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
@@ -25,7 +25,6 @@ final class FolioMetadataBuildTest extends TestCase
 {
     private string $root;
     private FolioService $folios;
-    private FolioRegistry $registry;
     private DataPaths $paths;
 
     protected function setUp(): void
@@ -37,7 +36,6 @@ final class FolioMetadataBuildTest extends TestCase
         $config->setNamingStrategy(new UnderscoreNamingStrategy());
         $em = new EntityManager(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'path' => $this->root.'/unused.sqlite', 'wrapperClass' => FolioConnectionWrapper::class]), $config);
         $this->folios = new FolioService($em, new FolioSchemaManager(new ArrayAdapter()), $this->paths);
-        $this->registry = new FolioRegistry($this->paths);
     }
 
     protected function tearDown(): void
@@ -49,9 +47,6 @@ final class FolioMetadataBuildTest extends TestCase
     public function testBuildAnnouncesTheFinalReadableArtifact(): void
     {
         $code = 'test/published';
-        $dataset = new DatasetInfo($code);
-        $dataset->label = 'Published fixture';
-        $dataset->cores = ['doc'];
         $dir = $this->paths->stageDir($code, 'normalized');
         (new Filesystem())->mkdir($dir);
         file_put_contents($dir.'/doc.jsonl', json_encode([
@@ -60,14 +55,9 @@ final class FolioMetadataBuildTest extends TestCase
             \Survos\DataContracts\Vocabulary\ItemField::CONTENT_TYPE => \Survos\DataContracts\Metadata\ContentType::NEWSPAPER,
         ], JSON_THROW_ON_ERROR)."\n");
 
-        $repo = $this->createMock(\Doctrine\ORM\EntityRepository::class);
-        $repo->expects(self::once())->method('find')->with($code)->willReturn($dataset);
-        $em = $this->createMock(\Doctrine\ORM\EntityManagerInterface::class);
-        $em->expects(self::once())->method('getRepository')->with(DatasetInfo::class)->willReturn($repo);
-        $registry = new FolioRegistry($this->paths, $em);
         $state = new JsonlStateService();
         $resolver = new FolioDtoTypeResolver();
-        $ingest = new FolioIngestService($this->folios, $registry, $resolver, new FolioSummaryService(), $this->paths, new JsonlCountService($state));
+        $ingest = new FolioIngestService($this->folios, $resolver, new FolioSummaryService(), new JsonlCountService($state));
         $views = new \Survos\FolioBundle\Service\FolioViewBuilder();
         $preparer = new \Survos\FolioBundle\Service\FolioArchivePreparer(
             new \Survos\FolioBundle\Service\FolioSchemaSnapshotter($resolver),
@@ -75,42 +65,38 @@ final class FolioMetadataBuildTest extends TestCase
             new \Survos\FolioBundle\Service\FolioDocsBuilder(),
         );
         $archive = new \Survos\FolioBundle\Service\FolioArchiveService($this->folios, new \Survos\FolioBundle\Service\FolioFtsIndexer(), $preparer, $views);
-        $dispatcher = new \Symfony\Component\EventDispatcher\EventDispatcher();
-        $events = [];
+        $builder = new \Survos\FolioBundle\Service\FolioBuilder($ingest, $this->folios, $archive, $preparer, $state);
+        $input = new FolioBuildInput($code, ['doc' => $dir.'/doc.jsonl'], ['label' => 'Published fixture'], 'en');
+        $result = $builder->build($input, archive: true);
         $finalPath = $this->folios->path($code);
-        $dispatcher->addListener(\Survos\DatasetBundle\Event\DatasetArtifactUpdatedEvent::class, function ($event) use (&$events, $finalPath): void {
-            self::assertSame(\Survos\DatasetBundle\Entity\Artifact::TYPE_FOLIO, $event->type);
-            self::assertSame($finalPath, $event->uri);
-            self::assertFileIsReadable($event->uri);
-            self::assertFileDoesNotExist($finalPath.'.building');
-            $pdo = new \PDO('sqlite:file:'.$event->uri.'?mode=ro');
-            self::assertSame(1, (int) $pdo->query('SELECT count(*) FROM item')->fetchColumn());
-            self::assertSame(1, $event->rowCount);
-            $events[] = $event;
-        });
-        $command = new \Survos\FolioBundle\Command\FolioBuildCommand(
-            $ingest, $registry, $this->folios, $archive, $preparer,
-            $this->createStub(\Symfony\Component\Routing\Generator\UrlGeneratorInterface::class),
-            $state, '/folio', $dispatcher,
-        );
-        $io = new \Symfony\Component\Console\Style\SymfonyStyle(
-            new \Symfony\Component\Console\Input\ArrayInput([]),
-            new \Symfony\Component\Console\Output\NullOutput(),
-        );
-        self::assertSame(0, $command($io, dataset: $code));
-        self::assertCount(1, $events);
+        self::assertSame($finalPath, $result['path']);
+        self::assertFileIsReadable($finalPath);
+        self::assertFileDoesNotExist($finalPath.'.building');
+        self::assertFileIsReadable($result['archive']['archive']);
+        self::assertFileIsReadable($result['barePath']);
+        $pdo = new \PDO('sqlite:file:'.$finalPath.'?mode=ro');
+        self::assertSame(1, (int) $pdo->query('SELECT count(*) FROM item')->fetchColumn());
+        self::assertSame(1, $result['rows']);
+        unset($pdo);
+        $before = hash_file('sha256', $finalPath);
+        file_put_contents($dir.'/doc.jsonl', '');
+        try {
+            $builder->build($input);
+            self::fail('An empty build must fail');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('empty folio', $e->getMessage());
+        }
+        self::assertSame($before, hash_file('sha256', $finalPath));
+        self::assertFileDoesNotExist($finalPath.'.building');
         $state->closeAll();
     }
 
     public function testBuildRebuildAndFailurePreserveHumanMetadata(): void
     {
         $code = 'test/paper';
-        $dataset = new DatasetInfo($code);
-        $dataset->label = 'Test paper';
-        $dataset->cores = ['doc'];
         $declaration = ['datasetKey' => $code, 'aggregator' => 'test', 'label' => 'Test paper', 'description' => 'An account of the town',
             'tags' => ['news'], 'extras' => ['contentType' => 'newspaper', 'titleRecord' => ['essay' => 'An essay', 'source' => 'https://example.org/title', 'subjectHeadings' => ['History']]]];
-        $dataset->meta = DatasetDocument::update([], $declaration, 'test.title')['dataset'];
+        $metadata = DatasetDocument::update([], $declaration, 'test.title')['dataset'];
         $dir = $this->paths->stageDir($code, 'normalized');
         (new Filesystem())->mkdir($dir);
         $stream = fopen($dir.'/doc.jsonl', 'w');
@@ -124,10 +110,11 @@ final class FolioMetadataBuildTest extends TestCase
         self::assertGreaterThan(0, $expectedRows);
         if ($sample) { fclose($sample); }
         fclose($stream);
-        $ingest = new FolioIngestService($this->folios, $this->registry, new FolioDtoTypeResolver(), new FolioSummaryService(), $this->paths, new JsonlCountService(new JsonlStateService()));
-        $build = function () use ($ingest, $dataset, $code, $expectedRows): void {
+        $ingest = new FolioIngestService($this->folios, new FolioDtoTypeResolver(), new FolioSummaryService(), new JsonlCountService(new JsonlStateService()));
+        $input = new FolioBuildInput($code, ['doc' => $dir.'/doc.jsonl'], $metadata, 'en');
+        $build = function () use ($ingest, $input, $code, $expectedRows): void {
             $this->folios->buildAt($code);
-            $result = $ingest->ingestDataset($dataset, dispatchFinished: false);
+            $result = $ingest->ingest($input, dispatchFinished: false);
             self::assertSame($expectedRows, $result['rows']);
             $this->folios->finalize();
             $this->folios->finishBuildAt($code);
@@ -155,9 +142,6 @@ final class FolioMetadataBuildTest extends TestCase
     public function testPageTypesRoundTripAndInvalidBuildPreservesLiveFolio(): void
     {
         $code = 'test/pages';
-        $dataset = new DatasetInfo($code);
-        $dataset->label = 'Page types';
-        $dataset->cores = ['doc'];
         $dir = $this->paths->stageDir($code, 'normalized');
         (new Filesystem())->mkdir($dir);
         file_put_contents($dir.'/doc.jsonl', json_encode(['id' => '1', 'label' => 'Document', 'contentType' => 'document'], JSON_THROW_ON_ERROR)."\n");
@@ -169,9 +153,10 @@ final class FolioMetadataBuildTest extends TestCase
             ), JSON_THROW_ON_ERROR);
         }
         file_put_contents($dir.'/page.jsonl', implode("\n", $pages)."\n");
-        $ingest = new FolioIngestService($this->folios, $this->registry, new FolioDtoTypeResolver(), new FolioSummaryService(), $this->paths, new JsonlCountService(new JsonlStateService()));
+        $ingest = new FolioIngestService($this->folios, new FolioDtoTypeResolver(), new FolioSummaryService(), new JsonlCountService(new JsonlStateService()));
+        $input = new FolioBuildInput($code, ['doc' => $dir.'/doc.jsonl'], ['label' => 'Page types'], 'en', files: ['page' => $dir.'/page.jsonl']);
         $this->folios->buildAt($code);
-        $ingest->ingestDataset($dataset, dispatchFinished: false);
+        $ingest->ingest($input, dispatchFinished: false);
         $this->folios->finalize();
         $this->folios->finishBuildAt($code);
         $ctx = $this->folios->context($code);
@@ -185,7 +170,7 @@ final class FolioMetadataBuildTest extends TestCase
         file_put_contents($dir.'/page.jsonl', json_encode($invalid, JSON_THROW_ON_ERROR)."\n");
         $this->folios->buildAt($code);
         try {
-            $ingest->ingestDataset($dataset, dispatchFinished: false);
+            $ingest->ingest($input, dispatchFinished: false);
             self::fail('An object genre must never be accepted as a page type');
         } catch (\ValueError $e) {
             self::assertStringContainsString('object', $e->getMessage());
@@ -215,7 +200,7 @@ final class FolioMetadataBuildTest extends TestCase
         $file = $this->root.'/legacy.folio';
         $pdo = new \PDO('sqlite:'.$file);
         $pdo->exec("CREATE TABLE folio(code TEXT, label TEXT, row_count INTEGER); INSERT INTO folio VALUES('test/paper','Legacy title',200); CREATE TABLE item(id TEXT); INSERT INTO item VALUES('untouched')");
-        $command = new CommandTester(new FolioMigrateCommand($this->folios, $this->registry));
+        $command = new CommandTester(new FolioMigrateCommand());
         self::assertSame(0, $command->execute(['--file' => $file]));
         self::assertSame('Legacy title', (new PropertyStore($pdo))->values()['label']);
         self::assertSame('untouched', $pdo->query('SELECT id FROM item')->fetchColumn());

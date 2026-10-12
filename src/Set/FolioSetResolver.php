@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Set;
 
-use Survos\DatasetBundle\Entity\Artifact;
-use Survos\DatasetBundle\Entity\DatasetInfo;
-use Survos\DatasetBundle\Repository\DatasetInfoRepository;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\FolioBundle\Catalog\FolioCatalogEntry;
 use Survos\FolioBundle\Service\FolioService;
@@ -18,18 +15,12 @@ use Symfony\Component\DependencyInjection\Attribute\Autowire;
  * folio joins by gaining a tag in harvest, or by name (`folios`), for the one- or few-folio set.
  * Membership is derived and can always be rebuilt. See docs/folio-sets.md.
  *
- * Two sources answer the same criteria with the same {@see matches()}: the hub catalog
- * (`<folio_server>/folio/list.json`, or the Harvest dataset API), which is what a reading app sees, and the local dataset
- * registry, which is what the app that builds the folios sees. folio:sets:sync records the result;
- * members() reads it back.
+ * Membership comes from a published catalog. Registry and pipeline decisions belong to its producer.
  */
 final class FolioSetResolver
 {
     /** Criteria that select by metadata; `folios` selects by name, `minRows` only filters. */
     private const array SELECTIVE = ['tags', 'tagsAll', 'provider', 'contentType'];
-
-    /** @var array<string, list<string>> folio file → content types, read once per process */
-    private array $contentTypes = [];
 
     /** @param array<string, array{label: ?string, core: string, criteria: array<string, mixed>}> $sets */
     public function __construct(
@@ -37,16 +28,19 @@ final class FolioSetResolver
         private readonly array $sets,
         #[Autowire('%kernel.project_dir%/var/folio-sets')]
         private readonly string $membershipDir,
-        private readonly ?DatasetInfoRepository $datasets = null,
         private readonly ?FolioCatalogClient $catalog = null,
         private readonly ?FolioService $folios = null,
-        /** auto: the hub catalog when folio_server or the dataset API is set, else the local registry */
+        /** auto: the hub catalog when folio_server or the dataset API is set, otherwise a configured catalog is required */
         #[Autowire('%survos_folio.folio_sets_source%')]
         private readonly string $source = 'auto',
         #[Autowire('%survos_folio.folio_server%')]
         private readonly ?string $folioServer = null,
         private readonly ?RecordedMembershipProvider $recordedMembership = null,
-    ) {}
+    ) {
+        if (!in_array($source, ['auto', 'catalog'], true)) {
+            throw new \InvalidArgumentException('Folio sets require a published catalog; registry selection is removed.');
+        }
+    }
 
     /** @return array<string, array{label: ?string, core: string, criteria: array<string, mixed>}> */
     public function sets(): array
@@ -61,13 +55,7 @@ final class FolioSetResolver
 
     public function source(): string
     {
-        if ($this->source !== 'auto') {
-            return $this->source;
-        }
-
-        // A consumer reads Harvest's API/feed, never its registry: the dataset API counts as a
-        // catalog even with folio_server empty.
-        return $this->catalog !== null && (($this->folioServer ?? '') !== '' || $this->catalog->usesDatasetApi()) ? 'catalog' : 'registry';
+        return 'catalog';
     }
 
     /**
@@ -186,7 +174,10 @@ final class FolioSetResolver
     /** @return iterable<array<string, mixed>> */
     private function candidates(array $criteria): iterable
     {
-        if ($this->source() === 'catalog') {
+        if ($this->catalog === null) {
+            throw new \RuntimeException('Configure a folio catalog to resolve set membership.');
+        }
+        {
             $entries = $this->catalog->all();
             if ($entries === [] && $this->catalog->isStale()) {
                 throw new \RuntimeException(sprintf('The folio catalog %s is unreachable and nothing is cached.', $this->catalog->url()));
@@ -202,14 +193,6 @@ final class FolioSetResolver
             return;
         }
 
-        if ($this->datasets === null) {
-            throw new \RuntimeException('Folio sets resolve against the local dataset registry here, and it is not available. Set survos_folio.folio_server or enable survos_folio.dataset_api to resolve against the hub catalog instead.');
-        }
-        foreach ($this->datasets->findAll() as $info) {
-            if (($candidate = $this->fromRegistry($info, $criteria)) !== null) {
-                yield $candidate;
-            }
-        }
     }
 
     private function fromCatalog(FolioCatalogEntry $entry): array
@@ -217,22 +200,6 @@ final class FolioSetResolver
         return $this->member(
             $entry->datasetKey, $entry->title, strtolower($entry->provider), $entry->tags, $entry->rowCount, true, $entry->downloadUrl,
             $entry->contentType !== null ? [strtolower($entry->contentType)] : [],
-        );
-    }
-
-    private function fromRegistry(DatasetInfo $info, array $criteria): ?array
-    {
-        $artifact = $info->artifact(Artifact::TYPE_FOLIO);
-        if ($artifact === null) {
-            return null;
-        }
-        $folio = $artifact->uri !== null && is_file($artifact->uri) ? $artifact->uri : null;
-
-        return $this->member(
-            $info->datasetKey, $info->label, strtolower($info->provider()), $info->getTags(), $artifact->rowCount, true, null,
-            // Only worked out when a criterion needs it: it may mean opening the folio file.
-            ($criteria['contentType'] ?? []) !== [] ? $this->contentTypes($artifact, $folio) : [],
-            $folio,
         );
     }
 
@@ -255,32 +222,4 @@ final class FolioSetResolver
         ];
     }
 
-    /**
-     * A folio's content types: the artifact's recorded contentType if the registry has one,
-     * otherwise the DTO types in the folio's own schema_table.
-     *
-     * @return list<string>
-     */
-    private function contentTypes(Artifact $artifact, ?string $folio): array
-    {
-        if (is_string($artifact->metadata['contentType'] ?? null)) {
-            return [strtolower($artifact->metadata['contentType'])];
-        }
-        if ($folio === null) {
-            return [];
-        }
-        if (!isset($this->contentTypes[$folio])) {
-            $pdo = new \Pdo\Sqlite('sqlite:'.$folio, options: [
-                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-                \Pdo\Sqlite::ATTR_OPEN_FLAGS => \Pdo\Sqlite::OPEN_READONLY,
-            ]);
-            // schema_table records each DTO table's type; a multi-core folio has several
-            // (cron-america: doc → newspaper, article → document).
-            $this->contentTypes[$folio] = array_values(array_map('strtolower', $pdo->query(
-                'SELECT DISTINCT dto_type FROM schema_table WHERE dto_type IS NOT NULL'
-            )->fetchAll(\PDO::FETCH_COLUMN)));
-        }
-
-        return $this->contentTypes[$folio];
-    }
 }
