@@ -6,6 +6,7 @@ namespace Survos\FolioBundle\Catalog;
 
 use Survos\FolioBundle\Publisher\Publication;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpClient\RetryableHttpClient;
 use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
@@ -24,7 +25,9 @@ final readonly class DatasetPublicationClient
         if ($this->token === '' || !preg_match('#^https?://[^/]+#', $this->server)) {
             throw new \LogicException('Configure the dataset API server and read token.');
         }
-        return $this->http->request('GET', $this->source().$path, [
+        // Catalog reads are idempotent: ride out a stalled or restarting server instead of
+        // aborting a whole sync on one idle timeout. Downloads stream and keep their own client.
+        return new RetryableHttpClient($this->http, maxRetries: 3)->request('GET', $this->source().$path, [
             'auth_bearer' => $this->token, 'query' => $query, 'timeout' => 10, 'max_duration' => 30,
             'headers' => ['Accept' => 'application/json'], 'max_redirects' => 0,
         ]);

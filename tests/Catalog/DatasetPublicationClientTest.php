@@ -57,6 +57,21 @@ final class DatasetPublicationClientTest extends TestCase
         self::assertSame(['/api/changes?after=old:7', '/api/changes', '/api/datasets', '/api/changes?after=new:3'], $requests);
     }
 
+    public function testAnIdleTimeoutIsRetriedInsteadOfAbortingTheSync(): void
+    {
+        $attempts = 0;
+        $http = new MockHttpClient(function () use (&$attempts): MockResponse {
+            return ++$attempts === 1
+                ? new MockResponse([], ['error' => 'Idle timeout reached for "'.self::SERVER.'/api/datasets".'])
+                : self::json([DatasetField::VERSION => 1, DatasetField::ITEMS => [self::dataset('mus/a')], DatasetField::NEXT => null]);
+        });
+
+        $datasets = new DatasetPublicationClient($http, self::SERVER, 'token')->datasets();
+
+        self::assertSame(['mus/a'], array_keys($datasets));
+        self::assertSame(2, $attempts);
+    }
+
     public function testA410DuringAFullSyncIsNotRetriedForever(): void
     {
         $http = new MockHttpClient(static fn (string $method, string $url): MockResponse => str_ends_with($url, '/api/changes')
