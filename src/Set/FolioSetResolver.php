@@ -45,6 +45,7 @@ final class FolioSetResolver
         private readonly string $source = 'auto',
         #[Autowire('%survos_folio.folio_server%')]
         private readonly ?string $folioServer = null,
+        private readonly ?RecordedMembershipProvider $recordedMembership = null,
     ) {}
 
     /** @return array<string, array{label: ?string, core: string, criteria: array<string, mixed>}> */
@@ -107,6 +108,10 @@ final class FolioSetResolver
      */
     public function members(string $code): array
     {
+        if ($this->recordedMembership !== null) {
+            if (!$this->has($code)) { throw new \InvalidArgumentException('Unknown folio set: '.$code); }
+            return $this->recordedMembership->members($code);
+        }
         $recorded = $this->recorded($code);
 
         return $recorded !== null ? $recorded['members'] : $this->resolve($code);
