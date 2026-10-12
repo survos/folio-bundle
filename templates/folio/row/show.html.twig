@@ -644,6 +644,10 @@
                         </div>
                     {% endif %}
 
+                    {# ux_map() is an optional package (symfony/ux-leaflet-map). Twig resolves functions at
+                       compile time, so `hasUxMap` alone cannot hide the call: without the guard the whole
+                       template fails to compile ("Unknown ux_map function"). #}
+                    {% guard function ux_map %}
                     {% if hasUxMap and tombstoneIsPreciseLocation %}
                         <div class="card mb-3">
                             <div class="card-header">
@@ -663,6 +667,7 @@
                             </div>
                         </div>
                     {% endif %}
+                    {% endguard %}
 
                     {% if ocrText %}
                         <div class="card mb-3" id="doc-transcription-card">
