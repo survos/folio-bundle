@@ -263,38 +263,7 @@
                                         <source src="{{ page.url }}">
                                         Your browser can't play this audio — <a href="{{ page.url }}">download it</a>.
                                     </audio>
-                                    {% if page.dialogue %}
-                                        {# Speaker-turn transcript: list<{speaker, text, startMs, endMs}> — see
-                                           Page::$dialogue. A new speaker gets its own heading; consecutive
-                                           segments from the same speaker (or with no speaker at all — TEI's
-                                           unattributed stage-direction lines) just continue the paragraph. #}
-                                        {# JsonlWriter's DTO serialization drops null values recursively, including
-                                           inside this array (an unattributed segment's "speaker" key is simply
-                                           absent on disk, not present-as-null) — |default(null) is required here
-                                           because this app runs Twig with strict_variables. #}
-                                        {% set audioTranscriptController = survos_stimulus('folio-bundle', 'audio-transcript') %}
-                                        <div class="folio-dialogue mt-3 mb-4"
-                                             {{ stimulus_controller(audioTranscriptController, { highlightMode: 'sentence' }) }}>
-                                            {% set lastSpeaker = null %}
-                                            {% for segment in page.dialogue %}
-                                                {% set speaker = segment.speaker|default(null) %}
-                                                {% if speaker and speaker != lastSpeaker %}
-                                                    <div class="fw-bold text-primary mt-3">{{ speaker }}</div>
-                                                    {% set lastSpeaker = speaker %}
-                                                {% elseif not speaker %}
-                                                    {% set lastSpeaker = null %}
-                                                {% endif %}
-                                                <p class="mb-1{{ speaker ? '' : ' text-muted small' }}"
-                                                   {% if segment.startMs is defined and segment.endMs is defined %}
-                                                       data-sync-segment
-                                                       data-start-ms="{{ segment.startMs }}"
-                                                       data-end-ms="{{ segment.endMs }}"
-                                                   {% endif %}>{% if segment.words is defined %}{% for word in segment.words %}<span data-sync-word data-start-ms="{{ word.startMs }}" data-end-ms="{{ word.endMs }}">{{ word.text }}</span>{{ not loop.last ? ' ' : '' }}{% endfor %}{% else %}{{ segment.text|default('') }}{% endif %}</p>
-                                            {% endfor %}
-                                        </div>
-                                    {% elseif page.text %}
-                                        <p class="text-muted mt-3" style="white-space: pre-line">{{ page.text }}</p>
-                                    {% endif %}
+                                    {{ include('@SurvosFolioBundle/folio/row/_dialogue.html.twig') }}
                                     {% if not loop.last %}<hr class="my-4">{% endif %}
                                 {% endfor %}
                             </div>
@@ -311,6 +280,8 @@
                                         <source src="{{ page.url }}">
                                         Your browser can't play this video — <a href="{{ page.url }}">download it</a>.
                                     </video>
+                                    {{ include('@SurvosFolioBundle/folio/row/_dialogue.html.twig') }}
+                                    {% if not loop.last %}<hr class="my-4">{% endif %}
                                 {% endfor %}
                             </div>
                             <div class="card-footer py-2 small text-muted">
