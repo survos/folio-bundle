@@ -13,7 +13,7 @@ final readonly class FolioPublishedEvent
         public int $rowCount,
         public ?string $locale = null,
     ) {
-        $this->folioCode = $datasetKey.($locale !== null ? '.'.$locale : '');
+        $this->folioCode = $datasetKey.(null !== $locale ? '.'.$locale : '');
     }
 
     /** Artifact identity, distinct from the dataset and internal row IDs. */

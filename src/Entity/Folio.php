@@ -80,12 +80,36 @@ class Folio implements RouteParametersInterface
     private array $properties = [];
     private array $pending = [];
 
-    public function get(string $key): mixed { return isset($this->properties[$key]) ? $this->properties[$key]->value : ($key === PropertyKey::SCHEMA_VERSION ? 1 : null); }
-    public function has(string $key): bool { return array_key_exists($key, $this->properties); }
-    public function properties(): array { return $this->properties; }
-    public function pendingProperties(): array { return $this->pending; }
-    public function markPropertiesSaved(): void { $this->pending = []; }
-    public function loadProperties(array $properties): void { $this->properties = $properties; $this->pending = []; }
+    public function get(string $key): mixed
+    {
+        return isset($this->properties[$key]) ? $this->properties[$key]->value : (PropertyKey::SCHEMA_VERSION === $key ? 1 : null);
+    }
+
+    public function has(string $key): bool
+    {
+        return array_key_exists($key, $this->properties);
+    }
+
+    public function properties(): array
+    {
+        return $this->properties;
+    }
+
+    public function pendingProperties(): array
+    {
+        return $this->pending;
+    }
+
+    public function markPropertiesSaved(): void
+    {
+        $this->pending = [];
+    }
+
+    public function loadProperties(array $properties): void
+    {
+        $this->properties = $properties;
+        $this->pending = [];
+    }
 
     public function set(string $key, mixed $value, string $source = 'meta', string $owner = 'folio.meta', array $provenance = []): void
     {
@@ -95,15 +119,17 @@ class Folio implements RouteParametersInterface
     public function put(string $key, PropertyValue $property): void
     {
         PropertyKey::validate($key, $property->value);
-        if ($property->source === 'human' && in_array($key, [PropertyKey::ROW_COUNT, PropertyKey::SCHEMA_VERSION], true)) {
+        if ('human' === $property->source && in_array($key, [PropertyKey::ROW_COUNT, PropertyKey::SCHEMA_VERSION], true)) {
             throw new \InvalidArgumentException('Cannot override a system property: '.$key);
         }
         $old = $this->properties[$key] ?? null;
-        if ($old !== null && $property->source !== 'human' && $old->owner !== $property->owner
-            && !($old->owner === 'legacy.folio' && in_array($key, [PropertyKey::LABEL, PropertyKey::CONTENT_TYPE, PropertyKey::ROW_COUNT], true))) {
+        if (null !== $old && 'human' !== $property->source && $old->owner !== $property->owner
+            && !('legacy.folio' === $old->owner && in_array($key, [PropertyKey::LABEL, PropertyKey::CONTENT_TYPE, PropertyKey::ROW_COUNT], true))) {
             return;
         }
-        if ($old !== null && $old->value === $property->value && $old->source === $property->source && $old->owner === $property->owner && $old->provenance === $property->provenance) { return; }
+        if (null !== $old && $old->value === $property->value && $old->source === $property->source && $old->owner === $property->owner && $old->provenance === $property->provenance) {
+            return;
+        }
         $this->properties[$key] = $this->pending[$key] = $property;
     }
 
@@ -111,7 +137,9 @@ class Folio implements RouteParametersInterface
     public function replaceProperties(string $owner, array $properties): void
     {
         foreach ($properties as $key => $property) {
-            if ($property->owner !== $owner) { throw new \InvalidArgumentException('Property owner mismatch'); }
+            if ($property->owner !== $owner) {
+                throw new \InvalidArgumentException('Property owner mismatch');
+            }
             PropertyKey::validate($key, $property->value);
         }
         foreach ($this->properties as $key => $property) {
@@ -120,7 +148,9 @@ class Folio implements RouteParametersInterface
                 $this->pending[$key] = null;
             }
         }
-        foreach ($properties as $key => $property) { $this->put($key, $property); }
+        foreach ($properties as $key => $property) {
+            $this->put($key, $property);
+        }
     }
 
     public function __construct(string $code)

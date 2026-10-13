@@ -11,7 +11,8 @@ final class FolioRetriever
 {
     public function __construct(
         private readonly FolioQueryAnalyzer $queryAnalyzer,
-    ) {}
+    ) {
+    }
 
     /**
      * @return list<FolioChatHit>
@@ -19,7 +20,7 @@ final class FolioRetriever
     public function retrieve(FolioContext $ctx, string $question, int $limit = 12, ?string $coreCode = null, ?string $dtoType = null): array
     {
         $matchQuery = $this->matchQuery($question);
-        if ($matchQuery === '') {
+        if ('' === $matchQuery) {
             return [];
         }
 
@@ -30,11 +31,11 @@ final class FolioRetriever
 
         $where = ['item_fts MATCH :query'];
         $params = ['query' => $matchQuery];
-        if ($coreCode !== null && $coreCode !== '') {
+        if (null !== $coreCode && '' !== $coreCode) {
             $where[] = 'd.core_id = :coreId';
             $params['coreId'] = sprintf('%s:%s', $ctx->folioCode, $coreCode);
         }
-        if ($dtoType !== null && $dtoType !== '') {
+        if (null !== $dtoType && '' !== $dtoType) {
             $where[] = 'd.dto_type = :dtoType';
             $params['dtoType'] = $dtoType;
         }
@@ -88,7 +89,7 @@ final class FolioRetriever
 
         $where = ['d.local_id = :localId'];
         $params = ['localId' => $localId];
-        if ($coreCode !== null && $coreCode !== '') {
+        if (null !== $coreCode && '' !== $coreCode) {
             $where[] = 'd.core_id = :coreId';
             $params['coreId'] = sprintf('%s:%s', $ctx->folioCode, $coreCode);
         }
@@ -121,7 +122,7 @@ final class FolioRetriever
     {
         [$provider, $dataset, $rowCoreCode] = $this->splitCoreId((string) $row['coreId']);
         // A contentless FTS table (text-heavy folios) returns no snippet; build it from the row.
-        if (!is_string($row['snippet'] ?? null) || $row['snippet'] === '') {
+        if (!is_string($row['snippet'] ?? null) || '' === $row['snippet']) {
             $data = $this->decodeJson($row['dtoData'] ?? null) + $this->decodeJson($row['extras'] ?? null);
             $text = implode(' ', array_filter(array_map(static fn ($v) => is_string($v) ? $v : null,
                 [$data['ocrText'] ?? null, $data['description'] ?? null, $data['text'] ?? null, $row['label'] ?? null])));
@@ -133,14 +134,14 @@ final class FolioRetriever
             dataset: $dataset,
             coreCode: $rowCoreCode,
             localId: (string) $row['localId'],
-            label: is_string($row['label'] ?? null) && $row['label'] !== '' ? $row['label'] : null,
-            dtoType: is_string($row['dtoType'] ?? null) && $row['dtoType'] !== '' ? $row['dtoType'] : null,
+            label: is_string($row['label'] ?? null) && '' !== $row['label'] ? $row['label'] : null,
+            dtoType: is_string($row['dtoType'] ?? null) && '' !== $row['dtoType'] ? $row['dtoType'] : null,
             score: (float) $row['score'],
             snippet: is_string($row['snippet'] ?? null) ? $row['snippet'] : '',
             dtoData: $this->decodeJson($row['dtoData'] ?? null),
             extras: $this->decodeJson($row['extras'] ?? null),
-            pageUrl: is_string($row['pageUrl'] ?? null) && $row['pageUrl'] !== '' ? $row['pageUrl'] : null,
-            pageMediaId: is_string($row['pageMediaId'] ?? null) && $row['pageMediaId'] !== '' ? $row['pageMediaId'] : null,
+            pageUrl: is_string($row['pageUrl'] ?? null) && '' !== $row['pageUrl'] ? $row['pageUrl'] : null,
+            pageMediaId: is_string($row['pageMediaId'] ?? null) && '' !== $row['pageMediaId'] ? $row['pageMediaId'] : null,
         );
     }
 
@@ -150,7 +151,7 @@ final class FolioRetriever
             throw new \RuntimeException(sprintf('Folio database not found: %s', $dbFile));
         }
 
-        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         return $pdo;
@@ -158,7 +159,7 @@ final class FolioRetriever
 
     private function hasFtsIndex(\PDO $pdo): bool
     {
-        return $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'item_fts'")->fetchColumn() === 'item_fts';
+        return 'item_fts' === $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'item_fts'")->fetchColumn();
     }
 
     /**
@@ -168,7 +169,7 @@ final class FolioRetriever
     {
         $terms = $this->queryAnalyzer->terms($question);
 
-        return implode(' OR ', array_map(static fn (string $term): string => $term . '*', array_slice($terms, 0, 12)));
+        return implode(' OR ', array_map(static fn (string $term): string => $term.'*', array_slice($terms, 0, 12)));
     }
 
     /**
@@ -187,7 +188,7 @@ final class FolioRetriever
      */
     private function decodeJson(mixed $json): array
     {
-        if (!is_string($json) || trim($json) === '') {
+        if (!is_string($json) || '' === trim($json)) {
             return [];
         }
 

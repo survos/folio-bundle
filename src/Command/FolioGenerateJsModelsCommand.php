@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Command;
 
 use Doctrine\ORM\Mapping\ClassMetadata;
-use Survos\FolioBundle\Entity\{Claim,Core,Doc,Folio,Link,LinkType,Page,Row,SchemaProperty,SchemaTable,Str,StrTranslation,Term,TermSet};
+use Survos\FolioBundle\Entity\Core;
+use Survos\FolioBundle\Entity\Folio;
+use Survos\FolioBundle\Entity\Page;
+use Survos\FolioBundle\Entity\Row;
+use Survos\FolioBundle\Entity\SchemaTable;
+use Survos\FolioBundle\Entity\Term;
 use Survos\FolioBundle\Service\FolioService;
-use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Argument;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -37,14 +42,15 @@ final class FolioGenerateJsModelsCommand
 
     public function __construct(
         private readonly FolioService $folios,
-    ) {}
+    ) {
+    }
 
     public function __invoke(
         SymfonyStyle $io,
         #[Argument('A real, already-built folio to read entity metadata from (e.g. curatescape/scioto) -- metadata is schema-only, not data-specific')]
         string $folio,
         #[Option('Directory to write generated .js files into')]
-        string $output = __DIR__ . '/../../assets/models',
+        string $output = __DIR__.'/../../assets/models',
     ): int {
         $ctx = $this->folios->context($folio);
         $mf = $ctx->em->getMetadataFactory();
@@ -68,7 +74,7 @@ final class FolioGenerateJsModelsCommand
                 $targetClass = $mapping['targetEntity'];
                 $joinColumns = $mapping['joinColumns'] ?? [];
                 $fkColumn = $joinColumns[0]['name'] ?? null;
-                if ($fkColumn === null) {
+                if (null === $fkColumn) {
                     continue;
                 }
                 $inverseHasMany[$targetClass][] = ['via' => $fkColumn, 'from' => $ownerClass];
@@ -77,23 +83,25 @@ final class FolioGenerateJsModelsCommand
 
         if (!is_dir($output) && !mkdir($output, 0775, true) && !is_dir($output)) {
             $io->error(sprintf('Unable to create output directory "%s".', $output));
+
             return Command::FAILURE;
         }
 
         foreach ($metas as $class => $meta) {
             $js = $this->generateClass($meta, $class, $metas, $inverseHasMany[$class] ?? []);
-            $file = $output . '/' . $this->shortName($class) . '.js';
+            $file = $output.'/'.$this->shortName($class).'.js';
             file_put_contents($file, $js);
             $io->writeln(sprintf('  %s → %s', $class, $file));
         }
 
         $io->success(sprintf('Generated %d JS model(s) in %s', count($metas), $output));
+
         return Command::SUCCESS;
     }
 
     /**
-     * @param array<class-string, ClassMetadata> $metas All generated classes -- used to resolve a
-     *   ManyToOne's target class to its generated short name/import.
+     * @param array<class-string, ClassMetadata>        $metas          all generated classes -- used to resolve a
+     *                                                                  ManyToOne's target class to its generated short name/import
      * @param list<array{via:string,from:class-string}> $inverseHasMany
      */
     private function generateClass(ClassMetadata $meta, string $class, array $metas, array $inverseHasMany): string
@@ -118,7 +126,7 @@ final class FolioGenerateJsModelsCommand
             }
             $targetClass = $mapping['targetEntity'];
             $fkColumn = $mapping['joinColumns'][0]['name'] ?? null;
-            if ($fkColumn === null) {
+            if (null === $fkColumn) {
                 continue;
             }
             $columns[] = $fkColumn;
@@ -140,7 +148,7 @@ final class FolioGenerateJsModelsCommand
             $imports[$fromShort] = true;
             // Pluralized method name: "rows" for Row, "cores" for Core, etc. -- simple 's' suffix
             // is fine for this entity set (no irregular plurals among Row/Core/Page/Term/...).
-            $method = lcfirst($fromShort) . 's';
+            $method = lcfirst($fromShort).'s';
             $hasMany[] = ['method' => $method, 'target' => $fromShort, 'fk' => $rel['via']];
         }
 
@@ -170,7 +178,7 @@ final class FolioGenerateJsModelsCommand
         }
 
         $columnsJs = implode(', ', array_map(static fn (string $c): string => "'{$c}'", $columns));
-        $importBlock = $importLines === [] ? '' : implode("\n", $importLines) . "\n";
+        $importBlock = [] === $importLines ? '' : implode("\n", $importLines)."\n";
         $methodsBlock = implode("\n", $methods);
 
         return <<<JS
@@ -192,6 +200,6 @@ final class FolioGenerateJsModelsCommand
     {
         $pos = strrpos($class, '\\');
 
-        return $pos === false ? $class : substr($class, $pos + 1);
+        return false === $pos ? $class : substr($class, $pos + 1);
     }
 }

@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
-use Survos\DataContracts\Attribute\{ClassMeta,PropertyMeta,VocabTerm};
-use Survos\DataContracts\Vocabulary\{ItemField,MuseumVocab};
+use Survos\DataContracts\Attribute\ClassMeta;
+use Survos\DataContracts\Attribute\PropertyMeta;
+use Survos\DataContracts\Attribute\VocabTerm;
+use Survos\DataContracts\Vocabulary\ItemField;
+use Survos\DataContracts\Vocabulary\MuseumVocab;
 use Survos\FieldBundle\Attribute\Field;
 
 final readonly class FolioSchemaSnapshotter
@@ -32,6 +35,7 @@ final readonly class FolioSchemaSnapshotter
         'transcription',
         'htrText',
     ];
+
     public function __construct(
         private FolioDtoTypeResolver $dtoTypeResolver,
     ) {
@@ -47,7 +51,7 @@ final readonly class FolioSchemaSnapshotter
         $pdo->exec('DELETE FROM schema_table');
 
         $folioCode = (string) $pdo->query('SELECT code FROM folio LIMIT 1')->fetchColumn();
-        if ($folioCode === '') {
+        if ('' === $folioCode) {
             return ['tables' => 0, 'properties' => 0];
         }
 
@@ -56,9 +60,9 @@ final readonly class FolioSchemaSnapshotter
 
         foreach ($pdo->query('SELECT id, code, label, row_count, field_summary FROM core ORDER BY code')->fetchAll(\PDO::FETCH_ASSOC) as $core) {
             $coreCode = (string) $core['code'];
-            $coreTableId = $folioCode . ':row_' . $coreCode;
-            $this->insertTable($pdo, $coreTableId, $folioCode, $coreCode, 'row_' . $coreCode, 'core', null, null, $core['label'] !== null ? (string) $core['label'] : null, null, (int) $core['row_count']);
-            $tables++;
+            $coreTableId = $folioCode.':row_'.$coreCode;
+            $this->insertTable($pdo, $coreTableId, $folioCode, $coreCode, 'row_'.$coreCode, 'core', null, null, null !== $core['label'] ? (string) $core['label'] : null, null, (int) $core['row_count']);
+            ++$tables;
 
             foreach ($this->fieldSummary($core['field_summary'] ?? null) as $i => $field) {
                 $properties += $this->insertProperty($pdo, $coreTableId, $field, $i, true, false, false, false);
@@ -67,10 +71,10 @@ final readonly class FolioSchemaSnapshotter
             $dtoRows = $pdo->prepare('SELECT dto_type, COUNT(*) AS row_count FROM item WHERE core_id = :coreId GROUP BY dto_type ORDER BY dto_type');
             $dtoRows->execute(['coreId' => $core['id']]);
             foreach ($dtoRows->fetchAll(\PDO::FETCH_ASSOC) as $dtoRow) {
-                $dtoType = is_string($dtoRow['dto_type'] ?? null) && $dtoRow['dto_type'] !== '' ? (string) $dtoRow['dto_type'] : 'row';
+                $dtoType = is_string($dtoRow['dto_type'] ?? null) && '' !== $dtoRow['dto_type'] ? (string) $dtoRow['dto_type'] : 'row';
                 $dtoClass = $this->dtoTypeResolver->classForType($dtoType);
                 $tableName = $this->viewName($coreCode, $dtoType);
-                $tableId = $folioCode . ':' . $tableName;
+                $tableId = $folioCode.':'.$tableName;
                 $classMeta = $this->classMetadata($dtoClass);
 
                 $this->insertTable(
@@ -86,18 +90,17 @@ final readonly class FolioSchemaSnapshotter
                     $classMeta['description'] ?? null,
                     (int) $dtoRow['row_count'],
                 );
-                $tables++;
+                ++$tables;
 
                 $rows = $this->dtoDataRows($pdo, (string) $core['id'], $dtoType);
                 $fieldStats = $this->fieldPresence($rows);
                 $metadata = $this->dtoPropertyMetadata($dtoType);
                 // #[Field(order:)] sets position (and so facet order); fields without one keep the
                 // order they appear in the rows (100 is Field's default order). uksort is stable, so ties keep it.
-                uksort($fieldStats, static fn (int|string $a, int|string $b): int =>
-                    ($metadata[$a]['order'] ?? 100) <=> ($metadata[$b]['order'] ?? 100));
+                uksort($fieldStats, static fn (int|string $a, int|string $b): int => ($metadata[$a]['order'] ?? 100) <=> ($metadata[$b]['order'] ?? 100));
                 $position = 0;
                 foreach ($fieldStats as $name => $stats) {
-                    if (!is_string($name) || $name === '' || !$this->observed($stats)) {
+                    if (!is_string($name) || '' === $name || !$this->observed($stats)) {
                         continue;
                     }
                     $property = $metadata[$name] ?? [];
@@ -127,7 +130,7 @@ final readonly class FolioSchemaSnapshotter
         // observed data rather than a typed DTO property. (Runtime, not the compile-time MeiliIndexPass —
         // that only sees DTO-declared fields on Doctrine-entity indexes, never a folio's observed fields.)
         $termSetCodes = $this->termSetCodes();
-        if ($termSetCodes !== []) {
+        if ([] !== $termSetCodes) {
             $placeholders = implode(',', array_fill(0, count($termSetCodes), '?'));
             $pdo->prepare("UPDATE schema_property SET facet = 1, filterable = 1 WHERE name IN ($placeholders)")
                 ->execute($termSetCodes);
@@ -157,7 +160,7 @@ final readonly class FolioSchemaSnapshotter
             throw new \RuntimeException(sprintf('Folio database not found: %s', $dbFile));
         }
 
-        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         return $pdo;
@@ -184,14 +187,14 @@ final readonly class FolioSchemaSnapshotter
     {
         $stmt = $pdo->prepare('INSERT OR IGNORE INTO schema_property(id, table_id, name, label, description, type, declaring_class, stats, "group", position, visible, searchable, filterable, facet, sortable) VALUES (:id, :tableId, :name, :label, :description, :type, :declaringClass, :stats, :group, :position, :visible, :searchable, :filterable, :facet, :sortable)');
         $stmt->execute([
-            'id' => $tableId . ':' . $name,
+            'id' => $tableId.':'.$name,
             'tableId' => $tableId,
             'name' => $name,
             'label' => $label ?? $this->labelize($name),
             'description' => $description,
             'type' => $type,
             'declaringClass' => $declaringClass,
-            'stats' => $stats === null ? null : json_encode($stats, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            'stats' => null === $stats ? null : json_encode($stats, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
             'group' => $group,
             'position' => $position,
             'visible' => $visible ? 1 : 0,
@@ -207,7 +210,7 @@ final readonly class FolioSchemaSnapshotter
     /** @return list<string> */
     private function fieldSummary(mixed $json): array
     {
-        if (!is_string($json) || $json === '') {
+        if (!is_string($json) || '' === $json) {
             return [];
         }
 
@@ -255,7 +258,7 @@ final readonly class FolioSchemaSnapshotter
             $properties[$name] = [
                 'name' => $name,
                 'label' => $propertyMeta instanceof PropertyMeta ? $propertyMeta->label : null,
-                'description' => $propertyMeta instanceof PropertyMeta && $propertyMeta->description !== null ? $propertyMeta->description : $this->docComment($property->getDocComment() ?: null),
+                'description' => $propertyMeta instanceof PropertyMeta && null !== $propertyMeta->description ? $propertyMeta->description : $this->docComment($property->getDocComment() ?: null),
                 'type' => $this->typeName($property->getType()),
                 'declaringClass' => $property->getDeclaringClass()->getName(),
                 'group' => $field instanceof Field ? $field->group : null,
@@ -274,7 +277,7 @@ final readonly class FolioSchemaSnapshotter
     /** @return array{label?:string,description?:string} */
     private function classMetadata(?string $class): array
     {
-        if ($class === null || !class_exists($class)) {
+        if (null === $class || !class_exists($class)) {
             return [];
         }
 
@@ -284,8 +287,8 @@ final readonly class FolioSchemaSnapshotter
 
         return array_filter([
             'label' => $classMeta instanceof ClassMeta ? $classMeta->label : null,
-            'description' => $classMeta instanceof ClassMeta && $classMeta->description !== null ? $classMeta->description : $this->docComment($reflection->getDocComment() ?: null),
-        ], static fn (?string $value): bool => $value !== null && $value !== '');
+            'description' => $classMeta instanceof ClassMeta && null !== $classMeta->description ? $classMeta->description : $this->docComment($reflection->getDocComment() ?: null),
+        ], static fn (?string $value): bool => null !== $value && '' !== $value);
     }
 
     /**
@@ -294,6 +297,7 @@ final readonly class FolioSchemaSnapshotter
      * large fields); the schema snapshot only cares whether a field has any non-null value.
      *
      * @param iterable<array<string,mixed>> $rows
+     *
      * @return array<string,array{total:int,nulls:int}>
      */
     private function fieldPresence(iterable $rows): array
@@ -308,9 +312,9 @@ final readonly class FolioSchemaSnapshotter
                     continue;
                 }
                 $stats[$field] ??= ['total' => 0, 'nulls' => 0];
-                $stats[$field]['total']++;
-                if ($value === null) {
-                    $stats[$field]['nulls']++;
+                ++$stats[$field]['total'];
+                if (null === $value) {
+                    ++$stats[$field]['nulls'];
                 }
             }
         }
@@ -326,12 +330,13 @@ final readonly class FolioSchemaSnapshotter
     private function statsType(array $stats): ?string
     {
         $types = $stats['types'] ?? [];
-        return is_array($types) && $types !== [] ? implode('|', array_map('strval', $types)) : null;
+
+        return is_array($types) && [] !== $types ? implode('|', array_map('strval', $types)) : null;
     }
 
     private function decodeJson(mixed $json): mixed
     {
-        if (!is_string($json) || trim($json) === '') {
+        if (!is_string($json) || '' === trim($json)) {
             return null;
         }
 
@@ -347,13 +352,13 @@ final readonly class FolioSchemaSnapshotter
         $slug = preg_replace('/[^A-Za-z0-9_]+/', '_', strtolower($dtoType)) ?: 'row';
         $core = preg_replace('/[^A-Za-z0-9_]+/', '_', strtolower($coreCode)) ?: 'core';
 
-        return $coreCode === 'obj' ? 'dto_' . $slug : 'dto_' . $core . '_' . $slug;
+        return 'obj' === $coreCode ? 'dto_'.$slug : 'dto_'.$core.'_'.$slug;
     }
 
     private function typeName(?\ReflectionType $type): ?string
     {
         if ($type instanceof \ReflectionNamedType) {
-            return ($type->allowsNull() && $type->getName() !== 'null' ? '?' : '') . $type->getName();
+            return ($type->allowsNull() && 'null' !== $type->getName() ? '?' : '').$type->getName();
         }
 
         if ($type instanceof \ReflectionUnionType) {
@@ -369,7 +374,7 @@ final readonly class FolioSchemaSnapshotter
 
     private function docComment(?string $comment): ?string
     {
-        if ($comment === null) {
+        if (null === $comment) {
             return null;
         }
 
@@ -377,13 +382,13 @@ final readonly class FolioSchemaSnapshotter
         $clean = [];
         foreach ($lines as $line) {
             $line = trim((string) preg_replace('/^\s*\/?\*+\s?|\s*\*\/\s*$/', '', $line));
-            if ($line === '' || str_starts_with($line, '@')) {
+            if ('' === $line || str_starts_with($line, '@')) {
                 continue;
             }
             $clean[] = $line;
         }
 
-        return $clean === [] ? null : implode("\n", $clean);
+        return [] === $clean ? null : implode("\n", $clean);
     }
 
     private function labelize(string $name): string

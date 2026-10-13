@@ -22,11 +22,11 @@ final readonly class PublicationReceipt
         public ?string $revision = null,
         public ?string $url = null,
     ) {
-        if ($state === ReceiptState::Published) {
-            if ($revision === null || $revision === '') {
+        if (ReceiptState::Published === $state) {
+            if (null === $revision || '' === $revision) {
                 throw new \InvalidArgumentException(sprintf('A published receipt for %s needs the revision that was published.', $datasetKey));
             }
-            if ($url === null || !preg_match('#^https?://[^/]+#i', $url)) {
+            if (null === $url || !preg_match('#^https?://[^/]+#i', $url)) {
                 throw new \InvalidArgumentException(sprintf('A published receipt for %s needs an absolute http(s) URL.', $datasetKey));
             }
         }
@@ -45,7 +45,7 @@ final readonly class PublicationReceipt
 
     public function isPublished(): bool
     {
-        return $this->state === ReceiptState::Published;
+        return ReceiptState::Published === $this->state;
     }
 
     /** True when both describe the same publication (ignoring when it happened). */
@@ -66,7 +66,7 @@ final readonly class PublicationReceipt
             'revision' => $this->revision,
             'url' => $this->url,
             'occurredAt' => $this->occurredAt,
-        ], static fn (?string $value): bool => $value !== null);
+        ], static fn (?string $value): bool => null !== $value);
     }
 
     /** @param array<string, string> $data */

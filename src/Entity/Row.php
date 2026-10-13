@@ -4,25 +4,24 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Entity;
 
-use ApiPlatform\Metadata\QueryParameter;
+use ApiPlatform\Doctrine\Orm\Filter\ExactFilter;
+use ApiPlatform\Doctrine\Orm\Filter\PartialSearchFilter;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
 use ApiPlatform\Metadata\Link;
-use ApiPlatform\Doctrine\Orm\Filter\ExactFilter;
-use ApiPlatform\Doctrine\Orm\Filter\PartialSearchFilter;
+use ApiPlatform\Metadata\QueryParameter;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
-use SortDirection;
 use Survos\DataContracts\Util\ImageUrl;
 use Survos\DataContracts\Util\ImageUrlVerdict;
-use Survos\FolioBundle\Service\DisplayImageSource;
 use Survos\DataContracts\Vocabulary\ItemField;
 use Survos\FieldBundle\Attribute\EntityMeta;
 use Survos\FieldBundle\Entity\RouteParametersInterface;
 use Survos\FolioBundle\Repository\RowRepository;
+use Survos\FolioBundle\Service\DisplayImageSource;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Symfony\Component\Intl\Countries;
 use Symfony\Component\Serializer\Attribute\Groups;
@@ -124,7 +123,7 @@ class Row implements RouteParametersInterface
      * each page of results, and read as the reader being slow.
      */
     #[ORM\OneToMany(targetEntity: Page::class, mappedBy: 'row')]
-    #[ORM\OrderBy(['seq' => SortDirection::Ascending])]
+    #[ORM\OrderBy(['seq' => \SortDirection::Ascending])]
     #[Groups(['row:pages'])]
     public Collection $pages;
 
@@ -132,20 +131,30 @@ class Row implements RouteParametersInterface
 
     public function __construct(Core $core, string $localId)
     {
-        $this->core    = $core;
+        $this->core = $core;
         $this->localId = $localId;
-        $this->id      = self::id($core->id, $localId);
-        $this->claims  = new ArrayCollection();
-        $this->pages   = new ArrayCollection();
+        $this->id = self::id($core->id, $localId);
+        $this->claims = new ArrayCollection();
+        $this->pages = new ArrayCollection();
     }
 
-    public static function id(string $coreId, string $localId): string { return "$coreId:$localId"; }
+    public static function id(string $coreId, string $localId): string
+    {
+        return "$coreId:$localId";
+    }
 
     // Core ID format: "folioCode:coreCode" e.g. "dc/4168b346w:obj" -- folioCode itself is
     // "provider/dataset" ("dc/4168b346w"), but provider/dataset are never used separately for
     // routing (route params collapsed to one {folioCode} segment; see class docblock).
-    public function getFolioCode(): string { return explode(':', $this->core->id, 2)[0]; }
-    public function getCoreCode(): string  { return explode(':', $this->core->id, 2)[1]; }
+    public function getFolioCode(): string
+    {
+        return explode(':', $this->core->id, 2)[0];
+    }
+
+    public function getCoreCode(): string
+    {
+        return explode(':', $this->core->id, 2)[1];
+    }
 
     #[Groups(['row:read'])]
     public function getCitationUrl(): ?string
@@ -183,7 +192,7 @@ class Row implements RouteParametersInterface
         // Page::$url is non-nullable and is defined as "what do I fetch" (its $sourceUrl holds the
         // provenance), so it is exactly the value imgproxy should be handed. Empty is treated as
         // absent so getImageVerdict() reports Empty rather than classifying a blank string.
-        return $page instanceof Page && $page->url !== '' ? $page->url : null;
+        return $page instanceof Page && '' !== $page->url ? $page->url : null;
     }
 
     /**
@@ -196,7 +205,7 @@ class Row implements RouteParametersInterface
     {
         $raw = $this->getRawThumbnailSource();
 
-        return $raw === null ? ImageUrlVerdict::Empty : ImageUrl::classify($raw);
+        return null === $raw ? ImageUrlVerdict::Empty : ImageUrl::classify($raw);
     }
 
     /**
@@ -209,7 +218,7 @@ class Row implements RouteParametersInterface
     {
         $raw = $this->getRawThumbnailSource();
 
-        return $raw !== null && ImageUrl::classify($raw)->isRenderable() ? $raw : null;
+        return null !== $raw && ImageUrl::classify($raw)->isRenderable() ? $raw : null;
     }
 
     /**
@@ -299,7 +308,7 @@ class Row implements RouteParametersInterface
     public function getCountryFlagCode(): ?string
     {
         $country = $this->canonicalDtoValue(ItemField::COUNTRY);
-        if ($country === null) {
+        if (null === $country) {
             return null;
         }
 
@@ -377,7 +386,7 @@ class Row implements RouteParametersInterface
     private function canonicalDtoValue(string $property): ?string
     {
         $value = $this->dtoData[$property] ?? null;
-        if (is_string($value) && $value !== '') {
+        if (is_string($value) && '' !== $value) {
             return $value;
         }
 

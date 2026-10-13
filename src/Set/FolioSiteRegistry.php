@@ -18,7 +18,8 @@ final readonly class FolioSiteRegistry
         #[Autowire('%survos_folio.sites%')]
         private array $sites,
         private FolioSetResolver $sets,
-    ) {}
+    ) {
+    }
 
     /** @return array<string, array{hosts: list<string>, sets: list<string>, restrict: bool}> */
     public function all(): array
@@ -76,6 +77,6 @@ final readonly class FolioSiteRegistry
     /** A site whose sets add up to one folio is that folio's own site. */
     public function isSingle(string $code): bool
     {
-        return count($this->members($code)) === 1;
+        return 1 === count($this->members($code));
     }
 }

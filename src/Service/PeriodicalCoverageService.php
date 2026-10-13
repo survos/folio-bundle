@@ -9,7 +9,9 @@ use Survos\FolioBundle\Entity\Core;
 /** Explicit aggregate calculation: publishers run this offline; directories read recorded summaries. */
 final readonly class PeriodicalCoverageService
 {
-    public function __construct(private FolioService $folios) {}
+    public function __construct(private FolioService $folios)
+    {
+    }
 
     public function compute(string $folioCode): array
     {
@@ -47,14 +49,16 @@ final readonly class PeriodicalCoverageService
         $stats = ['issues' => count($byIssue), 'headlines' => 0, 'articles' => 0, 'ads' => 0, 'blocks' => 0,
             'issuesWithText' => 0, 'issuesWithAds' => 0];
         foreach ($byIssue as &$issue) {
-            foreach (['headlines', 'articles', 'ads', 'blocks'] as $kind) { $stats[$kind] += $issue[$kind]; }
+            foreach (['headlines', 'articles', 'ads', 'blocks'] as $kind) {
+                $stats[$kind] += $issue[$kind];
+            }
             // Every block carries OCR text, so a basic issue whose blocks were all guessed to be ads
             // still has text.
             $text = $issue['headlines'] + $issue['articles'] + $issue['blocks'];
             $stats['issuesWithText'] += (int) ($text > 0);
             $stats['issuesWithAds'] += (int) ($issue['ads'] > 0);
             $issue['status'] = match (true) {
-                $issue['stage'] === 'segmented' => 'Extraction run finished · review needed',
+                'segmented' === $issue['stage'] => 'Extraction run finished · review needed',
                 $issue['articles'] > 0 => $issue['ads'] > 0 ? 'Articles and ads available' : 'Articles available · no ads extracted',
                 $issue['blocks'] > 0 => 'Blocks available · not yet stitched into articles',
                 $text > 0 => 'Text available',
@@ -62,6 +66,7 @@ final readonly class PeriodicalCoverageService
             };
         }
         unset($issue);
+
         return $stats + ['byIssue' => $byIssue];
     }
 }

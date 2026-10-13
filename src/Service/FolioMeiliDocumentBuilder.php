@@ -9,6 +9,7 @@ final class FolioMeiliDocumentBuilder
     /**
      * @param array<string,mixed>|null $dtoData
      * @param array<string,mixed>|null $extras
+     *
      * @return array<string,mixed>
      */
     public function build(
@@ -40,7 +41,7 @@ final class FolioMeiliDocumentBuilder
             'localId' => $localId,
         ];
 
-        if (is_array($extras) && $extras !== []) {
+        if (is_array($extras) && [] !== $extras) {
             $doc['extras'] = $extras;
         }
 
@@ -49,10 +50,11 @@ final class FolioMeiliDocumentBuilder
 
     /**
      * @param array<string,mixed> $data
+     *
      * @return array<string,mixed>
      */
     private function sparse(array $data): array
     {
-        return array_filter($data, static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
+        return array_filter($data, static fn (mixed $value): bool => null !== $value && [] !== $value && '' !== $value);
     }
 }

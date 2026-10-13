@@ -16,12 +16,14 @@ use Twig\Attribute\AsTwigFilter;
  */
 final readonly class FolioImageTwig
 {
-    public function __construct(private ?object $imgproxy = null) {}
+    public function __construct(private ?object $imgproxy = null)
+    {
+    }
 
     #[AsTwigFilter('folio_image')]
     public function image(?string $url, string $preset = 'thumb', ?string $format = null): string
     {
-        if ($url === null || $url === '') {
+        if (null === $url || '' === $url) {
             return '';
         }
 

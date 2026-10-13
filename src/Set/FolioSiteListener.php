@@ -17,22 +17,24 @@ use Symfony\Component\HttpKernel\KernelEvents;
 #[AsEventListener(event: KernelEvents::REQUEST, priority: 16)]
 final readonly class FolioSiteListener
 {
-    public function __construct(private FolioSiteRegistry $sites) {}
+    public function __construct(private FolioSiteRegistry $sites)
+    {
+    }
 
     public function __invoke(RequestEvent $event): void
     {
-        if (!$event->isMainRequest() || $this->sites->all() === []) {
+        if (!$event->isMainRequest() || [] === $this->sites->all()) {
             return;
         }
         $request = $event->getRequest();
         $site = $this->sites->forHost($request->getHost());
         $request->attributes->set('_folio_site', $site);
-        if ($site === null || !$this->sites->get($site)['restrict']) {
+        if (null === $site || !$this->sites->get($site)['restrict']) {
             return;
         }
 
         $folioCode = $request->attributes->get('folioCode');
-        if (is_string($folioCode) && $folioCode !== '' && !$this->sites->contains($site, $folioCode)) {
+        if (is_string($folioCode) && '' !== $folioCode && !$this->sites->contains($site, $folioCode)) {
             throw new NotFoundHttpException(sprintf('Folio "%s" is not part of this site.', $folioCode));
         }
     }

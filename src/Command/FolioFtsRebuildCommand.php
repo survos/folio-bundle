@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
-use Survos\FolioBundle\Service\{FolioFtsIndexer,FolioService};
+use Survos\FolioBundle\Service\FolioFtsIndexer;
+use Survos\FolioBundle\Service\FolioService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Input\{InputArgument,InputInterface,InputOption};
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -37,7 +40,7 @@ final class FolioFtsRebuildCommand extends Command
         $ctx = $this->folios->context($folioCode);
         $result = $this->indexer->rebuild($ctx->path, (bool) $input->getOption('force'));
 
-        if ($result['skipped'] !== null) {
+        if (null !== $result['skipped']) {
             $io->warning(sprintf(
                 '%s (%d rows) was left with no FTS index: its dataset declares Elasticsearch as the search backend, and it is over survos_folio.fts_max_rows. Pass --force to index it anyway.',
                 $folioCode,
@@ -55,7 +58,7 @@ final class FolioFtsRebuildCommand extends Command
         ));
 
         $query = $input->getOption('query');
-        if (is_string($query) && trim($query) !== '') {
+        if (is_string($query) && '' !== trim($query)) {
             $rows = $this->indexer->search($ctx->path, $query, (int) $input->getOption('limit'));
             $io->table(
                 ['Core', 'Type', 'Row', 'Label', 'Score'],
@@ -75,7 +78,7 @@ final class FolioFtsRebuildCommand extends Command
     private function formatBytes(int $bytes): string
     {
         if ($bytes < 1024) {
-            return $bytes . ' B';
+            return $bytes.' B';
         }
 
         if ($bytes < 1048576) {

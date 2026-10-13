@@ -12,7 +12,7 @@ final readonly class FolioViewBuilder
         $pdo = $this->connect($dbFile);
         foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'dto_%'")->fetchAll(\PDO::FETCH_COLUMN) ?: [] as $view) {
             if (is_string($view) && preg_match('/^dto_[A-Za-z0-9_]+$/', $view)) {
-                $pdo->exec('DROP VIEW IF EXISTS ' . $this->identifier($view));
+                $pdo->exec('DROP VIEW IF EXISTS '.$this->identifier($view));
             }
         }
 
@@ -22,31 +22,31 @@ final readonly class FolioViewBuilder
             $name = (string) ($table['name'] ?? '');
             $dtoType = (string) ($table['dto_type'] ?? '');
             $coreCode = (string) ($table['core_code'] ?? '');
-            if (!preg_match('/^dto_[A-Za-z0-9_]+$/', $name) || $dtoType === '' || $coreCode === '') {
+            if (!preg_match('/^dto_[A-Za-z0-9_]+$/', $name) || '' === $dtoType || '' === $coreCode) {
                 continue;
             }
 
             $props = $pdo->prepare('SELECT name, description FROM schema_property WHERE table_id = :tableId AND visible = 1 ORDER BY position, name');
             $props->execute(['tableId' => $table['id']]);
             $columns = [
-                "local_id",
-                "label",
-                "dto_type",
+                'local_id',
+                'label',
+                'dto_type',
                 "substr(core_id, instr(core_id, ':') + 1) AS core_code",
             ];
             foreach ($props->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $prop) {
                 $property = (string) ($prop['name'] ?? '');
                 $desc = (string) ($prop['description'] ?? '');
-                if ($property === '' || $property === 'id') {
+                if ('' === $property || 'id' === $property) {
                     continue;
                 }
                 $col = sprintf(
-                    "json_extract(dto_data, %s) AS %s",
-                    $this->literal('$.' . $property),
+                    'json_extract(dto_data, %s) AS %s',
+                    $this->literal('$.'.$property),
                     $this->identifier($property),
                 );
-                if ($desc !== '') {
-                    $col = '--' . str_replace("\n", ' ', $desc) . "\n    " . $col;
+                if ('' !== $desc) {
+                    $col = '--'.str_replace("\n", ' ', $desc)."\n    ".$col;
                 }
                 $columns[] = $col;
             }
@@ -59,7 +59,7 @@ final readonly class FolioViewBuilder
                 $this->literal($coreCode),
             );
             $pdo->exec($sql);
-            $views++;
+            ++$views;
         }
 
         $linkViews = $this->rebuildLinkViews($pdo);
@@ -80,7 +80,7 @@ final readonly class FolioViewBuilder
     {
         foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'link_%'")->fetchAll(\PDO::FETCH_COLUMN) ?: [] as $view) {
             if (is_string($view) && preg_match('/^link_[A-Za-z0-9_]+$/', $view)) {
-                $pdo->exec('DROP VIEW IF EXISTS ' . $this->identifier($view));
+                $pdo->exec('DROP VIEW IF EXISTS '.$this->identifier($view));
             }
         }
 
@@ -90,7 +90,7 @@ final readonly class FolioViewBuilder
             $code = (string) ($lt['code'] ?? '');
             $leftCore = (string) ($lt['left_core'] ?? '');
             $rightCore = (string) ($lt['right_core'] ?? '');
-            if (!preg_match('/^[A-Za-z0-9_]+$/', $code) || $leftCore === '' || $rightCore === '') {
+            if (!preg_match('/^[A-Za-z0-9_]+$/', $code) || '' === $leftCore || '' === $rightCore) {
                 continue;
             }
 
@@ -107,13 +107,13 @@ final readonly class FolioViewBuilder
 
             $sql = sprintf(
                 "CREATE VIEW %s AS\nSELECT\n    %s\nFROM link l\nJOIN core left_core ON left_core.code = l.left_core\nJOIN item left_item ON left_item.core_id = left_core.id AND left_item.local_id = l.left_id\nJOIN core right_core ON right_core.code = l.right_core\nJOIN item right_item ON right_item.core_id = right_core.id AND right_item.local_id = l.right_id\nWHERE l.left_core = %s AND l.right_core = %s",
-                $this->identifier('link_' . $code),
+                $this->identifier('link_'.$code),
                 implode(",\n    ", $columns),
                 $this->literal($leftCore),
                 $this->literal($rightCore),
             );
             $pdo->exec($sql);
-            $count++;
+            ++$count;
         }
 
         return $count;
@@ -130,7 +130,7 @@ final readonly class FolioViewBuilder
         $stmt = $pdo->prepare("SELECT id FROM schema_table WHERE kind = 'dto' AND core_code = :core LIMIT 1");
         $stmt->execute(['core' => $coreCode]);
         $tableId = $stmt->fetchColumn();
-        if ($tableId === false) {
+        if (false === $tableId) {
             return [];
         }
 
@@ -139,14 +139,14 @@ final readonly class FolioViewBuilder
 
         $columns = [];
         foreach ($props->fetchAll(\PDO::FETCH_COLUMN) ?: [] as $name) {
-            if (!is_string($name) || $name === '' || $name === 'id') {
+            if (!is_string($name) || '' === $name || 'id' === $name) {
                 continue;
             }
             $columns[] = sprintf(
                 'json_extract(%s.dto_data, %s) AS %s',
                 $itemAlias,
-                $this->literal('$.' . $name),
-                $this->identifier($side . '_' . $name),
+                $this->literal('$.'.$name),
+                $this->identifier($side.'_'.$name),
             );
         }
 
@@ -159,7 +159,7 @@ final readonly class FolioViewBuilder
             throw new \RuntimeException(sprintf('Folio database not found: %s', $dbFile));
         }
 
-        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         return $pdo;
@@ -167,11 +167,11 @@ final readonly class FolioViewBuilder
 
     private function identifier(string $name): string
     {
-        return '"' . str_replace('"', '""', $name) . '"';
+        return '"'.str_replace('"', '""', $name).'"';
     }
 
     private function literal(string $value): string
     {
-        return "'" . str_replace("'", "''", $value) . "'";
+        return "'".str_replace("'", "''", $value)."'";
     }
 }

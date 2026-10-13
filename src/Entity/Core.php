@@ -43,5 +43,8 @@ class Core
         $this->id = self::id($folio->code, $code);
     }
 
-    public static function id(string $folioCode, string $coreCode): string { return "$folioCode:$coreCode"; }
+    public static function id(string $folioCode, string $coreCode): string
+    {
+        return "$folioCode:$coreCode";
+    }
 }

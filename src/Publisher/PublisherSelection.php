@@ -15,7 +15,8 @@ final readonly class PublisherSelection
         public SelectionMode $mode = SelectionMode::All,
         public array $tags = [],
         public array $datasetKeys = [],
-    ) {}
+    ) {
+    }
 
     /** @param array{mode?: string, tags?: list<string>, datasetKeys?: list<string>} $data */
     public static function fromArray(array $data): self

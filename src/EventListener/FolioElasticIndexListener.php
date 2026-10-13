@@ -26,7 +26,7 @@ final readonly class FolioElasticIndexListener
         if (!$this->enabled || !$this->index->isConfigured()) {
             return;
         }
-        if ($this->bus === null) {
+        if (null === $this->bus) {
             $this->logger?->warning('Folio producer has no message bus to queue its Elasticsearch index; run folio:elastic:index', [
                 'folio' => $event->folioCode,
             ]);

@@ -28,12 +28,12 @@ function packWindows(array $units, int $target, int $max, int $min): array
 {
     $runs = [[]];
     foreach ($units as $u) {
-        if ($u['kind'] === 'marker') {
+        if ('marker' === $u['kind']) {
             $runs[] = [];
             continue;
         }
         // A hard unit (a Markdown heading) is kept but always starts a fresh run.
-        if (($u['hard'] ?? false) && $runs[array_key_last($runs)] !== []) {
+        if (($u['hard'] ?? false) && [] !== $runs[array_key_last($runs)]) {
             $runs[] = [];
         }
         $runs[array_key_last($runs)][] = $u;
@@ -48,14 +48,14 @@ function packWindows(array $units, int $target, int $max, int $min): array
             $words = 0;
             $cut = $n;
             $best = null;
-            for ($k = $s; $k < $n; $k++) {
+            for ($k = $s; $k < $n; ++$k) {
                 if ($k > $s && $words + $run[$k]['words'] > $max) {
                     $cut = $best ?? $k;
                     break;
                 }
                 $words += $run[$k]['words'];
                 $next = $run[$k + 1] ?? null;
-                if ($next === null || $words < $target) {
+                if (null === $next || $words < $target) {
                     continue;
                 }
                 $q = $next['cut'];
@@ -64,7 +64,7 @@ function packWindows(array $units, int $target, int $max, int $min): array
                     break;
                 }
                 // Remember the first speaker change past target; keep looking briefly for a question.
-                if ($q === Q_SPEAKER && $best === null) {
+                if (Q_SPEAKER === $q && null === $best) {
                     $best = $k + 1;
                 }
             }

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
-use Survos\FolioBundle\Dto\FolioBuildInput;
 use Survos\Folio\PropertyStore;
+use Survos\FolioBundle\Dto\FolioBuildInput;
 use Survos\JsonlBundle\Service\JsonlStateService;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -18,7 +18,8 @@ final readonly class FolioBuilder
         private FolioArchiveService $archives,
         private FolioArchivePreparer $preparer,
         private JsonlStateService $jsonlState,
-    ) {}
+    ) {
+    }
 
     /** @return array{path:string,barePath:string,archive:?array,rows:int,dtoCounts:?array,metadata:array,locale:?string} */
     public function build(FolioBuildInput $input, bool $archive = false, ?SymfonyStyle $io = null): array
@@ -32,7 +33,7 @@ final readonly class FolioBuilder
         $workingPath = $this->folios->path($code, locale: $locale);
         try {
             $result = $this->ingest->ingest($input, dispatchFinished: false, io: $io);
-            if ($result['rows'] === 0) {
+            if (0 === $result['rows']) {
                 throw new \RuntimeException('Refusing to publish an empty folio: '.$code);
             }
             $pdo = new \PDO('sqlite:file:'.$workingPath.'?mode=ro');
@@ -54,6 +55,7 @@ final readonly class FolioBuilder
         } finally {
             $this->jsonlState->closeAll();
         }
+
         return [
             'path' => $workingPath,
             'barePath' => $barePath,
@@ -77,7 +79,7 @@ final readonly class FolioBuilder
     {
         $this->folios->finalize();
         try {
-            $pdo = new \PDO('sqlite:' . $workingPath);
+            $pdo = new \PDO('sqlite:'.$workingPath);
             $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
             $pdo->exec('PRAGMA busy_timeout = 30000');
             $mode = (string) $pdo->query('PRAGMA journal_mode = DELETE')->fetchColumn();
@@ -85,7 +87,7 @@ final readonly class FolioBuilder
         } catch (\Throwable $e) {
             $mode = $e->getMessage();
         }
-        if (strtolower($mode) !== 'delete') {
+        if ('delete' !== strtolower($mode)) {
             $io?->warning(sprintf('%s is still in WAL mode (%s): another connection holds it open. Readers on a read-only mount cannot open it until it is finalized.', $workingPath, $mode));
         }
     }
@@ -93,14 +95,14 @@ final readonly class FolioBuilder
     private function tableCount(string $dbFile, string $table): int
     {
         try {
-            $pdo = new \PDO('sqlite:' . $dbFile);
+            $pdo = new \PDO('sqlite:'.$dbFile);
             $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
             $exists = $pdo->query(sprintf(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=%s",
                 $pdo->quote($table),
             ))->fetchColumn();
 
-            return $exists === false ? 0 : (int) $pdo->query('SELECT COUNT(*) FROM ' . $table)->fetchColumn();
+            return false === $exists ? 0 : (int) $pdo->query('SELECT COUNT(*) FROM '.$table)->fetchColumn();
         } catch (\Throwable) {
             return 0;
         }
@@ -117,6 +119,7 @@ final readonly class FolioBuilder
         }
 
         arsort($counts);
+
         return $counts ?: null;
     }
 
@@ -150,5 +153,4 @@ final readonly class FolioBuilder
 
         return $metadata;
     }
-
 }

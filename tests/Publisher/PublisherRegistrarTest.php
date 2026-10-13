@@ -233,12 +233,14 @@ final class PublisherRegistrarTest extends TestCase
     private function registrar(): PublisherRegistrar
     {
         $http = new MockHttpClient(function (string $method, string $url, array $options): MockResponse {
-            $body = isset($options['body']) && $options['body'] !== '' ? json_decode($options['body'], true, flags: JSON_THROW_ON_ERROR) : [];
+            $body = isset($options['body']) && '' !== $options['body'] ? json_decode($options['body'], true, flags: JSON_THROW_ON_ERROR) : [];
             $this->requests[] = ['method' => $method, 'url' => $url, 'body' => $body];
             self::assertContains('Authorization: Bearer ink-secret', $options['headers']);
             $next = array_shift($this->script) ?? throw new \LogicException("Unexpected $method $url");
+
             return $next($method, $url, $body);
         });
+
         return new PublisherRegistrar(
             new PublisherApiClient($http, 'https://harvest.example', 'ink-secret', 'ink', 'prod'),
             label: 'Ink',
@@ -271,6 +273,7 @@ final class PublisherRegistrarTest extends TestCase
     private static function entry(string $key, string $revision): FolioCatalogEntry
     {
         [$provider, $code] = explode('/', $key, 2);
+
         return new FolioCatalogEntry($key, $provider, $code, $key, revision: $revision, artifactType: 'folio_archive');
     }
 }

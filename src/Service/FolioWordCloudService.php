@@ -10,7 +10,8 @@ final readonly class FolioWordCloudService
 {
     public function __construct(
         private FolioQueryAnalyzer $queryAnalyzer,
-    ) {}
+    ) {
+    }
 
     /**
      * @return list<array{text: string, value: float, count: int, docs: int}>
@@ -38,7 +39,7 @@ final readonly class FolioWordCloudService
         $cloud = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [] as $row) {
             $term = is_string($row['term'] ?? null) ? $row['term'] : '';
-            if ($term === '' || $this->queryAnalyzer->isStopWord($term)) {
+            if ('' === $term || $this->queryAnalyzer->isStopWord($term)) {
                 continue;
             }
 
@@ -59,7 +60,7 @@ final readonly class FolioWordCloudService
 
     private function connect(string $dbFile): \PDO
     {
-        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         return $pdo;
@@ -67,6 +68,6 @@ final readonly class FolioWordCloudService
 
     private function hasVocab(\PDO $pdo): bool
     {
-        return $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'item_vocab'")->fetchColumn() === 'item_vocab';
+        return 'item_vocab' === $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'item_vocab'")->fetchColumn();
     }
 }

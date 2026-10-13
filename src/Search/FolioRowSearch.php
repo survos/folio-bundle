@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Search;
 
 use Doctrine\DBAL\Connection;
+use Survos\FolioBundle\Service\FolioElasticRowIndex;
+use Survos\FolioBundle\Service\FolioFacetFieldResolver;
+use Survos\FolioBundle\Service\FolioService;
 use Survos\SearchBundle\Attribute\AsSearch;
 use Survos\SearchBundle\Search\AbstractSearch;
+use Survos\SearchBundle\Search\HitTemplateSearchInterface;
 use Survos\SearchBundle\Twig\Components\Facet\RangeSlider;
 use Survos\SearchBundle\Twig\Components\Facet\RefinementList;
-use Survos\FolioBundle\Service\FolioFacetFieldResolver;
-use Survos\FolioBundle\Service\FolioElasticRowIndex;
-use Survos\FolioBundle\Service\FolioService;
-use Survos\SearchBundle\Search\HitTemplateSearchInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 #[AsSearch(index: 'folio_row', name: 'folio_row', adapter: 'folio_fts')]
@@ -54,7 +54,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
     private function isPeriodical(Connection $connection): bool
     {
         try {
-            return in_array(((new \Survos\Folio\PropertyStore($connection->getNativeConnection()))->values()['contentType'] ?? null), ['newspaper', 'periodical'], true);
+            return in_array((new \Survos\Folio\PropertyStore($connection->getNativeConnection()))->values()['contentType'] ?? null, ['newspaper', 'periodical'], true);
         } catch (\Throwable) {
             return false;
         }
@@ -76,14 +76,14 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         $this->hitTemplate = isset($options['hitTemplate']) && is_string($options['hitTemplate']) ? $options['hitTemplate'] : null;
 
         $folioCode = isset($options['folioCode']) && is_string($options['folioCode']) ? $options['folioCode'] : null;
-        if ($folioCode === null || !str_contains($folioCode, '/')) {
+        if (null === $folioCode || !str_contains($folioCode, '/')) {
             throw new \InvalidArgumentException('Folio row search requires a folioCode option like "dc/05747667f".');
         }
 
         // Routes resolve the base Folio ID separately from its selected content locale.
         // ES is scoped to the physical artifact, while returned row IDs remain base IDs.
         $contentLocale = $this->folios->requestContentLocale;
-        $searchFolioCode = $folioCode.($contentLocale !== null ? '.'.$contentLocale : '');
+        $searchFolioCode = $folioCode.(null !== $contentLocale ? '.'.$contentLocale : '');
         $ctx = $this->folios->context($folioCode);
         [$provider, $dataset] = explode('/', $folioCode, 2);
         $connection = $ctx->em->getConnection();
@@ -96,16 +96,16 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         $hasFts = $this->hasTable($connection, 'item_fts');
         $hasFacetTables = $this->hasTable($connection, 'item_facet') && $this->hasTable($connection, 'item_facet_count');
 
-        $selectedCore = isset($options['coreCode']) && is_string($options['coreCode']) && $options['coreCode'] !== '' ? $options['coreCode'] : null;
-        $selectedDtoType = isset($options['dtoType']) && is_string($options['dtoType']) && $options['dtoType'] !== '' ? $options['dtoType'] : null;
+        $selectedCore = isset($options['coreCode']) && is_string($options['coreCode']) && '' !== $options['coreCode'] ? $options['coreCode'] : null;
+        $selectedDtoType = isset($options['dtoType']) && is_string($options['dtoType']) && '' !== $options['dtoType'] ? $options['dtoType'] : null;
 
         $where = [];
         $params = [];
-        if ($selectedCore !== null) {
+        if (null !== $selectedCore) {
             $where[] = 'd.core_id = :coreId';
-            $params['coreId'] = $folioCode . ':' . $selectedCore;
+            $params['coreId'] = $folioCode.':'.$selectedCore;
         }
-        if ($selectedDtoType !== null) {
+        if (null !== $selectedDtoType) {
             $where[] = 'd.dto_type = :dtoType';
             $params['dtoType'] = $selectedDtoType;
         }
@@ -116,10 +116,10 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         // that facet would just be an inert checkbox. Same check the dynamic schema_property
         // facets below already get via hasUsableFacetValues(); core/dtoType just aren't part of
         // that loop (they're not schema_property rows), so they need it applied explicitly.
-        if ($selectedCore === null && $this->hasMultipleDistinctValues($connection, "substr(d.core_id, instr(d.core_id, ':') + 1)", $where, $params)) {
+        if (null === $selectedCore && $this->hasMultipleDistinctValues($connection, "substr(d.core_id, instr(d.core_id, ':') + 1)", $where, $params)) {
             $this->addFacet('core', $this->translator->trans('facet.core', domain: 'system'), RefinementList::class);
         }
-        if ($selectedDtoType === null && $this->hasMultipleDistinctValues($connection, 'd.dto_type', $where, $params)) {
+        if (null === $selectedDtoType && $this->hasMultipleDistinctValues($connection, 'd.dto_type', $where, $params)) {
             $this->addFacet('dtoType', $this->translator->trans('facet.type', domain: 'system'), RefinementList::class);
         }
         $facetColumns = [
@@ -139,13 +139,13 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             // Inside a group block the group's own name is the heading, so "Merit: Historical
             // Significance" reads as "Historical Significance" there.
             $label = $this->translatedFacetLabel($field['name'], $field['label']);
-            if ($group !== null && preg_match('/^' . preg_quote($group, '/') . '\s*[:–-]\s*(.+)$/i', $label, $m) === 1) {
+            if (null !== $group && 1 === preg_match('/^'.preg_quote($group, '/').'\s*[:–-]\s*(.+)$/i', $label, $m)) {
                 $label = $m[1];
             }
             $this->addFacet($field['name'], $label, $isNumeric ? RangeSlider::class : RefinementList::class, group: $group);
             // year is sort_key (FolioFtsIndexer::ensurePrimarySortColumn), so the slider's MIN/MAX is
             // two probes of idx_item_core_sort instead of a json_extract over every row
-            $facetColumns[$field['name']] = $field['name'] === 'year' ? 'd.sort_key' : $this->jsonExtract($field['name']);
+            $facetColumns[$field['name']] = 'year' === $field['name'] ? 'd.sort_key' : $this->jsonExtract($field['name']);
         }
 
         $sorts = [];
@@ -190,7 +190,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         // than needing a separate "set default" API. Silently falls back to natural order if the
         // configured key isn't in $sorts (e.g. defaultSort=year:asc but this dataset has no years).
         // The app-wide default applies to everything but a periodical, whose Date sort already leads.
-        if (!$periodical && $this->defaultSort !== null && isset($sorts[$this->defaultSort])) {
+        if (!$periodical && null !== $this->defaultSort && isset($sorts[$this->defaultSort])) {
             $sorts = [$this->defaultSort => $sorts[$this->defaultSort]] + $sorts;
         }
         foreach ($sorts as $key => $label) {
@@ -211,8 +211,8 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             'joinExpression' => 'f.rowid = d.rowid',
             'selectColumns' => [
                 'd.id',
-                $this->literal($provider) . ' AS provider',
-                $this->literal($dataset) . ' AS dataset',
+                $this->literal($provider).' AS provider',
+                $this->literal($dataset).' AS dataset',
                 "substr(d.core_id, instr(d.core_id, ':') + 1) AS coreCode",
                 'd.local_id AS localId',
                 'd.label',
@@ -238,14 +238,14 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 // images), so it wins. Without it every article card showed its whole broadsheet
                 // page, and a results list was a column of identical grey rectangles.
                 "CASE WHEN json_extract(d.dto_data, '$.thumbnailUrl') GLOB '*/[0-9]*,[0-9]*,[0-9]*,[0-9]*/*/*' "
-                    . "THEN json_extract(d.dto_data, '$.thumbnailUrl') "
+                    ."THEN json_extract(d.dto_data, '$.thumbnailUrl') "
                     // DisplayImageSource's rule: an opt-in displayImageUrl unless the page is an
                     // s3:// mirror (mus/fpus h700 vs a 9 MB original).
-                    . "WHEN json_extract(d.dto_data, '$.displayImageUrl') IS NOT NULL "
-                    . "AND (SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) NOT LIKE 's3://%' "
-                    . "THEN json_extract(d.dto_data, '$.displayImageUrl') "
-                    . "ELSE (SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) END AS thumbnailUrl",
-                "(SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) AS largeImageUrl",
+                    ."WHEN json_extract(d.dto_data, '$.displayImageUrl') IS NOT NULL "
+                    ."AND (SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) NOT LIKE 's3://%' "
+                    ."THEN json_extract(d.dto_data, '$.displayImageUrl') "
+                    .'ELSE (SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) END AS thumbnailUrl',
+                '(SELECT p.url FROM page p WHERE p.row_id = d.id ORDER BY p.seq LIMIT 1) AS largeImageUrl',
                 "json_extract(d.dto_data, '$.pageCount') AS pageCount",
                 "json_extract(d.dto_data, '$.imageCount') AS imageCount",
                 "json_extract(d.dto_data, '$.itemCount') AS itemCount",
@@ -266,7 +266,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
                 'label' => 'd.label',
                 'year' => 'd.sort_key',
             ],
-            'where' => $where === [] ? null : implode(' AND ', $where),
+            'where' => [] === $where ? null : implode(' AND ', $where),
             'params' => $params,
             // 50 was too low: real facet vocabularies run into the thousands of distinct values
             // (mus/fpus has 12,224 distinct tags alone), so anything past the ~50 most common
@@ -279,7 +279,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             // path serves core-scoped pages too — the adapter scopes counts to the active core. Only a
             // pinned dtoType (an extra where-constraint the precompute can't represent) forces the live
             // aggregation. Requires folios rebuilt with the core-partitioned schema.
-            'facetCountTable' => $hasFacetTables && $selectedDtoType === null ? 'item_facet_count' : null,
+            'facetCountTable' => $hasFacetTables && null === $selectedDtoType ? 'item_facet_count' : null,
             'facetValueTable' => $hasFacetTables ? 'item_facet' : null,
             // The precomputed table above can only answer a query whose sole constraint is the core
             // scope, so a *text* query always falls through to aggregating facets over its own
@@ -318,7 +318,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
 
     private function literal(string $value): string
     {
-        return "'" . str_replace("'", "''", $value) . "'";
+        return "'".str_replace("'", "''", $value)."'";
     }
 
     /**
@@ -347,12 +347,12 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
      * not "does it vary across the whole dataset". core/dtoType aren't schema_property rows, so
      * they can't reuse hasUsableFacetValues()'s item_facet_count lookup.
      *
-     * @param list<string> $where
+     * @param list<string>          $where
      * @param array<string, scalar> $params
      */
     private function hasMultipleDistinctValues(Connection $connection, string $expression, array $where, array $params): bool
     {
-        $whereSql = $where === [] ? '1=1' : implode(' AND ', $where);
+        $whereSql = [] === $where ? '1=1' : implode(' AND ', $where);
 
         return (int) $connection->executeQuery(
             sprintf('SELECT COUNT(DISTINCT %s) FROM item d WHERE %s', $expression, $whereSql),
@@ -374,7 +374,7 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
      */
     private function translatedFacetLabel(string $name, string $fallback): string
     {
-        $key = 'term.' . $name;
+        $key = 'term.'.$name;
         $label = $this->translator->trans($key, domain: 'system');
 
         return $label !== $key ? $label : $fallback;

@@ -18,7 +18,8 @@ final readonly class PublisherRegistration
         public ?string $resetAt = null,
         public int $published = 0,
         public int $withdrawn = 0,
-    ) {}
+    ) {
+    }
 
     public static function fromArray(array $data): self
     {

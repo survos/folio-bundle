@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Menu;
 
 use Survos\DataContracts\Metadata\ContentType;
+use Survos\Folio\Enum\PageType;
 use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Entity\Page;
 use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Twig\FolioCoreTwig;
-use Survos\Folio\Enum\PageType;
 use Survos\TablerBundle\Event\MenuEvent;
 use Survos\TablerBundle\Menu\MenuBuilderTrait;
 use Survos\TablerBundle\Service\IconService;
@@ -65,7 +65,7 @@ final class RowMenu
             $folio instanceof Folio => $folio->code,
             default => null,
         };
-        if ($folioCode === null) {
+        if (null === $folioCode) {
             return;
         }
 
@@ -73,7 +73,7 @@ final class RowMenu
         [$provider, $dataset] = explode('/', $folioCode, 2) + [1 => ''];
 
         $providerUrl = $this->folioTwig?->providerUrl($provider);
-        $this->add($menu, label: $provider, uri: $providerUrl, icon: 'tabler:home', translationDomain: false, checkRouteExists: false, allowNoLink: $providerUrl === null);
+        $this->add($menu, label: $provider, uri: $providerUrl, icon: 'tabler:home', translationDomain: false, checkRouteExists: false, allowNoLink: null === $providerUrl);
         $this->add($menu, 'survos_folio_show', ['folioCode' => $folioCode], ($folio instanceof Folio ? $folio->label : null) ?: $dataset, translationDomain: false, inferIcon: false);
 
         if ($row instanceof Row) {
@@ -133,9 +133,9 @@ final class RowMenu
             // TEI-parsed interview parts) — OCR/handwriting recognition is meaningless there, and
             // "Ask page" scoped to one part of a multi-part interview has too little context to be
             // worth a dedicated action (unlike a scanned document, where each page IS a distinct unit).
-            $isAudio = $row->pages->exists(static fn (int $i, Page $page): bool => $page->type === PageType::Audio);
+            $isAudio = $row->pages->exists(static fn (int $i, Page $page): bool => PageType::Audio === $page->type);
 
-            if ($row->pages->count() > 1 && $row->dtoType !== ContentType::INTERVIEW) {
+            if ($row->pages->count() > 1 && ContentType::INTERVIEW !== $row->dtoType) {
                 $this->add(
                     $menu,
                     'survos_folio_page_chat',

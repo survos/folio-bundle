@@ -6,8 +6,8 @@ namespace Survos\FolioBundle\Service;
 
 use Psr\Log\LoggerInterface;
 use Survos\DataContracts\Vocabulary\ItemField;
-use Survos\FolioBundle\Entity\Folio;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
+use Survos\FolioBundle\Entity\Folio;
 use Symfony\Component\String\Slugger\AsciiSlugger;
 use Symfony\Component\String\Slugger\SluggerInterface;
 
@@ -57,7 +57,7 @@ final class FolioFtsIndexer
 
         $items = (int) ($pdo->query('SELECT count(*) FROM item')->fetchColumn() ?: 0);
         $skipped = $force ? null : $this->gate($pdo, $items);
-        if ($skipped !== null) {
+        if (null !== $skipped) {
             // No index, and the old one goes with it. A rebuild reassigns item rowids, so an
             // item_fts left over from the previous build points at the wrong rows — strictly worse
             // than no index. Everything else the FTS pass also builds (browse indexes, sort_key,
@@ -89,7 +89,7 @@ final class FolioFtsIndexer
         // A folio that opts into contentless FTS (Folio::FTS_CONTENT_NONE, set from its dataset meta)
         // keeps only the index: its rows already hold every word, and the stored copy was the
         // largest table in a newspaper folio. snippet() then returns null; see FolioSnippet.
-        $contentless = self::ftsContent($pdo) === Folio::FTS_CONTENT_NONE;
+        $contentless = Folio::FTS_CONTENT_NONE === self::ftsContent($pdo);
         $pdo->exec(sprintf("CREATE VIRTUAL TABLE item_fts USING fts5(body, %stokenize='porter unicode61')", $contentless ? "content='', " : ''));
         $pdo->exec('DROP TABLE IF EXISTS item_vocab');
         $pdo->exec("CREATE VIRTUAL TABLE item_vocab USING fts5vocab('item_fts', 'row')");
@@ -145,7 +145,7 @@ final class FolioFtsIndexer
      */
     private function gate(\PDO $pdo, int $items): ?string
     {
-        if (self::ftsContent($pdo) !== Folio::FTS_CONTENT_OFF) {
+        if (Folio::FTS_CONTENT_OFF !== self::ftsContent($pdo)) {
             return null;
         }
 
@@ -184,7 +184,7 @@ final class FolioFtsIndexer
     {
         foreach (['creator', 'date', 'contentType', 'language'] as $field) {
             $name = sprintf('idx_item_json_%s', strtolower(preg_replace('/[^A-Za-z0-9_]+/', '_', $field) ?? $field));
-            $path = '$.' . str_replace("'", "''", $field);
+            $path = '$.'.str_replace("'", "''", $field);
             $pdo->exec(sprintf(
                 "CREATE INDEX IF NOT EXISTS %s ON item(json_extract(dto_data, '%s'))",
                 $name,
@@ -220,14 +220,14 @@ final class FolioFtsIndexer
         // the crash, not this check. Still worth having as the real fast path.
         $hasColumn = false;
         foreach ($pdo->query('PRAGMA table_xinfo(item)')->fetchAll(\PDO::FETCH_ASSOC) as $column) {
-            if ($column['name'] === 'sort_key') {
+            if ('sort_key' === $column['name']) {
                 $hasColumn = true;
                 break;
             }
         }
 
         if (!$hasColumn) {
-            $path = '$.' . str_replace("'", "''", $field);
+            $path = '$.'.str_replace("'", "''", $field);
             // NULLIF(..., '') before the CAST matters: SQLite's CAST('' AS INTEGER) is 0, not
             // NULL, which would otherwise plant a spurious "year 0" at the front of every sort
             // and pollute MIN()/GROUP BY for any provider whose data has empty-string (not
@@ -286,7 +286,7 @@ final class FolioFtsIndexer
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_item_facet_count_core_field_total ON item_facet_count(core, field, total DESC)');
 
         $fields = $this->facetFields($pdo);
-        if ($fields === []) {
+        if ([] === $fields) {
             return;
         }
 
@@ -315,7 +315,7 @@ final class FolioFtsIndexer
                         ]);
                         // Tally into the all-cores aggregate and (when known) the row's own core.
                         $counts[''][$field][$value] = ($counts[''][$field][$value] ?? 0) + 1;
-                        if ($coreCode !== '') {
+                        if ('' !== $coreCode) {
                             $counts[$coreCode][$field][$value] = ($counts[$coreCode][$field][$value] ?? 0) + 1;
                         }
                     }
@@ -350,9 +350,9 @@ final class FolioFtsIndexer
 
         try {
             $exists = $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_property'")->fetchColumn();
-            if ($exists === 'schema_property') {
+            if ('schema_property' === $exists) {
                 foreach ($pdo->query('SELECT DISTINCT name FROM schema_property WHERE visible = 1 AND (facet = 1 OR filterable = 1)')->fetchAll(\PDO::FETCH_COLUMN) ?: [] as $name) {
-                    if (is_string($name) && $name !== '') {
+                    if (is_string($name) && '' !== $name) {
                         $fields[] = $name;
                     }
                 }
@@ -366,18 +366,19 @@ final class FolioFtsIndexer
     /**
      * @param array<string, mixed> $row
      * @param array<string, mixed> $data
+     *
      * @return list<string>
      */
     private function rowFacetValues(string $field, array $row, array $data): array
     {
-        if ($field === 'core') {
+        if ('core' === $field) {
             $coreId = is_string($row['core_id'] ?? null) ? $row['core_id'] : '';
             $value = str_contains($coreId, ':') ? substr($coreId, strrpos($coreId, ':') + 1) : $coreId;
 
             return $this->validFacetValue($value) ? [$value] : [];
         }
 
-        if ($field === 'dtoType') {
+        if ('dtoType' === $field) {
             $value = is_scalar($row['dto_type'] ?? null) ? trim((string) $row['dto_type']) : '';
 
             return $this->validFacetValue($value) ? [$value] : [];
@@ -394,13 +395,13 @@ final class FolioFtsIndexer
         // render time.
         $setCode = $this->termSetFieldMap()[$field] ?? null;
 
-        return $setCode !== null ? $this->slugValues($data[$field]) : $this->facetValues($data[$field]);
+        return null !== $setCode ? $this->slugValues($data[$field]) : $this->facetValues($data[$field]);
     }
 
     /**
      * @return array<string,string> raw dto_data field name => owning term-set code, derived from
-     * #[VocabTerm(termSet: true, sourceFields: [...])] bindings on MuseumVocab (e.g. 'obj' is fed by
-     * 'obj', 'subjects', 'keywords'). A field named after its own set code maps to itself.
+     *                              #[VocabTerm(termSet: true, sourceFields: [...])] bindings on MuseumVocab (e.g. 'obj' is fed by
+     *                              'obj', 'subjects', 'keywords'). A field named after its own set code maps to itself.
      */
     private function termSetFieldMap(): array
     {
@@ -431,7 +432,7 @@ final class FolioFtsIndexer
                 continue;
             }
             $code = $this->slugger->slug(trim((string) $label))->lower()->toString();
-            if ($code !== '') {
+            if ('' !== $code) {
                 $codes[] = $code;
             }
         }
@@ -472,7 +473,7 @@ final class FolioFtsIndexer
 
     private function validFacetValue(string $value): bool
     {
-        return $value !== '' && strlen($value) <= 512;
+        return '' !== $value && strlen($value) <= 512;
     }
 
     /**
@@ -502,7 +503,7 @@ final class FolioFtsIndexer
             throw new \RuntimeException(sprintf('Folio database not found: %s', $dbFile));
         }
 
-        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         return $pdo;
@@ -511,7 +512,7 @@ final class FolioFtsIndexer
     private function assertFts5(\PDO $pdo): void
     {
         try {
-            $pdo->exec("CREATE VIRTUAL TABLE IF NOT EXISTS _folio_fts_probe USING fts5(body)");
+            $pdo->exec('CREATE VIRTUAL TABLE IF NOT EXISTS _folio_fts_probe USING fts5(body)');
             $pdo->exec('DROP TABLE IF EXISTS _folio_fts_probe');
         } catch (\Throwable $e) {
             throw new \RuntimeException('This SQLite build does not support FTS5.', previous: $e);
@@ -522,8 +523,8 @@ final class FolioFtsIndexer
      * The words a row is found by. Public because a folio searched in Elasticsearch instead
      * ({@see FolioElasticRowIndex}) indexes this same text, so both backends match the same rows.
      *
-     * @param array<string, mixed> $row local_id, label, dto_type, dto_data, extras
-     * @param array<string,true> $searchableProperties from {@see searchableProperties()}
+     * @param array<string, mixed> $row                  local_id, label, dto_type, dto_data, extras
+     * @param array<string,true>   $searchableProperties from {@see searchableProperties()}
      */
     public function searchBody(array $row, array $searchableProperties): string
     {
@@ -542,13 +543,13 @@ final class FolioFtsIndexer
 
         return trim(implode(' ', array_unique(array_filter(
             array_map(static fn (mixed $value): string => is_scalar($value) ? trim((string) $value) : '', $parts),
-            static fn (string $value): bool => $value !== '',
+            static fn (string $value): bool => '' !== $value,
         ))));
     }
 
     private function decodeJson(mixed $json): mixed
     {
-        if (!is_string($json) || trim($json) === '') {
+        if (!is_string($json) || '' === trim($json)) {
             return null;
         }
 
@@ -569,7 +570,7 @@ final class FolioFtsIndexer
     private function appendScalars(array $data, array &$parts, array $searchableProperties): void
     {
         foreach ($data as $key => $value) {
-            if ($searchableProperties !== [] && is_string($key) && !isset($searchableProperties[$key])) {
+            if ([] !== $searchableProperties && is_string($key) && !isset($searchableProperties[$key])) {
                 continue;
             }
 
@@ -591,7 +592,7 @@ final class FolioFtsIndexer
     {
         try {
             $exists = $pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_property'")->fetchColumn();
-            if ($exists !== 'schema_property') {
+            if ('schema_property' !== $exists) {
                 return [];
             }
 
@@ -602,7 +603,7 @@ final class FolioFtsIndexer
 
         $properties = [];
         foreach ($rows ?: [] as $name) {
-            if (is_string($name) && $name !== '') {
+            if (is_string($name) && '' !== $name) {
                 $properties[$name] = true;
             }
         }

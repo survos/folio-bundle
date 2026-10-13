@@ -76,7 +76,7 @@ final class FolioAiController extends AbstractController
         // mediary fetches + imgproxies the source itself; hand it the RAW page url (unwrap any
         // imgproxy-wrapped value, or it double-processes and 403s).
         $imageUrl = $page?->url;
-        if ($imageUrl !== null && $this->imgproxy !== null) {
+        if (null !== $imageUrl && null !== $this->imgproxy) {
             $imageUrl = $this->imgproxy->sourceUrl($imageUrl);
         }
 
@@ -84,7 +84,7 @@ final class FolioAiController extends AbstractController
         $error = null;
         $persisted = false;
 
-        if ($run && $task !== '' && $imageUrl) {
+        if ($run && '' !== $task && $imageUrl) {
             $headers = ['Accept' => 'application/json'];
             if ($this->host) {
                 $headers['Host'] = $this->host;
@@ -94,14 +94,14 @@ final class FolioAiController extends AbstractController
             try {
                 $response = $this->httpClient->request('POST', $this->endpoint, [
                     'headers' => $headers,
-                    'body' => array_filter(['url' => $imageUrl, 'task' => $task], static fn ($v) => $v !== ''),
+                    'body' => array_filter(['url' => $imageUrl, 'task' => $task], static fn ($v) => '' !== $v),
                     'timeout' => 240,
                 ]);
                 $result = $response->toArray(false);
 
                 // Persist the text onto the page so it's available immediately (claims land on rebuild).
                 $text = $result['result']['text'] ?? null;
-                if (is_string($text) && trim($text) !== '' && $page !== null) {
+                if (is_string($text) && '' !== trim($text) && null !== $page) {
                     $page->text = $text;
                     $ctx->em->flush();
                     $persisted = true;

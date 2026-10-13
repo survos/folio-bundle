@@ -6,8 +6,8 @@ namespace Survos\FolioBundle\Service;
 
 use Doctrine\DBAL\Connection;
 use Survos\FolioBundle\DBAL\FolioConnectionWrapper;
-use Symfony\Contracts\Translation\TranslatorInterface;
 use Symfony\Contracts\Service\ResetInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
 
 /**
  * The exact field-selection Survos\FolioBundle\Search\FolioRowSearch uses to decide what appears
@@ -64,6 +64,7 @@ final class FolioFacetFieldResolver implements ResetInterface
      *                          must NOT surface another core's fields as facets (e.g. 'doc' showing
      *                          'gender'/'role' from 'per') -- omit for whole-folio callers that want
      *                          every field across every core (FolioTermCloudService's cloud()).
+     *
      * @return list<array{name: string, label: string, type: string, group?: ?string}>
      */
     public function facetFieldNames(Connection $connection, ?int $limit = self::MAX_FACETS, ?string $coreCode = null): array
@@ -72,7 +73,7 @@ final class FolioFacetFieldResolver implements ResetInterface
         // Results" facet-value panel, in particular) -- schema_property/item_facet_count are
         // immutable for the lifetime of the request, so re-deriving the field list per item was
         // pure N+1 waste. Cache by connection identity + limit + core.
-        $cacheKey = $this->connectionKey($connection) . ':' . ($limit ?? 'null') . ':' . ($coreCode ?? 'all');
+        $cacheKey = $this->connectionKey($connection).':'.($limit ?? 'null').':'.($coreCode ?? 'all');
         if (isset($this->facetFieldNamesCache[$cacheKey])) {
             return $this->facetFieldNamesCache[$cacheKey];
         }
@@ -84,7 +85,7 @@ final class FolioFacetFieldResolver implements ResetInterface
         // schema_property."group" only exists in folios built since field groups landed; an older
         // folio selects NULL instead, so its search page keeps working (ungrouped facets).
         $hasGroup = $this->columnExists($connection, 'schema_property', 'group');
-        if ($coreCode !== null && $this->tableExists($connection, 'schema_table')) {
+        if (null !== $coreCode && $this->tableExists($connection, 'schema_table')) {
             $rows = $connection->executeQuery(str_replace('%GROUP_P%', $hasGroup ? 'p."group"' : 'NULL', <<<'SQL'
                 SELECT p.name, p.label, p.type, p.filterable, p.facet, %GROUP_P% AS field_group
                 FROM schema_property p
@@ -128,14 +129,14 @@ final class FolioFacetFieldResolver implements ResetInterface
 
             $facets[] = [
                 'name' => $name,
-                'label' => $this->humanize($row['label'] !== null && $row['label'] !== '' ? (string) $row['label'] : $name),
+                'label' => $this->humanize(null !== $row['label'] && '' !== $row['label'] ? (string) $row['label'] : $name),
                 'type' => (string) $row['type'],
                 // The DTO field's #[Field(group:)] — the sidebar renders one collapsible block per
                 // group (Merit, Admin, ...), so eight merit sliders stop repeating their own name.
                 'group' => ($row['field_group'] ?? null) !== '' ? $row['field_group'] : null,
             ];
 
-            if ($limit !== null && count($facets) >= $limit) {
+            if (null !== $limit && count($facets) >= $limit) {
                 break;
             }
         }
@@ -168,7 +169,7 @@ final class FolioFacetFieldResolver implements ResetInterface
      */
     public function translatedLabel(TranslatorInterface $translator, string $field, string $fallback): string
     {
-        $key = 'term.' . $field;
+        $key = 'term.'.$field;
         $label = $translator->trans($key, domain: 'system');
 
         return $label !== $key ? $label : $fallback;
@@ -176,7 +177,7 @@ final class FolioFacetFieldResolver implements ResetInterface
 
     private function shouldExpose(Connection $connection, string $name, string $type, bool $filterable, bool $facet): bool
     {
-        if ($this->isNeverFacet($name) || $type === 'json') {
+        if ($this->isNeverFacet($name) || 'json' === $type) {
             return false;
         }
 
@@ -205,7 +206,7 @@ final class FolioFacetFieldResolver implements ResetInterface
             return true;
         }
 
-        $cacheKey = $this->connectionKey($connection) . ':' . $field;
+        $cacheKey = $this->connectionKey($connection).':'.$field;
         if (isset($this->usableFacetValuesCache[$cacheKey])) {
             return $this->usableFacetValuesCache[$cacheKey];
         }
@@ -218,7 +219,7 @@ final class FolioFacetFieldResolver implements ResetInterface
 
     private function tableExists(Connection $connection, string $table): bool
     {
-        $cacheKey = $this->connectionKey($connection) . ':' . $table;
+        $cacheKey = $this->connectionKey($connection).':'.$table;
         if (isset($this->tableExistsCache[$cacheKey])) {
             return $this->tableExistsCache[$cacheKey];
         }
@@ -231,7 +232,7 @@ final class FolioFacetFieldResolver implements ResetInterface
 
     private function columnExists(Connection $connection, string $table, string $column): bool
     {
-        $cacheKey = $this->connectionKey($connection) . ':' . $table . '.' . $column;
+        $cacheKey = $this->connectionKey($connection).':'.$table.'.'.$column;
         if (isset($this->columnExistsCache[$cacheKey])) {
             return $this->columnExistsCache[$cacheKey];
         }

@@ -21,5 +21,6 @@ final class FolioChatAnswer
         public string $summary = '',
         /** @var list<FolioChatAnswerItem> */
         public array $items = [],
-    ) {}
+    ) {
+    }
 }

@@ -19,7 +19,7 @@ final class FolioCatalogClientTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->cacheFile = sys_get_temp_dir() . '/folio-catalog-' . bin2hex(random_bytes(6)) . '.json';
+        $this->cacheFile = sys_get_temp_dir().'/folio-catalog-'.bin2hex(random_bytes(6)).'.json';
     }
 
     protected function tearDown(): void

@@ -33,5 +33,4 @@ final class FolioAiArtifactPaths
     {
         return sprintf('%s/%s.%s.batch.output.jsonl', $this->aiDir($datasetKey), $coreCode, $task);
     }
-
 }

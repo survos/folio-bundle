@@ -71,8 +71,8 @@ final class FtsSizeGateTest extends TestCase
 
     private function folio(int $rows, string $ftsContent = Folio::FTS_CONTENT_STORED): string
     {
-        $file = sys_get_temp_dir() . '/fts-gate-' . bin2hex(random_bytes(6)) . '.folio';
-        $pdo = new \PDO('sqlite:' . $file, options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+        $file = sys_get_temp_dir().'/fts-gate-'.bin2hex(random_bytes(6)).'.folio';
+        $pdo = new \PDO('sqlite:'.$file, options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
         $pdo->exec('CREATE TABLE folio (code TEXT PRIMARY KEY, row_count INTEGER NOT NULL DEFAULT 0, fts_content TEXT NOT NULL)');
         $pdo->exec("INSERT INTO folio (code, fts_content) VALUES ('_bootstrap/_bootstrap', 'stored')");
         $pdo->exec(sprintf("INSERT INTO folio (code, row_count, fts_content) VALUES ('news/x', %d, '%s')", $rows, $ftsContent));
@@ -89,7 +89,7 @@ final class FtsSizeGateTest extends TestCase
 
     private function hasTable(string $file, string $table): bool
     {
-        $pdo = new \PDO('sqlite:' . $file);
+        $pdo = new \PDO('sqlite:'.$file);
 
         return (bool) $pdo->query(sprintf("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '%s'", $table))->fetchColumn();
     }

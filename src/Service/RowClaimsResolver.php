@@ -28,7 +28,7 @@ final class RowClaimsResolver
         ), true);
         $metaColumn = $hasMeta ? 'meta' : 'NULL AS meta';
         $rows = $conn->executeQuery(
-            'SELECT predicate, value, source, confidence, agent, claimed_at, run_id, ' . $metaColumn . ' FROM claim WHERE item_id = ? ORDER BY source, predicate',
+            'SELECT predicate, value, source, confidence, agent, claimed_at, run_id, '.$metaColumn.' FROM claim WHERE item_id = ? ORDER BY source, predicate',
             [$itemId],
         )->fetchAllAssociative();
 
@@ -44,6 +44,7 @@ final class RowClaimsResolver
 
     /**
      * @param list<array<string,mixed>> $claims
+     *
      * @return array<string,string> task/source key => ClaimRun id
      */
     public function aiTaskRuns(array $claims): array
@@ -52,7 +53,7 @@ final class RowClaimsResolver
         foreach ($claims as $claim) {
             $source = $claim['source'] ?? null;
             $runId = $claim['run_id'] ?? null;
-            if (!is_string($source) || $source === '' || !is_string($runId) || $runId === '') {
+            if (!is_string($source) || '' === $source || !is_string($runId) || '' === $runId) {
                 continue;
             }
 

@@ -14,13 +14,14 @@ final readonly class FolioSetSyncedEvent
 {
     /**
      * @param array{label: ?string, core: string, criteria: array<string, mixed>} $set
-     * @param list<array<string, mixed>> $members each with datasetKey, label, available, local, ...
+     * @param list<array<string, mixed>>                                          $members each with datasetKey, label, available, local, ...
      */
     public function __construct(
         public string $code,
         public array $set,
         public array $members,
-    ) {}
+    ) {
+    }
 
     /** @return list<array<string, mixed>> */
     public function available(): array
@@ -30,6 +31,6 @@ final readonly class FolioSetSyncedEvent
 
     public function isSingle(): bool
     {
-        return count($this->members) === 1;
+        return 1 === count($this->members);
     }
 }

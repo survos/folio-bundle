@@ -36,6 +36,7 @@ final class DatasetPublicationClientTest extends TestCase
         $requests = [];
         $http = new MockHttpClient(function (string $method, string $url) use (&$requests): MockResponse {
             $requests[] = substr($url, strlen(self::SERVER));
+
             return match (true) {
                 str_contains($url, 'after=old:7') => self::json(['error' => 'perform a full sync'], 410),
                 str_ends_with($url, '/api/changes') => self::json(self::feed('new:3', [])),
@@ -61,7 +62,7 @@ final class DatasetPublicationClientTest extends TestCase
     {
         $attempts = 0;
         $http = new MockHttpClient(function () use (&$attempts): MockResponse {
-            return ++$attempts === 1
+            return 1 === ++$attempts
                 ? new MockResponse([], ['error' => 'Idle timeout reached for "'.self::SERVER.'/api/datasets".'])
                 : self::json([DatasetField::VERSION => 1, DatasetField::ITEMS => [self::dataset('mus/a')], DatasetField::NEXT => null]);
         });
@@ -97,6 +98,7 @@ final class DatasetPublicationClientTest extends TestCase
         $sent = null;
         $http = new MockHttpClient(function (string $method, string $url, array $options) use ($bytes, &$sent): MockResponse {
             $sent = $options['normalized_headers']['authorization'][0] ?? null;
+
             return new MockResponse($bytes, ['response_headers' => ['X-Artifact-Sha256' => strtoupper(hash('sha256', $bytes))]]);
         });
 

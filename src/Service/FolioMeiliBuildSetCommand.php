@@ -16,7 +16,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
  * Pool several folios into ONE combined Meilisearch index, keeping only a small
- * set of common fields. Generalises {@see \Survos\FolioBundle\Service\FolioMeiliIndexer}
+ * set of common fields. Generalises {@see FolioMeiliIndexer}
  * (single folio) to N folios plus a field-projection step.
  *
  * Rows stream straight from each folio's SQLite ({@see FolioDocumentStream}) into
@@ -37,7 +37,7 @@ final class FolioMeiliBuildSetCommand
 
     private function resolveLocalizedAttributes(?string $locale): ?array
     {
-        return $locale !== null ? [['locales' => [strtolower($locale)], 'attributePatterns' => ['*']]] : null;
+        return null !== $locale ? [['locales' => [strtolower($locale)], 'attributePatterns' => ['*']]] : null;
     }
 
     /**
@@ -59,14 +59,15 @@ final class FolioMeiliBuildSetCommand
         #[Option('Comma-separated dtoData.contentType allowlist (e.g. object,photograph,drawing,painting,print,sculpture). When set, scans EVERY core in the folio instead of just --core and filters per-item by this field — a provider\'s core code is schema/table naming, not a reliable content signal (e.g. NARA files real objects AND scanned text-document pages under the same "doc" core; contentType tells them apart). Omit to keep the legacy single-core behavior.')] ?string $contentTypes = null,
         #[Option('Comma-separated extras keys to lift onto each document and make filterable, e.g. issueId,articleTier,recordKind. A pooled index otherwise carries dtoData only, and anything a DTO does not declare — which for newspaper articles is the issue they belong to and whether they are a stitched article or a single block — falls into extras and is dropped, leaving hits that cannot be linked to or faceted.')] ?string $extras = null,
     ): int {
-        if ($folioCodes === []) {
+        if ([] === $folioCodes) {
             $io->error('Provide at least one folio code.');
+
             return Command::INVALID;
         }
 
-        $keep = array_values(array_filter(array_map('trim', explode(',', $fields)), static fn (string $f): bool => $f !== ''));
-        $extraKeys = $extras !== null
-            ? array_values(array_filter(array_map('trim', explode(',', $extras)), static fn (string $k): bool => $k !== ''))
+        $keep = array_values(array_filter(array_map('trim', explode(',', $fields)), static fn (string $f): bool => '' !== $f));
+        $extraKeys = null !== $extras
+            ? array_values(array_filter(array_map('trim', explode(',', $extras)), static fn (string $k): bool => '' !== $k))
             : [];
         // Lifted extras are content, so they survive the --fields whitelist as well as --all-fields.
         $keep = array_values(array_unique(array_merge($keep, $extraKeys)));
@@ -74,7 +75,7 @@ final class FolioMeiliBuildSetCommand
         // isMultiLingual: true forces the "<base>_<locale>" uid unconditionally — this command's
         // caller always wants one physical index per locale, regardless of the app-wide
         // survos_meili.multiLingual toggle (which most apps here don't set).
-        $uid = $locale !== null
+        $uid = null !== $locale
             ? $this->indexNameResolver->uidFor($indexBase, $locale, isMultilingual: true)
             : $this->indexNameResolver->uidForRaw($indexBase);
         if ($reset) {
@@ -103,13 +104,13 @@ final class FolioMeiliBuildSetCommand
             'sortableAttributes' => $sortable,
         ];
         $localizedAttributes = $this->resolveLocalizedAttributes($locale);
-        if ($localizedAttributes !== null) {
+        if (null !== $localizedAttributes) {
             $settingsPayload['localizedAttributes'] = $localizedAttributes;
         }
         $index->updateSettings($settingsPayload);
 
-        $contentTypeList = $contentTypes !== null
-            ? array_values(array_filter(array_map('trim', explode(',', $contentTypes)), static fn (string $t): bool => $t !== ''))
+        $contentTypeList = null !== $contentTypes
+            ? array_values(array_filter(array_map('trim', explode(',', $contentTypes)), static fn (string $t): bool => '' !== $t))
             : null;
 
         $report = new FolioDocumentStreamReport();
@@ -122,10 +123,11 @@ final class FolioMeiliBuildSetCommand
         $perFolio = $report->perFolio;
         $failed = $report->failed;
 
-        if ($wait && $taskUid !== null) {
+        if ($wait && null !== $taskUid) {
             $task = $this->meili->waitForTask((int) $taskUid);
             if (($task['status'] ?? null) !== 'succeeded') {
                 $io->error(sprintf('Meilisearch task failed for %s: %s', $uid, json_encode($task['error'] ?? $task)));
+
                 return Command::FAILURE;
             }
         }
@@ -139,7 +141,7 @@ final class FolioMeiliBuildSetCommand
             $io->writeln(sprintf('  %s: %d row(s)', $folioCode, $n));
         }
 
-        if ($failed !== []) {
+        if ([] !== $failed) {
             $io->warning(sprintf('Skipped %d folio(s) that failed to open/read:', count($failed)));
             foreach ($failed as $folioCode => $message) {
                 $io->writeln(sprintf('  %s: %s', $folioCode, $message));
@@ -152,7 +154,7 @@ final class FolioMeiliBuildSetCommand
             count($folioCodes) - count($failed),
             count($folioCodes),
             $uid,
-            $taskUid !== null ? sprintf(' (task %d)', $taskUid) : '',
+            null !== $taskUid ? sprintf(' (task %d)', $taskUid) : '',
         ));
 
         return Command::SUCCESS;

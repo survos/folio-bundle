@@ -32,11 +32,11 @@ final class DisplayImageSource
     /** @param array<string,mixed> $dto */
     public static function pick(?string $pageUrl, array $dto): ?string
     {
-        if ($pageUrl === null || $pageUrl === '') {
+        if (null === $pageUrl || '' === $pageUrl) {
             return null;
         }
         $display = $dto[ItemField::DISPLAY_IMAGE_URL] ?? null;
-        if (!is_string($display) || $display === '' || str_starts_with($pageUrl, 's3://')
+        if (!is_string($display) || '' === $display || str_starts_with($pageUrl, 's3://')
             || !ImageUrl::classify($display)->isRenderable()) {
             return $pageUrl;
         }

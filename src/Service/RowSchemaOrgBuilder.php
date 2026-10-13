@@ -105,7 +105,7 @@ final readonly class RowSchemaOrgBuilder
             UrlGeneratorInterface::ABSOLUTE_URL,
         );
 
-        $id = $folioUrl . '#collection';
+        $id = $folioUrl.'#collection';
         $collection = $this->schemaOrg->getOrCreate(Collection::class, $id);
         $collection
             ->identifier($id)
@@ -117,7 +117,7 @@ final readonly class RowSchemaOrgBuilder
 
     private function addWebPage(Row $row, ?BaseItemDto $dto, string $canonicalUrl, Collection $collection): WebPage
     {
-        $id = $canonicalUrl . '#webpage';
+        $id = $canonicalUrl.'#webpage';
         $webPage = $this->schemaOrg->getOrCreate(WebPage::class, $id);
         $webPage
             ->identifier($id)
@@ -149,7 +149,7 @@ final readonly class RowSchemaOrgBuilder
 
         // Attribute-mapped scalars first (type, name, description, sameAs); the node comes
         // back as ordinary spatie fluent code for the rest.
-        $node = $this->mapper->add($dto, $canonicalUrl . '#item', $siteUrl);
+        $node = $this->mapper->add($dto, $canonicalUrl.'#item', $siteUrl);
         $node->setProperty('url', $canonicalUrl);
 
         // $title maps to `name` via #[SchemaProperty]; displayTitle() supplies the fallbacks for
@@ -236,7 +236,7 @@ final readonly class RowSchemaOrgBuilder
         $parts = parse_url($absoluteUrl);
         $scheme = $parts['scheme'] ?? 'https';
         $host = $parts['host'] ?? '';
-        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $port = isset($parts['port']) ? ':'.$parts['port'] : '';
 
         return \sprintf('%s://%s%s', $scheme, $host, $port);
     }
@@ -256,7 +256,7 @@ final readonly class RowSchemaOrgBuilder
             return;
         }
 
-        $id = $canonicalUrl . '#image';
+        $id = $canonicalUrl.'#image';
         $image = $this->schemaOrg->getOrCreate(ImageObject::class, $id);
         // contentUrl only, no `url`: `url` is the image's own landing page, and pointing it
         // at the row page would claim this page IS the image rather than the object's record.
@@ -288,7 +288,7 @@ final readonly class RowSchemaOrgBuilder
             }
             $name = trim($name);
 
-            $id = $siteUrl . '/people/' . rawurlencode(mb_strtolower($name));
+            $id = $siteUrl.'/people/'.rawurlencode(mb_strtolower($name));
             $person = $this->schemaOrg->getOrCreate(Person::class, $id);
             $person->identifier($id)->name($name);
 
@@ -312,7 +312,7 @@ final readonly class RowSchemaOrgBuilder
         }
         $name = trim($dto->institution);
 
-        $id = $siteUrl . '/institutions/' . rawurlencode(mb_strtolower($name));
+        $id = $siteUrl.'/institutions/'.rawurlencode(mb_strtolower($name));
         $organization = $this->schemaOrg->getOrCreate(Organization::class, $id);
         $organization->identifier($id)->name($name);
 
@@ -356,7 +356,7 @@ final readonly class RowSchemaOrgBuilder
         // from hundreds of sources, so two rows agreeing on "Springfield" is not evidence
         // they mean the same Springfield. A geonames-backed id would be, and is the upgrade
         // path here — $dto->geonamesId already carries it when the source provided one.
-        $id = $canonicalUrl . '#place';
+        $id = $canonicalUrl.'#place';
         $place = $this->schemaOrg->getOrCreate(Place::class, $id);
         $place->identifier($id);
 

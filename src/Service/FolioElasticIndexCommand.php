@@ -32,7 +32,7 @@ final class FolioElasticIndexCommand
 
             return Command::INVALID;
         }
-        if ($queue && $this->bus === null) {
+        if ($queue && null === $this->bus) {
             $io->error('No message bus in this app; run without --queue.');
 
             return Command::INVALID;

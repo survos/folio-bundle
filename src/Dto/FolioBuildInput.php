@@ -8,9 +8,9 @@ namespace Survos\FolioBundle\Dto;
 final readonly class FolioBuildInput
 {
     /**
-     * @param array<string,string> $sources Row core => JSONL file
-     * @param array<string,mixed> $metadata Folio metadata, including label
-     * @param array<string,string> $files Optional page, termSet, term, linkType, link, claims, claimRuns, phrases files
+     * @param array<string,string> $sources      Row core => JSONL file
+     * @param array<string,mixed>  $metadata     Folio metadata, including label
+     * @param array<string,string> $files        Optional page, termSet, term, linkType, link, claims, claimRuns, phrases files
      * @param array<string,string> $translations Target locale => translation JSONL file
      */
     public function __construct(
@@ -23,13 +23,13 @@ final readonly class FolioBuildInput
         public array $translations = [],
         public ?string $reviewedTranslationFile = null,
     ) {
-        if ($sourceLocale === '' || $locale === '') {
+        if ('' === $sourceLocale || '' === $locale) {
             throw new \InvalidArgumentException('Use a non-empty source locale and null for an untranslated build.');
         }
-        if ($code === '' || $sources === []) {
+        if ('' === $code || [] === $sources) {
             throw new \InvalidArgumentException('A folio build requires a code and explicit source files.');
         }
-        foreach ([...array_values($sources), ...array_values($files), ...array_values($translations), ...($reviewedTranslationFile !== null ? [$reviewedTranslationFile] : [])] as $file) {
+        foreach ([...array_values($sources), ...array_values($files), ...array_values($translations), ...(null !== $reviewedTranslationFile ? [$reviewedTranslationFile] : [])] as $file) {
             if (!is_file($file) || !is_readable($file)) {
                 throw new \InvalidArgumentException('Folio input file is not readable: '.$file);
             }

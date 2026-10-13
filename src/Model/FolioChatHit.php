@@ -26,7 +26,8 @@ final readonly class FolioChatHit
         public array $extras,
         public ?string $pageUrl = null,
         public ?string $pageMediaId = null,
-    ) {}
+    ) {
+    }
 
     /**
      * @return array{folioCode: string, coreCode: string, dtoType: string, localId: string}
@@ -54,7 +55,7 @@ final readonly class FolioChatHit
      */
     public function thumbnailSource(): ?string
     {
-        if ($this->pageUrl !== null && trim($this->pageUrl) !== '') {
+        if (null !== $this->pageUrl && '' !== trim($this->pageUrl)) {
             return DisplayImageSource::pick($this->pageUrl, $this->dtoData);
         }
 
@@ -65,7 +66,7 @@ final readonly class FolioChatHit
 
     public function thumbnailUrl(): ?string
     {
-        if ($this->pageUrl !== null && trim($this->pageUrl) !== '') {
+        if (null !== $this->pageUrl && '' !== trim($this->pageUrl)) {
             return $this->pageUrl;
         }
 
@@ -92,17 +93,17 @@ final readonly class FolioChatHit
     public function description(int $maxLen = 600): ?string
     {
         $value = $this->stringValue('description');
-        if ($value === null) {
+        if (null === $value) {
             return null;
         }
 
-        return mb_strlen($value) > $maxLen ? rtrim(mb_substr($value, 0, $maxLen)) . '…' : $value;
+        return mb_strlen($value) > $maxLen ? rtrim(mb_substr($value, 0, $maxLen)).'…' : $value;
     }
 
     private function stringValue(string $key): ?string
     {
         $value = $this->dtoData[$key] ?? $this->extras[$key] ?? null;
 
-        return is_string($value) && trim($value) !== '' ? trim($value) : null;
+        return is_string($value) && '' !== trim($value) ? trim($value) : null;
     }
 }

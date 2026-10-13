@@ -46,6 +46,7 @@ final class FolioChatPromptSuggester
 
     /**
      * @param array<string, list<array{type: string|null, label: string, count: int}>> $dtoChoices
+     *
      * @return list<string>
      */
     public function suggest(FolioContext $ctx, array $dtoChoices, int $limit = 8): array
@@ -68,7 +69,7 @@ final class FolioChatPromptSuggester
 
         // Type × place — alternate the two phrasings for variety.
         foreach (array_values($places) as $i => $place) {
-            $prompts[] = $i % 2 === 0
+            $prompts[] = 0 === $i % 2
                 ? sprintf('How many %s are from %s?', $this->plural($primary), $place)
                 : sprintf('Show me %s from %s.', $this->plural($primary), $place);
         }
@@ -87,12 +88,13 @@ final class FolioChatPromptSuggester
      * Top values across a set of facet fields, most frequent first, de-duplicated case-insensitively.
      *
      * @param list<string> $fields
-     * @param list<string> $exclude  values to drop (case-insensitive), e.g. the content-type labels
+     * @param list<string> $exclude values to drop (case-insensitive), e.g. the content-type labels
+     *
      * @return list<string>
      */
     private function topFacetValues(\PDO $pdo, array $fields, int $limit, array $exclude = []): array
     {
-        if (!$this->hasTable($pdo, 'item_facet_count') || $fields === []) {
+        if (!$this->hasTable($pdo, 'item_facet_count') || [] === $fields) {
             return [];
         }
 
@@ -109,8 +111,7 @@ final class FolioChatPromptSuggester
         // Preserve the field preference order (city before country) as a tiebreaker on equal-ish counts.
         $rank = array_flip($fields);
         $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        usort($rows, static fn (array $a, array $b): int =>
-            ($b['total'] <=> $a['total']) ?: (($rank[$a['field']] ?? 99) <=> ($rank[$b['field']] ?? 99)));
+        usort($rows, static fn (array $a, array $b): int => ($b['total'] <=> $a['total']) ?: (($rank[$a['field']] ?? 99) <=> ($rank[$b['field']] ?? 99)));
 
         $excludeLower = array_map('strtolower', $exclude);
         $seen = [];
@@ -118,7 +119,7 @@ final class FolioChatPromptSuggester
         foreach ($rows as $row) {
             $value = $this->readableValue((string) $row['field'], (string) $row['value']);
             $key = strtolower($value);
-            if ($value === '' || mb_strlen($value) > 40 || preg_match('/^\d+$/', $value)
+            if ('' === $value || mb_strlen($value) > 40 || preg_match('/^\d+$/', $value)
                 || in_array($key, $excludeLower, true) || isset($seen[$key])) {
                 continue;
             }
@@ -134,7 +135,7 @@ final class FolioChatPromptSuggester
 
     private function readableValue(string $field, string $value): string
     {
-        if ($field === 'country' && isset(self::COUNTRY_NAMES[$value])) {
+        if ('country' === $field && isset(self::COUNTRY_NAMES[$value])) {
             return self::COUNTRY_NAMES[$value];
         }
 
@@ -143,6 +144,7 @@ final class FolioChatPromptSuggester
 
     /**
      * @param array<string, list<array{type: string|null, label: string, count: int}>> $dtoChoices
+     *
      * @return list<string>
      */
     private function topTypeLabels(array $dtoChoices): array
@@ -150,7 +152,7 @@ final class FolioChatPromptSuggester
         $all = [];
         foreach ($dtoChoices as $choices) {
             foreach ($choices as $choice) {
-                if ($choice['type'] !== null && $choice['count'] > 0) {
+                if (null !== $choice['type'] && $choice['count'] > 0) {
                     $all[] = $choice;
                 }
             }
@@ -171,7 +173,7 @@ final class FolioChatPromptSuggester
 
     private function connect(string $dbFile): \PDO
     {
-        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         return $pdo;

@@ -14,17 +14,26 @@ use Symfony\Contracts\HttpClient\ResponseInterface;
 /** Dataset API transport shared by catalog discovery, pull and incremental synchronization. */
 final readonly class DatasetPublicationClient
 {
-    public function __construct(private HttpClientInterface $http, private string $server, private string $token) {}
+    public function __construct(private HttpClientInterface $http, private string $server, private string $token)
+    {
+    }
 
-    public function source(): string { return rtrim($this->server, '/'); }
+    public function source(): string
+    {
+        return rtrim($this->server, '/');
+    }
 
-    public function get(string $path, array $query = []): array { return $this->request($path, $query)->toArray(); }
+    public function get(string $path, array $query = []): array
+    {
+        return $this->request($path, $query)->toArray();
+    }
 
     private function request(string $path, array $query = []): ResponseInterface
     {
-        if ($this->token === '' || !preg_match('#^https?://[^/]+#', $this->server)) {
+        if ('' === $this->token || !preg_match('#^https?://[^/]+#', $this->server)) {
             throw new \LogicException('Configure the dataset API server and read token.');
         }
+
         // Catalog reads are idempotent: ride out a stalled or restarting server instead of
         // aborting a whole sync on one idle timeout. Downloads stream and keep their own client.
         return new RetryableHttpClient($this->http, maxRetries: 3)->request('GET', $this->source().$path, [
@@ -36,7 +45,8 @@ final readonly class DatasetPublicationClient
     public function dataset(string $key): ?array
     {
         $response = $this->request(self::datasetPath($key));
-        return $response->getStatusCode() === 404 ? null : $response->toArray();
+
+        return 404 === $response->getStatusCode() ? null : $response->toArray();
     }
 
     /**
@@ -47,7 +57,8 @@ final readonly class DatasetPublicationClient
     public function publications(string $key): array
     {
         $response = $this->request(self::datasetPath($key).'/publications');
-        return $response->getStatusCode() === 404 ? [] : array_map(Publication::fromArray(...), array_values($response->toArray()['publications']));
+
+        return 404 === $response->getStatusCode() ? [] : array_map(Publication::fromArray(...), array_values($response->toArray()['publications']));
     }
 
     private static function datasetPath(string $key): string
@@ -61,14 +72,17 @@ final readonly class DatasetPublicationClient
         $datasets = [];
         $after = null;
         do {
-            $page = $this->get('/api/datasets', $after === null ? [] : ['afterKey' => $after]);
-            foreach ($page[DatasetField::ITEMS] as $dataset) { $datasets[$dataset[DatasetField::DATASET_KEY]] = $dataset; }
+            $page = $this->get('/api/datasets', null === $after ? [] : ['afterKey' => $after]);
+            foreach ($page[DatasetField::ITEMS] as $dataset) {
+                $datasets[$dataset[DatasetField::DATASET_KEY]] = $dataset;
+            }
             $next = $page[DatasetField::NEXT];
-            if ($next !== null && $after !== null && strcmp($next, $after) <= 0) {
+            if (null !== $next && null !== $after && strcmp($next, $after) <= 0) {
                 throw new \UnexpectedValueException('Dataset catalog pagination did not advance.');
             }
             $after = $next;
-        } while ($after !== null);
+        } while (null !== $after);
+
         return $datasets;
     }
 
@@ -81,12 +95,17 @@ final readonly class DatasetPublicationClient
      */
     public function changes(?array $saved, bool $full): array
     {
-        if ($saved !== null && $saved[DatasetField::SOURCE] !== $this->source()) { $saved = null; }
-        $full = $full || $saved === null;
+        if (null !== $saved && $saved[DatasetField::SOURCE] !== $this->source()) {
+            $saved = null;
+        }
+        $full = $full || null === $saved;
         try {
             return $this->catchUp($saved, $full);
         } catch (HttpExceptionInterface $gone) {
-            if ($full || $gone->getResponse()->getStatusCode() !== 410) { throw $gone; }
+            if ($full || 410 !== $gone->getResponse()->getStatusCode()) {
+                throw $gone;
+            }
+
             return $this->catchUp(null, true);
         }
     }
@@ -99,12 +118,17 @@ final readonly class DatasetPublicationClient
         $through = null;
         do {
             $query = ['after' => $cursor];
-            if ($through !== null) { $query[DatasetField::THROUGH] = $through; }
+            if (null !== $through) {
+                $query[DatasetField::THROUGH] = $through;
+            }
             $page = $this->get('/api/changes', $query);
             foreach (array_unique(array_column($page[DatasetField::ITEMS], DatasetField::DATASET_KEY)) as $key) {
                 $dataset = $this->dataset($key);
-                if ($dataset === null) { unset($datasets[$key]); }
-                else { $datasets[$key] = $dataset; }
+                if (null === $dataset) {
+                    unset($datasets[$key]);
+                } else {
+                    $datasets[$key] = $dataset;
+                }
             }
             if ($page[DatasetField::HAS_MORE] && $page[DatasetField::CURSOR] === $cursor) {
                 throw new \UnexpectedValueException('Dataset feed pagination did not advance.');
@@ -112,6 +136,7 @@ final readonly class DatasetPublicationClient
             $cursor = $page[DatasetField::CURSOR];
             $through = $page[DatasetField::THROUGH];
         } while ($page[DatasetField::HAS_MORE]);
+
         return [DatasetField::VERSION => 1, DatasetField::SOURCE => $this->source(),
             DatasetField::CURSOR => $cursor, DatasetField::ITEMS => $datasets];
     }
@@ -161,6 +186,7 @@ final readonly class DatasetPublicationClient
             $out = null;
             $filesystem->remove($temp);
         }
+
         return $bytes;
     }
 
@@ -169,6 +195,7 @@ final readonly class DatasetPublicationClient
         if (!str_starts_with($url, '/api/datasets/') || str_contains($url, '://')) {
             throw new \UnexpectedValueException('Artifact URL is outside the configured dataset API.');
         }
+
         return $this->source().$url;
     }
 
@@ -178,6 +205,7 @@ final readonly class DatasetPublicationClient
         if (!str_starts_with($url, $this->source().'/api/datasets/')) {
             throw new \UnexpectedValueException('Artifact URL is outside the configured dataset API.');
         }
+
         return ['Authorization' => 'Bearer '.$this->token];
     }
 }

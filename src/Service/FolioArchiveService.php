@@ -44,19 +44,19 @@ final readonly class FolioArchiveService
 
         $this->preparer->prepare($source, ['archivePreparedAt' => gmdate(DATE_ATOM)]);
 
-        $archivePath ??= $source . '.gz';
+        $archivePath ??= $source.'.gz';
 
         // Everything up to the final publish happens in a LOCAL staging dir -- never on the
         // mount. Besides gating writes, this is also just faster: the SQLite DDL/VACUUM below is
         // many small round trips, which used to each cross the FUSE mount when $tmp lived next to
         // $archivePath.
-        $stagingDir = sys_get_temp_dir() . '/folio-archive-staging/' . bin2hex(random_bytes(8));
+        $stagingDir = sys_get_temp_dir().'/folio-archive-staging/'.bin2hex(random_bytes(8));
         if (!mkdir($stagingDir, 0775, true) && !is_dir($stagingDir)) {
             throw new \RuntimeException(sprintf('Unable to create local staging directory "%s".', $stagingDir));
         }
 
         try {
-            $localGz = $stagingDir . '/' . basename($archivePath);
+            $localGz = $stagingDir.'/'.basename($archivePath);
             $this->buildLocalArchive($source, $stagingDir, $localGz);
             $this->publishToMount($localGz, $archivePath);
         } finally {
@@ -83,12 +83,12 @@ final readonly class FolioArchiveService
         // archivePreparedAt just written above) can be missing from the archive.
         $this->checkpoint($source);
 
-        $tmp = $stagingDir . '/' . basename($source) . '.tmp.sqlite';
+        $tmp = $stagingDir.'/'.basename($source).'.tmp.sqlite';
         if (!copy($source, $tmp)) {
             throw new \RuntimeException(sprintf('Unable to create archive staging copy "%s".', $tmp));
         }
 
-        $pdo = new \PDO('sqlite:' . $tmp);
+        $pdo = new \PDO('sqlite:'.$tmp);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         // The working folio runs in WAL mode (faster bulk ingest); checkpoint() above only
@@ -105,26 +105,26 @@ final readonly class FolioArchiveService
 
         // Drop derived search/facet tables; they are recreated during inflate.
         foreach (['item_facet', 'item_facet_count'] as $derivedTable) {
-            $pdo->exec('DROP TABLE IF EXISTS ' . $this->quote($derivedTable));
+            $pdo->exec('DROP TABLE IF EXISTS '.$this->quote($derivedTable));
         }
 
         // Drop all FTS5 tables (shadow tables auto-drop with the main virtual table)
         foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE '%fts5%'")->fetchAll(\PDO::FETCH_COLUMN) as $fts) {
-            $pdo->exec('DROP TABLE IF EXISTS ' . $this->quote($fts));
+            $pdo->exec('DROP TABLE IF EXISTS '.$this->quote($fts));
         }
         // Drop fts5vocab tables
         foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE '%fts5vocab%'")->fetchAll(\PDO::FETCH_COLUMN) as $vocab) {
-            $pdo->exec('DROP TABLE IF EXISTS ' . $this->quote($vocab));
+            $pdo->exec('DROP TABLE IF EXISTS '.$this->quote($vocab));
         }
 
         // Drop all user-created indexes (keep sqlite_autoindex_* which enforce UNIQUE constraints)
         foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%' AND sql IS NOT NULL")->fetchAll(\PDO::FETCH_COLUMN) as $idx) {
-            $pdo->exec('DROP INDEX IF EXISTS ' . $this->quote($idx));
+            $pdo->exec('DROP INDEX IF EXISTS '.$this->quote($idx));
         }
 
         // Drop generated views
         foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'view'")->fetchAll(\PDO::FETCH_COLUMN) as $view) {
-            $pdo->exec('DROP VIEW IF EXISTS ' . $this->quote($view));
+            $pdo->exec('DROP VIEW IF EXISTS '.$this->quote($view));
         }
 
         $pdo->exec('VACUUM');
@@ -134,7 +134,7 @@ final readonly class FolioArchiveService
         // sidecars, but gzip() only reads $tmp itself -- a stray -wal/-shm would otherwise be
         // silently left on disk (not in the archive, but not cleaned up either) if anything
         // upstream ever changes. Confirm there's nothing to ship before we do.
-        foreach ([$tmp . '-wal', $tmp . '-shm'] as $sidecar) {
+        foreach ([$tmp.'-wal', $tmp.'-shm'] as $sidecar) {
             if (is_file($sidecar)) {
                 unlink($sidecar);
             }
@@ -214,13 +214,13 @@ final readonly class FolioArchiveService
 
         // Same local-staging-then-publish pattern as archive() (see class docblock): gzip into a
         // local temp dir, then one timed/logged copy() onto the (possibly mounted) archive path.
-        $stagingDir = sys_get_temp_dir() . '/folio-archive-staging/' . bin2hex(random_bytes(8));
+        $stagingDir = sys_get_temp_dir().'/folio-archive-staging/'.bin2hex(random_bytes(8));
         if (!mkdir($stagingDir, 0775, true) && !is_dir($stagingDir)) {
             throw new \RuntimeException(sprintf('Unable to create local staging directory "%s".', $stagingDir));
         }
 
         try {
-            $localGz = $stagingDir . '/' . basename($archivePath);
+            $localGz = $stagingDir.'/'.basename($archivePath);
             $this->gzip($source, $localGz);
             $this->publishToMount($localGz, $archivePath);
         } finally {
@@ -264,11 +264,12 @@ final readonly class FolioArchiveService
 
     /**
      * Inflate a deflated folio: recreate indexes, rebuild FTS, rebuild views.
+     *
      * @return array{indexes:int,views:int,ftsRows:int}
      */
     public function inflate(string $dbFile): array
     {
-        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         // json_extract(dto_data, '$.<field>') columns are sparse -- most datasets never populate
@@ -319,7 +320,7 @@ final readonly class FolioArchiveService
         $tIndexes = microtime(true);
         foreach ($indexDefs as $sql) {
             $pdo->exec($sql);
-            $indexes++;
+            ++$indexes;
         }
         $indexesTime = microtime(true) - $tIndexes;
         unset($pdo);
@@ -360,7 +361,7 @@ final readonly class FolioArchiveService
             return;
         }
 
-        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $pdo->exec('PRAGMA busy_timeout = 30000');
         $pdo->exec('PRAGMA wal_checkpoint(TRUNCATE)');
@@ -375,7 +376,7 @@ final readonly class FolioArchiveService
     private function gzip(string $source, string $target): void
     {
         $in = fopen($source, 'rb');
-        $out = gzopen($target, 'wb' . $this->compressionLevel);
+        $out = gzopen($target, 'wb'.$this->compressionLevel);
         if (!$in || !$out) {
             throw new \RuntimeException(sprintf('Unable to gzip "%s" to "%s".', $source, $target));
         }
@@ -395,10 +396,10 @@ final readonly class FolioArchiveService
         }
 
         foreach (scandir($dir) ?: [] as $entry) {
-            if ($entry === '.' || $entry === '..') {
+            if ('.' === $entry || '..' === $entry) {
                 continue;
             }
-            $path = $dir . '/' . $entry;
+            $path = $dir.'/'.$entry;
             is_dir($path) ? $this->removeDirectory($path) : unlink($path);
         }
 
@@ -407,7 +408,7 @@ final readonly class FolioArchiveService
 
     private function quote(string $identifier): string
     {
-        return '"' . str_replace('"', '""', $identifier) . '"';
+        return '"'.str_replace('"', '""', $identifier).'"';
     }
 
     private function gunzip(string $source, string $target): void

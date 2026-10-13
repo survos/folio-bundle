@@ -6,10 +6,13 @@ namespace Survos\FolioBundle\Tests\Service;
 
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
-use Survos\DataContracts\Vocabulary\{ItemField, MuseumVocab};
-use Survos\FolioBundle\Api\{WallCardCollection, WallCardField as Field};
+use Survos\DataContracts\Vocabulary\ItemField;
+use Survos\DataContracts\Vocabulary\MuseumVocab;
+use Survos\FolioBundle\Api\WallCardCollection;
+use Survos\FolioBundle\Api\WallCardField as Field;
 use Survos\FolioBundle\Serializer\WallCardCollectionNormalizer;
-use Survos\FolioBundle\Service\{WallCardMapper, WallCardQuery};
+use Survos\FolioBundle\Service\WallCardMapper;
+use Survos\FolioBundle\Service\WallCardQuery;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
 final class WallCardTest extends TestCase
@@ -52,7 +55,7 @@ final class WallCardTest extends TestCase
             Field::PLACE_OF_ORIGIN => 'France', Field::TAGS => ['Sports', ' '],
             Field::AUDIO => [
                 ['soundId' => '2180', 'url' => 'https://aic-mobile-tours.artic.edu/a.mp3', 'transcript' => $transcript, 'durationSec' => 136,
-                 'tour' => 'The Essentials Tour', 'tours' => [['id' => '2193', 'title' => 'The Essentials Tour', 'ordinal' => 1]]],
+                    'tour' => 'The Essentials Tour', 'tours' => [['id' => '2193', 'title' => 'The Essentials Tour', 'ordinal' => 1]]],
                 ['soundId' => '9', 'title' => 'no url, skipped'],
             ],
         ]), 'card_year' => 1884, 'card_lat' => null, 'card_lon' => null, 'page_url' => null, 'page_width' => null, 'page_height' => null];
@@ -141,13 +144,16 @@ final class WallCardTest extends TestCase
         $conn->executeStatement('CREATE TABLE item_facet (item_rowid INTEGER, field TEXT, value TEXT)');
         $conn->executeStatement('CREATE VIRTUAL TABLE item_fts USING fts5(body)');
         foreach (['a', 'b', 'c', 'other-core'] as $index => $id) {
-            $conn->insert('item', ['id' => $id, 'core_id' => $id === 'other-core' ? 'test/one:per' : 'test/one:obj', 'local_id' => $id, 'label' => $id, 'dto_type' => 'photograph', 'dto_data' => json_encode([ItemField::YEAR => $id === 'b' ? null : 1900 + $index, Field::LATITUDE => 53.3, Field::LONGITUDE => -6.2]), 'extras' => null]);
-            $conn->insert('page', ['id' => $id.'#1', 'row_id' => $id, 'seq' => 1, 'url' => 'https://example.com/photo.jpg', 'width' => $id === 'b' ? null : 800, 'height' => $id === 'b' ? null : 600]);
+            $conn->insert('item', ['id' => $id, 'core_id' => 'other-core' === $id ? 'test/one:per' : 'test/one:obj', 'local_id' => $id, 'label' => $id, 'dto_type' => 'photograph', 'dto_data' => json_encode([ItemField::YEAR => 'b' === $id ? null : 1900 + $index, Field::LATITUDE => 53.3, Field::LONGITUDE => -6.2]), 'extras' => null]);
+            $conn->insert('page', ['id' => $id.'#1', 'row_id' => $id, 'seq' => 1, 'url' => 'https://example.com/photo.jpg', 'width' => 'b' === $id ? null : 800, 'height' => 'b' === $id ? null : 600]);
             // A second image must not duplicate the card/count or replace first-page geometry.
             $conn->insert('page', ['id' => $id.'#2', 'row_id' => $id, 'seq' => 2, 'url' => 'https://example.com/second.jpg', 'width' => 1000, 'height' => 2000]);
-            foreach ([ItemField::CITY => 'Dublin', Field::TAGS => 'portrait'] as $field => $value) { $conn->insert('item_facet', ['item_rowid' => $index + 1, 'field' => $field, 'value' => $value]); }
+            foreach ([ItemField::CITY => 'Dublin', Field::TAGS => 'portrait'] as $field => $value) {
+                $conn->insert('item_facet', ['item_rowid' => $index + 1, 'field' => $field, 'value' => $value]);
+            }
             $conn->insert('item_fts', ['rowid' => $index + 1, 'body' => 'A portrait of someone']);
         }
+
         return $conn;
     }
 }

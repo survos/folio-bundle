@@ -21,10 +21,25 @@ class FolioMenu extends AbstractAdminMenuSubscriber
         parent::__construct($router);
     }
 
-    protected function getLabel(): string { return 'Folio'; }
-    protected function getGroupIcon(): ?string { return 'mdi:database-outline'; }
-    protected function getResourceClasses(): array { return []; }
-    protected function getBrowseRoute(): ?string { return null; }
+    protected function getLabel(): string
+    {
+        return 'Folio';
+    }
+
+    protected function getGroupIcon(): ?string
+    {
+        return 'mdi:database-outline';
+    }
+
+    protected function getResourceClasses(): array
+    {
+        return [];
+    }
+
+    protected function getBrowseRoute(): ?string
+    {
+        return null;
+    }
 
     #[AsEventListener(event: MenuEvent::ADMIN_NAVBAR_MENU)]
     public function onAdminNavbarMenu(MenuEvent $event): void
@@ -32,10 +47,10 @@ class FolioMenu extends AbstractAdminMenuSubscriber
         $menu = $event->getMenu();
         $submenu = $this->addSubmenu($menu, $this->getLabel(), $this->getGroupIcon());
 
-        if ($this->folioServer !== null && $this->folioServer !== '') {
+        if (null !== $this->folioServer && '' !== $this->folioServer) {
             $base = rtrim($this->folioServer, '/');
-            $this->add($submenu, label: 'Folios', uri: $base . '/folios', icon: 'mdi:database-search');
-            $this->add($submenu, label: 'Bootstrap Schema', uri: $base . $this->routePrefix . '/_bootstrap/_bootstrap/schema', icon: 'mdi:table-cog');
+            $this->add($submenu, label: 'Folios', uri: $base.'/folios', icon: 'mdi:database-search');
+            $this->add($submenu, label: 'Bootstrap Schema', uri: $base.$this->routePrefix.'/_bootstrap/_bootstrap/schema', icon: 'mdi:table-cog');
 
             return;
         }

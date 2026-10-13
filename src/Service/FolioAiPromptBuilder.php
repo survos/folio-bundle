@@ -28,7 +28,7 @@ final class FolioAiPromptBuilder
             'body' => [
                 'model' => $model,
                 'temperature' => 0.2,
-                'max_tokens' => $task === self::IMAGE_ENRICH ? 1000 : 500,
+                'max_tokens' => self::IMAGE_ENRICH === $task ? 1000 : 500,
                 'response_format' => ['type' => 'json_object'],
                 'messages' => [
                     ['role' => 'system', 'content' => $this->systemPrompt($task)],
@@ -44,14 +44,14 @@ final class FolioAiPromptBuilder
     /** @param array<string,mixed>|null $dtoData */
     public function imageUrl(?array $dtoData): ?string
     {
-        if ($dtoData === null) {
+        if (null === $dtoData) {
             return null;
         }
 
         foreach (['iiifBase', 'largeImageUrl', 'thumbnailUrl', 'imageUrl'] as $field) {
             $value = $dtoData[$field] ?? null;
-            if (is_string($value) && $value !== '') {
-                return $field === 'iiifBase' ? IiifUrl::imageUrl($value) : $value;
+            if (is_string($value) && '' !== $value) {
+                return 'iiifBase' === $field ? IiifUrl::imageUrl($value) : $value;
             }
         }
 
@@ -68,9 +68,10 @@ final class FolioAiPromptBuilder
     }
 
     /**
-     * @param array<string,mixed> $row
+     * @param array<string,mixed>      $row
      * @param array<string,mixed>|null $dtoData
      * @param array<string,mixed>|null $extras
+     *
      * @return string|array<int,array<string,mixed>>
      */
     private function userContent(array $row, ?array $dtoData, ?array $extras, string $task, ?string $imageUrl, string $imageDetail): string|array
@@ -84,19 +85,19 @@ final class FolioAiPromptBuilder
             'extras' => $extras,
         ];
 
-        $schema = $task === self::IMAGE_ENRICH
+        $schema = self::IMAGE_ENRICH === $task
             ? 'Return JSON with keys: title, description, keywords, denseSummary, people, places, organizations, dateText, confidence, claims. Claims is optional and may contain objects with predicate, value, confidence, basis.'
             : 'Return JSON with keys: denseSummary (2-4 plain sentences, under 400 characters), keywords, subjects, confidence, claims. Claims is optional and may contain objects with predicate, value, confidence, basis.';
-        $text = $schema . "\nRecord:\n" . json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        $text = $schema."\nRecord:\n".json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         $pageText = is_string($row['page_text'] ?? null) ? trim($row['page_text']) : '';
-        if ($task === self::DENSE_SUMMARY && $pageText !== '') {
-            $text .= "\n\nText of the record:\n" . mb_substr($pageText, 0, self::MAX_TEXT_CHARS);
+        if (self::DENSE_SUMMARY === $task && '' !== $pageText) {
+            $text .= "\n\nText of the record:\n".mb_substr($pageText, 0, self::MAX_TEXT_CHARS);
         }
 
-        if ($task !== self::IMAGE_ENRICH) {
+        if (self::IMAGE_ENRICH !== $task) {
             return $text;
         }
-        if ($imageUrl === null) {
+        if (null === $imageUrl) {
             throw new \RuntimeException(sprintf('Row "%s" has no image URL for image enrichment.', (string) ($row['id'] ?? '')));
         }
 
@@ -112,11 +113,12 @@ final class FolioAiPromptBuilder
         if (is_array($value)) {
             return $value;
         }
-        if (!is_string($value) || trim($value) === '') {
+        if (!is_string($value) || '' === trim($value)) {
             return null;
         }
 
         $decoded = json_decode($value, true);
+
         return is_array($decoded) ? $decoded : null;
     }
 }

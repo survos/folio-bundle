@@ -51,7 +51,7 @@ final class FolioSitemapPopulator
         // A null section means "dump everything" -- and it is genuinely one pass: presta populates
         // every section from this single event and writes the index once at the end. Looping
         // dump() per folio instead would re-parse and rewrite the whole index 664 times.
-        $codes = $section === null
+        $codes = null === $section
             ? $this->registry->publishedFolioCodes()
             : array_filter([self::folioCodeFromSection($section)]);
 
@@ -62,7 +62,7 @@ final class FolioSitemapPopulator
 
     public static function sectionForFolio(string $folioCode): string
     {
-        return self::SECTION_PREFIX . str_replace('/', '--', $folioCode);
+        return self::SECTION_PREFIX.str_replace('/', '--', $folioCode);
     }
 
     public static function folioCodeFromSection(string $section): ?string
@@ -111,12 +111,12 @@ final class FolioSitemapPopulator
         foreach ($rows as $row) {
             $coreId = (string) $row['core_id'];
             $coreCode = str_contains($coreId, ':') ? substr($coreId, strrpos($coreId, ':') + 1) : $coreId;
-            if ($coreCode === '') {
+            if ('' === $coreCode) {
                 continue;
             }
 
             $dtoType = (string) $row['dto_type'];
-            $key = $coreCode . "\0" . $dtoType;
+            $key = $coreCode."\0".$dtoType;
 
             if ($key !== $groupKey) {
                 $groupKey = $key;
@@ -137,5 +137,4 @@ final class FolioSitemapPopulator
             );
         }
     }
-
 }

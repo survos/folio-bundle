@@ -37,6 +37,7 @@ final class RowTermsResolver implements ResetInterface
     /**
      * @param array<string,mixed> $dtoData
      * @param array<string,mixed> $extras
+     *
      * @return array<string,list<array{code:string,label:string,term:?Term}>>
      */
     public function resolve(EntityManagerInterface $em, string $folioCode, array $dtoData, array $extras): array
@@ -96,7 +97,7 @@ final class RowTermsResolver implements ResetInterface
             return array_values(array_unique(array_filter($values, 'strlen')));
         }
 
-        return is_scalar($value) && trim((string) $value) !== '' ? [trim((string) $value)] : [];
+        return is_scalar($value) && '' !== trim((string) $value) ? [trim((string) $value)] : [];
     }
 
     private function termCode(string $label): string
@@ -105,7 +106,7 @@ final class RowTermsResolver implements ResetInterface
         $code = preg_replace('/[^a-z0-9]+/', '-', $code) ?? '';
         $code = trim($code, '-');
 
-        return $code !== '' ? $code : hash('xxh128', $label);
+        return '' !== $code ? $code : hash('xxh128', $label);
     }
 
     public function reset(): void

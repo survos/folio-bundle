@@ -51,7 +51,7 @@ final class FolioMeiliIndexer
             'Indexed %d folio row(s) into %s%s',
             $result['count'],
             $result['indexUid'],
-            $result['taskUid'] !== null ? sprintf(' (task %d)', $result['taskUid']) : '',
+            null !== $result['taskUid'] ? sprintf(' (task %d)', $result['taskUid']) : '',
         ));
 
         return Command::SUCCESS;
@@ -83,7 +83,7 @@ final class FolioMeiliIndexer
         $docs = $this->documents($ctx->em->getConnection(), $folioCode, $coreCode, $dtoType, $limit, $count);
         $taskUid = $this->uploader->uploadDocuments($index, $docs, $primaryKey);
 
-        if ($wait && $taskUid !== null) {
+        if ($wait && null !== $taskUid) {
             $task = $this->meili->waitForTask((int) $taskUid);
             if (($task['status'] ?? null) !== 'succeeded') {
                 throw new \RuntimeException(sprintf('Meilisearch task failed for %s: %s', $indexUid, json_encode($task['error'] ?? $task)));
@@ -96,7 +96,8 @@ final class FolioMeiliIndexer
     public function baseName(string $folioCode, string $coreCode = 'obj'): string
     {
         $base = $this->indexNameResolver->baseFromDataset($folioCode);
-        return $coreCode === 'obj' ? $base : $base . '_' . $coreCode;
+
+        return 'obj' === $coreCode ? $base : $base.'_'.$coreCode;
     }
 
     private function documents(
@@ -114,26 +115,26 @@ JOIN core c ON c.id = i.core_id
 WHERE c.code = :coreCode
 SQL;
         $params = ['coreCode' => $coreCode];
-        if ($dtoType !== null && $dtoType !== '') {
+        if (null !== $dtoType && '' !== $dtoType) {
             $sql .= ' AND i.dto_type = :dtoType';
             $params['dtoType'] = $dtoType;
         }
         $sql .= ' ORDER BY i.id';
-        if ($limit !== null) {
+        if (null !== $limit) {
             $sql .= ' LIMIT :limit';
             $params['limit'] = $limit;
         }
 
         $result = $connection->executeQuery($sql, $params);
         while (($row = $result->fetchAssociative()) !== false) {
-            $count++;
+            ++$count;
             yield $this->documentBuilder->build(
                 $folioCode,
                 $coreCode,
                 (string) $row['id'],
                 (string) $row['local_id'],
-                $row['label'] !== null ? (string) $row['label'] : null,
-                $row['dto_type'] !== null ? (string) $row['dto_type'] : null,
+                null !== $row['label'] ? (string) $row['label'] : null,
+                null !== $row['dto_type'] ? (string) $row['dto_type'] : null,
                 $this->decodeJson($row['dto_data'] ?? null),
                 $this->decodeJson($row['extras'] ?? null),
             );
@@ -146,11 +147,12 @@ SQL;
         if (is_array($value)) {
             return $value;
         }
-        if (!is_string($value) || trim($value) === '') {
+        if (!is_string($value) || '' === trim($value)) {
             return null;
         }
 
         $decoded = json_decode($value, true);
+
         return is_array($decoded) ? $decoded : null;
     }
 }

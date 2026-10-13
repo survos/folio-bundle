@@ -27,24 +27,24 @@ declare(strict_types=1);
  * same packer and sizes as the digital articles (target 120 / max 250 / min 40 words).
  */
 
-require getenv('HOME') . '/sites/lingua/vendor/autoload.php';
-require __DIR__ . '/windows-lib.php';
+require getenv('HOME').'/sites/lingua/vendor/autoload.php';
+require __DIR__.'/windows-lib.php';
 
 use Vanderlee\Sentence\Sentence;
 
 const TARGET = 120, MAX = 250, MIN = 40;
 
 [$mode, $basic] = [$argv[1] ?? null, $argv[2] ?? null];
-$enhanced = $mode === 'full' ? ($argv[3] ?? null) : null;
-$out = $mode === 'full' ? ($argv[4] ?? null) : ($argv[3] ?? null);
-if (!in_array($mode, ['block', 'full'], true) || $basic === null || $out === null || ($mode === 'full' && $enhanced === null)) {
+$enhanced = 'full' === $mode ? ($argv[3] ?? null) : null;
+$out = 'full' === $mode ? ($argv[4] ?? null) : ($argv[3] ?? null);
+if (!in_array($mode, ['block', 'full'], true) || null === $basic || null === $out || ('full' === $mode && null === $enhanced)) {
     fwrite(STDERR, "usage: php ocr-windows.php block <basic.folio> <out-prefix> | full <basic.folio> <enhanced.folio> <out-prefix>\n");
     exit(1);
 }
 
 function rows(string $folio): Generator
 {
-    $pdo = new PDO('sqlite:file:' . $folio . '?mode=ro', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $pdo = new PDO('sqlite:file:'.$folio.'?mode=ro', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
     foreach ($pdo->query("SELECT id, dto_data, extras FROM item WHERE core_id LIKE '%:article' ORDER BY id") as $r) {
         yield [$r['id'], json_decode($r['dto_data'], true) ?? [], json_decode($r['extras'] ?? 'null', true) ?? []];
     }
@@ -74,31 +74,40 @@ $fa = fopen("$out.articles.jsonl", 'w');
 $counts = ['stories' => 0, 'blocks' => 0, 'claimed' => 0, 'windows' => 0, 'empty' => 0, 'ads' => 0];
 $noAds = in_array('--no-ads', $argv, true);
 $issues = null;
-foreach ($argv as $a) { if (str_starts_with($a, '--issues=')) { $issues = '/' . substr($a, 9) . '/'; } }
+foreach ($argv as $a) {
+    if (str_starts_with($a, '--issues=')) {
+        $issues = '/'.substr($a, 9).'/';
+    }
+}
 
 /** Pack one unit of meaning into windows and write them. */
 $emit = function (string $id, string $headline, string $body, ?string $date, string $tier) use ($splitter, $fw, $fa, &$counts): void {
-    fwrite($fa, json_encode(['id' => $id, 'title' => $headline, 'bodyText' => $body, 'tier' => $tier], JSON_UNESCAPED_UNICODE) . "\n");
-    if (words($body) === 0 && $headline === '') {
-        $counts['empty']++;
+    fwrite($fa, json_encode(['id' => $id, 'title' => $headline, 'bodyText' => $body, 'tier' => $tier], JSON_UNESCAPED_UNICODE)."\n");
+    if (0 === words($body) && '' === $headline) {
+        ++$counts['empty'];
+
         return;
     }
     $units = [];
     $cursor = 0;
     foreach ($splitter->split($body) as $sentence) {
         $t = trim($sentence);
-        if ($t === '') { continue; }
+        if ('' === $t) {
+            continue;
+        }
         // php-sentence may normalise a sentence (runs of dashes, dots), so it is not always a literal
         // substring: fall back to the cursor, and never let offsets run past the text.
         $at = $cursor < strlen($body) ? strpos($body, $t, $cursor) : false;
-        $at = $at === false ? min($cursor, strlen($body)) : $at;
+        $at = false === $at ? min($cursor, strlen($body)) : $at;
         $cursor = min(strlen($body), $at + strlen($t));
-        if ($cursor <= $at) { continue; }
+        if ($cursor <= $at) {
+            continue;
+        }
         $t = substr($body, $at, $cursor - $at);
         $units[] = ['kind' => 'sentence', 'speaker' => null, 'cut' => Q_SPEAKER, 'text' => $t, 'from' => $at, 'to' => $cursor, 'words' => words($t)];
     }
     // A headline with no body is still findable by its headline.
-    $windows = $units === [] ? [[['text' => '', 'from' => 0, 'to' => 0, 'words' => 0]]] : packWindows($units, TARGET, MAX, MIN);
+    $windows = [] === $units ? [[['text' => '', 'from' => 0, 'to' => 0, 'words' => 0]]] : packWindows($units, TARGET, MAX, MIN);
     foreach ($windows as $w) {
         $first = $w[0];
         $last = $w[array_key_last($w)];
@@ -107,19 +116,23 @@ $emit = function (string $id, string $headline, string $body, ?string $date, str
             'headline' => $headline, 'subheads' => [], 'bylines' => [], 'sections' => [$tier], 'date' => $date,
             'from' => $first['from'], 'to' => $last['to'], 'words' => array_sum(array_column($w, 'words')),
             'text' => substr($body, $first['from'], $last['to'] - $first['from']),
-        ], JSON_UNESCAPED_UNICODE) . "\n");
-        $counts['windows']++;
+        ], JSON_UNESCAPED_UNICODE)."\n");
+        ++$counts['windows'];
     }
 };
 
 $claimed = [];
-if ($mode === 'full') {
+if ('full' === $mode) {
     foreach (rows($enhanced) as [$id, $dto, $extras]) {
-        if ($issues !== null && !preg_match($issues, $id)) { continue; }
+        if (null !== $issues && !preg_match($issues, $id)) {
+            continue;
+        }
         $segs = $extras['segments'] ?? [];
-        foreach (anchorKeys($extras) as $k) { $claimed[$k] = true; }
+        foreach (anchorKeys($extras) as $k) {
+            $claimed[$k] = true;
+        }
         if ($noAds && ($extras['recordKind'] ?? null) === 'advertisement') {
-            $counts['ads']++;
+            ++$counts['ads'];
             continue;
         }
         // The headline segment first (kind `headline` since harvest 1979139). A record whose only
@@ -129,18 +142,20 @@ if ($mode === 'full') {
             ? clean(implode("\n", array_map(fn ($s) => (string) ($s['text'] ?? ''), array_slice($segs, 1))))
             : clean((string) ($dto['ocrText'] ?? ''));
         $emit($id, $headline, $body, $dto['date'] ?? null, 'full');
-        $counts['stories']++;
+        ++$counts['stories'];
     }
 }
 foreach (rows($basic) as [$id, $dto, $extras]) {
-    if ($issues !== null && !preg_match($issues, $id)) { continue; }
+    if (null !== $issues && !preg_match($issues, $id)) {
+        continue;
+    }
     $keys = anchorKeys($extras);
-    if ($keys !== [] && array_filter($keys, fn ($k) => isset($claimed[$k])) === $keys) {
-        $counts['claimed']++;
+    if ([] !== $keys && array_filter($keys, fn ($k) => isset($claimed[$k])) === $keys) {
+        ++$counts['claimed'];
         continue;
     }
     $emit($id, '', clean((string) ($dto['ocrText'] ?? $dto['description'] ?? '')), $dto['date'] ?? null, 'block');
-    $counts['blocks']++;
+    ++$counts['blocks'];
 }
 fclose($fw);
 fclose($fa);

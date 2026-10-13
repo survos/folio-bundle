@@ -115,19 +115,19 @@ class Page
      */
     public static function layoutText(?array $layout): ?string
     {
-        if ($layout === null) {
+        if (null === $layout) {
             return null;
         }
         $blocks = array_is_list($layout) ? $layout : ($layout['blocks'] ?? []);
         $texts = [];
         foreach (is_array($blocks) ? $blocks : [] as $block) {
             $text = is_array($block) ? trim((string) ($block['text'] ?? '')) : '';
-            if ($text !== '') {
+            if ('' !== $text) {
                 $texts[] = $text;
             }
         }
 
-        return $texts === [] ? null : implode("\n\n", $texts);
+        return [] === $texts ? null : implode("\n\n", $texts);
     }
 
     #[ORM\Column(type: Types::JSON, nullable: true)]
@@ -179,6 +179,6 @@ class Page
 
     public static function id(string $rowId, int $seq): string
     {
-        return $rowId . '#' . $seq;
+        return $rowId.'#'.$seq;
     }
 }

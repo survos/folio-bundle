@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\FolioBundle\Dto;
@@ -28,8 +29,8 @@ final readonly class PageDto
     public const string CORE = 'page';
 
     /**
-     * @param array<string,mixed>|null $ledger
-     * @param array<string,mixed>|null $layout
+     * @param array<string,mixed>|null                                                     $ledger
+     * @param array<string,mixed>|null                                                     $layout
      * @param list<array{speaker: ?string, text: string, startMs: ?int, endMs: ?int}>|null $dialogue
      */
     public function __construct(

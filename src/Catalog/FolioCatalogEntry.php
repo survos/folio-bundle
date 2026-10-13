@@ -50,7 +50,7 @@ final readonly class FolioCatalogEntry
     public static function fromArray(array $row): ?self
     {
         $datasetKey = self::str($row, 'datasetKey');
-        if ($datasetKey === null) {
+        if (null === $datasetKey) {
             // Without an identity the entry cannot be matched, pulled or linked to. Skip it rather
             // than minting a blank key that would collide with every other blank one.
             return null;
@@ -70,7 +70,7 @@ final readonly class FolioCatalogEntry
             tags: array_values(array_filter(array_map(
                 static fn (mixed $t): string => strtolower(trim((string) $t)),
                 is_array($row['tags'] ?? null) ? $row['tags'] : [],
-            ), static fn (string $t): bool => $t !== '')),
+            ), static fn (string $t): bool => '' !== $t)),
             contentType: self::str($row, 'contentType'),
             rowCount: (int) ($row['rowCount'] ?? 0),
             sizeBytes: isset($row['sizeBytes']) ? (int) $row['sizeBytes'] : null,
@@ -88,11 +88,13 @@ final readonly class FolioCatalogEntry
     {
         $variants = [];
         foreach ($dataset[DatasetField::ARTIFACTS] as $artifact) {
-            if (!in_array($artifact[ItemField::TYPE], [DatasetField::FOLIO_TYPE, DatasetField::FOLIO_ARCHIVE_TYPE], true)) { continue; }
+            if (!in_array($artifact[ItemField::TYPE], [DatasetField::FOLIO_TYPE, DatasetField::FOLIO_ARCHIVE_TYPE], true)) {
+                continue;
+            }
             $code = $artifact[DatasetField::CODE];
             // The downloadable archive is the consumer revision; a local-only folio remains
             // discoverable on shared-volume readers before compression has been requested.
-            if (!isset($variants[$code]) || $artifact[ItemField::TYPE] === DatasetField::FOLIO_ARCHIVE_TYPE) {
+            if (!isset($variants[$code]) || DatasetField::FOLIO_ARCHIVE_TYPE === $artifact[ItemField::TYPE]) {
                 $variants[$code] = $artifact;
             }
         }
@@ -104,15 +106,16 @@ final readonly class FolioCatalogEntry
                 code: explode('/', $dataset[DatasetField::DATASET_KEY], 2)[1],
                 title: $dataset[PropertyKey::LABEL] ?? $dataset[DatasetField::DATASET_KEY],
                 description: $dataset[ItemField::DESCRIPTION],
-                locale: $code === DatasetField::DEFAULT_CODE ? null : $code,
+                locale: DatasetField::DEFAULT_CODE === $code ? null : $code,
                 tags: $dataset[PropertyKey::TAGS], contentType: $dataset[PropertyKey::CONTENT_TYPE],
                 rowCount: $dataset[PropertyKey::ROW_COUNT], sizeBytes: $artifact[DatasetField::SIZE_BYTES],
                 checksum: $artifact[DatasetField::CHECKSUM], updatedAt: $artifact[DatasetField::UPDATED_AT],
-                downloadUrl: $url === null ? null : $client->downloadUrl($url),
+                downloadUrl: null === $url ? null : $client->downloadUrl($url),
                 compressed: $artifact[DatasetField::COMPRESSED], revision: $artifact[DatasetField::REVISION],
                 artifactType: $artifact[ItemField::TYPE],
             );
         }
+
         return $entries;
     }
 
@@ -132,6 +135,6 @@ final readonly class FolioCatalogEntry
     {
         $value = $row[$key] ?? null;
 
-        return is_string($value) && $value !== '' ? $value : null;
+        return is_string($value) && '' !== $value ? $value : null;
     }
 }

@@ -15,7 +15,7 @@ final class PdfPageClaimsTest extends TestCase
 {
     public function testPdfTranscriptDoesNotOverwriteIndividualPages(): void
     {
-        $root = sys_get_temp_dir() . '/pdf-page-claims-' . bin2hex(random_bytes(8));
+        $root = sys_get_temp_dir().'/pdf-page-claims-'.bin2hex(random_bytes(8));
         $paths = new DataPaths($root);
         $conn = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         try {
@@ -32,7 +32,7 @@ final class PdfPageClaimsTest extends TestCase
                 ['subjectId' => 'pdf', 'predicate' => 'ai:ocrText', 'value' => 'First page Second page'],
                 ['subjectId' => 'image', 'predicate' => 'ai:ocrText', 'value' => 'Existing image OCR'],
             ];
-            file_put_contents($paths->claimsFile('test/pdf'), implode("\n", array_map(json_encode(...), $claims)) . "\n");
+            file_put_contents($paths->claimsFile('test/pdf'), implode("\n", array_map(json_encode(...), $claims))."\n");
             $em = $this->createStub(EntityManagerInterface::class);
             $em->method('getConnection')->willReturn($conn);
             $reflection = new \ReflectionClass(FolioIngestService::class);

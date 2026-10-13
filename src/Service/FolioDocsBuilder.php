@@ -19,7 +19,7 @@ final readonly class FolioDocsBuilder
         $folio += ['label' => $values['label'] ?? null, 'row_count' => $values['rowCount'] ?? 0, 'description' => $values['description'] ?? null];
 
         $cores = $pdo->query('SELECT code, label, row_count FROM core ORDER BY code')->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-        $tables = $pdo->query("SELECT id, name, kind, core_code, dto_type, label, description, row_count FROM schema_table ORDER BY kind, name")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        $tables = $pdo->query('SELECT id, name, kind, core_code, dto_type, label, description, row_count FROM schema_table ORDER BY kind, name')->fetchAll(\PDO::FETCH_ASSOC) ?: [];
         $properties = $pdo->query('SELECT table_id, name, label, description, type, stats, searchable, filterable, facet, sortable FROM schema_property ORDER BY table_id, position, name')->fetchAll(\PDO::FETCH_ASSOC) ?: [];
         $views = $pdo->query("SELECT name, sql FROM sqlite_master WHERE type = 'view' AND name LIKE 'dto_%' ORDER BY name")->fetchAll(\PDO::FETCH_ASSOC) ?: [];
 
@@ -61,7 +61,7 @@ final readonly class FolioDocsBuilder
     private function overviewMarkdown(array $folio, array $cores, array $tables): string
     {
         $lines = [
-            '# Folio ' . (string) $folio['code'],
+            '# Folio '.(string) $folio['code'],
             '',
             (string) ($folio['label'] ?: $folio['dataset_key'] ?: $folio['code']),
             '',
@@ -79,7 +79,7 @@ final readonly class FolioDocsBuilder
             $lines[] = sprintf('| `%s` | %s | %s |', (string) $core['code'], (string) ($core['label'] ?: $core['code']), number_format((int) ($core['row_count'] ?? 0)));
         }
 
-        return implode("\n", $lines) . "\n";
+        return implode("\n", $lines)."\n";
     }
 
     private function schemaMarkdown(array $tables, array $properties): string
@@ -99,7 +99,7 @@ final readonly class FolioDocsBuilder
             $lines[] = sprintf('- Core: `%s`', (string) $table['core_code']);
             $lines[] = sprintf('- DTO type: `%s`', (string) $table['dto_type']);
             $lines[] = sprintf('- Rows: %s', number_format((int) ($table['row_count'] ?? 0)));
-            if (is_string($table['description'] ?? null) && $table['description'] !== '') {
+            if (is_string($table['description'] ?? null) && '' !== $table['description']) {
                 $lines[] = '';
                 $lines[] = (string) $table['description'];
             }
@@ -139,7 +139,7 @@ final readonly class FolioDocsBuilder
         ];
         foreach ($views as $view) {
             $name = (string) ($view['name'] ?? '');
-            if ($name === '') {
+            if ('' === $name) {
                 continue;
             }
             $lines[] = '```sql';
@@ -157,7 +157,7 @@ final readonly class FolioDocsBuilder
             throw new \RuntimeException(sprintf('Folio database not found: %s', $dbFile));
         }
 
-        $pdo = new \PDO('sqlite:' . $dbFile);
+        $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 
         return $pdo;

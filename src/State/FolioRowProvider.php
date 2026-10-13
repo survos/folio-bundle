@@ -7,7 +7,8 @@ namespace Survos\FolioBundle\State;
 use ApiPlatform\Metadata\Operation;
 use ApiPlatform\State\Pagination\TraversablePaginator;
 use ApiPlatform\State\ProviderInterface;
-use Survos\FolioBundle\Entity\{Core, Row};
+use Survos\FolioBundle\Entity\Core;
+use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -18,16 +19,19 @@ final class FolioRowProvider implements ProviderInterface
         private readonly FolioService $folioService,
         private readonly RequestStack $requestStack,
         private readonly ?ImgproxyUrlBuilder $imgproxyUrlBuilder = null,
-    ) {}
+    ) {
+    }
 
     public function provide(Operation $operation, array $uriVariables = [], array $context = []): iterable|object|null
     {
         $request = $this->requestStack->getCurrentRequest() ?? throw new \LogicException('Folio rows require a request.');
         $folioCode = $request->attributes->get('folioCode');
-        if (!is_string($folioCode)) { throw new \LogicException('Missing resolved folioCode.'); }
+        if (!is_string($folioCode)) {
+            throw new \LogicException('Missing resolved folioCode.');
+        }
         $coreCode = $request->query->get('core', 'obj');
 
-        $ctx  = $this->folioService->context($folioCode);
+        $ctx = $this->folioService->context($folioCode);
         $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode));
         if (!$core) {
             return new TraversablePaginator(new \ArrayIterator([]), 1, 50, 0);
@@ -64,7 +68,7 @@ final class FolioRowProvider implements ProviderInterface
         // yearMin while that Meilisearch integration stays untouched, not a search feature in its
         // own right (2026-07-31).
         $q = null;
-        if (isset($filters['q']) && is_string($filters['q']) && trim($filters['q']) !== '') {
+        if (isset($filters['q']) && is_string($filters['q']) && '' !== trim($filters['q'])) {
             $q = trim($filters['q']);
         }
 
@@ -73,14 +77,14 @@ final class FolioRowProvider implements ProviderInterface
         $recordKinds = [];
         if (isset($filters['recordKind'])) {
             foreach ((array) $filters['recordKind'] as $kind) {
-                if (is_string($kind) && trim($kind) !== '') {
+                if (is_string($kind) && '' !== trim($kind)) {
                     $recordKinds[] = trim($kind);
                 }
             }
         }
 
-        $request      = $this->requestStack->getCurrentRequest();
-        $page         = max(1, (int) ($request?->query->get('page', 1) ?? 1));
+        $request = $this->requestStack->getCurrentRequest();
+        $page = max(1, (int) ($request?->query->get('page', 1) ?? 1));
         $itemsPerPage = max(1, (int) ($request?->query->get('itemsPerPage', 50) ?? 50));
 
         // Sort by the year (nulls last, so undated rows don't cluster at the front) rather than
@@ -101,21 +105,21 @@ final class FolioRowProvider implements ProviderInterface
             $where[] = 'dto_type = :dtoType';
             $params['dtoType'] = $dtoType;
         }
-        if ($yearMin !== null) {
+        if (null !== $yearMin) {
             $where[] = 'sort_key >= :yearMin';
             $params['yearMin'] = $yearMin;
         }
-        if ($recordKinds !== []) {
+        if ([] !== $recordKinds) {
             $placeholders = [];
             foreach (array_values($recordKinds) as $i => $kind) {
-                $placeholders[] = ':recordKind' . $i;
-                $params['recordKind' . $i] = $kind;
+                $placeholders[] = ':recordKind'.$i;
+                $params['recordKind'.$i] = $kind;
             }
             $where[] = sprintf("json_extract(extras, '$.recordKind') IN (%s)", implode(', ', $placeholders));
         }
-        if ($q !== null) {
+        if (null !== $q) {
             $where[] = '(label LIKE :q OR dto_data LIKE :q)';
-            $params['q'] = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $q) . '%';
+            $params['q'] = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $q).'%';
         }
         $whereSql = implode(' AND ', $where);
 
@@ -133,7 +137,7 @@ final class FolioRowProvider implements ProviderInterface
             $params,
         )->fetchFirstColumn();
 
-        if ($localIds === []) {
+        if ([] === $localIds) {
             return new TraversablePaginator(new \ArrayIterator([]), $page, $itemsPerPage, $total);
         }
 
@@ -157,7 +161,7 @@ final class FolioRowProvider implements ProviderInterface
      */
     private function resolveThumbnails(array $rows): void
     {
-        if ($this->imgproxyUrlBuilder === null) {
+        if (null === $this->imgproxyUrlBuilder) {
             return;
         }
 

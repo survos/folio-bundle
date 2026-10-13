@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\DBAL;
 
-use Doctrine\DBAL\{Configuration,Connection,Driver};
+use Doctrine\DBAL\Configuration;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Driver;
 
 final class FolioConnectionWrapper extends Connection
 {
@@ -15,7 +17,7 @@ final class FolioConnectionWrapper extends Connection
 
     public function __construct(array $params, Driver $driver, ?Configuration $config = null)
     {
-        /** @phpstan-ignore method.internal */
+        /* @phpstan-ignore method.internal */
         parent::__construct($params, $driver, $config);
         $this->currentPath = (string) ($params['path'] ?? $params['dbname'] ?? '');
     }
@@ -37,7 +39,7 @@ final class FolioConnectionWrapper extends Connection
         $this->readOnly = $readOnly;
         $params['readOnly'] = $readOnly;
         $params['path'] = $readOnly ? 'file:'.str_replace('%2F', '/', rawurlencode($path)).'?'.self::readOnlyQuery($path) : $path;
-        /** @phpstan-ignore method.internal */
+        /* @phpstan-ignore method.internal */
         parent::__construct($params, $this->getDriver(), $this->_config);
 
         $this->applyPragmas();
@@ -56,7 +58,7 @@ final class FolioConnectionWrapper extends Connection
     public static function readOnlyQuery(string $path): string
     {
         $header = @file_get_contents($path, false, null, 18, 1);
-        $wal = $header === "\x02";
+        $wal = "\x02" === $header;
 
         return $wal && !is_writable(\dirname($path)) ? 'mode=ro&immutable=1' : 'mode=ro';
     }
@@ -73,7 +75,7 @@ final class FolioConnectionWrapper extends Connection
      */
     public function beginTransaction(): void
     {
-        if (!$this->readOnly && !$this->walApplied && $this->getTransactionNestingLevel() === 0) {
+        if (!$this->readOnly && !$this->walApplied && 0 === $this->getTransactionNestingLevel()) {
             $this->executeStatement('PRAGMA journal_mode = WAL');
             $this->walApplied = true;
         }
@@ -123,6 +125,7 @@ final class FolioConnectionWrapper extends Connection
         if ($this->readOnly) {
             $this->executeStatement('PRAGMA query_only = ON');
             $this->executeStatement('PRAGMA busy_timeout = 30000');
+
             return;
         }
         $this->executeStatement('PRAGMA busy_timeout = 30000');

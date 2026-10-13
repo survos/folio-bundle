@@ -6,7 +6,8 @@ namespace Survos\FolioBundle\EventListener;
 
 use Psr\Log\LoggerInterface;
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
-use Survos\FolioBundle\Service\{FolioArchivePreparer,FolioFtsIndexer};
+use Survos\FolioBundle\Service\FolioArchivePreparer;
+use Survos\FolioBundle\Service\FolioFtsIndexer;
 
 final readonly class FolioFtsIndexListener
 {

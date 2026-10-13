@@ -60,7 +60,7 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
 
     public function url(): string
     {
-        return $this->datasets !== null ? $this->datasets->source().'/api/datasets' : rtrim($this->server, '/') . '/folio/list.json';
+        return null !== $this->datasets ? $this->datasets->source().'/api/datasets' : rtrim($this->server, '/').'/folio/list.json';
     }
 
     /** Whether the entries currently held came from cache because the hub could not be reached. */
@@ -86,23 +86,23 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
      */
     public function all(): array
     {
-        if ($this->entries !== null) {
+        if (null !== $this->entries) {
             return $this->entries;
         }
 
         $saved = $this->readCache();
-        $fresh = $saved !== null && (time() - (int) ($saved['fetchedAt'] ?? 0)) < $this->ttl;
+        $fresh = null !== $saved && (time() - (int) ($saved['fetchedAt'] ?? 0)) < $this->ttl;
 
         if (!$fresh) {
             try {
-                $payload = $this->datasets !== null
+                $payload = null !== $this->datasets
                     ? [DatasetField::FOLIOS => $this->datasetRows($this->datasets->datasets())]
                     : $this->http->request('GET', $this->url(), [
-                    // A catalog read sits in front of a page render; a hung hub must not hang the
-                    // site when a cached answer is right there.
-                    'timeout' => 5,
-                    'max_duration' => 10,
-                ])->toArray();
+                        // A catalog read sits in front of a page render; a hung hub must not hang the
+                        // site when a cached answer is right there.
+                        'timeout' => 5,
+                        'max_duration' => 10,
+                    ])->toArray();
 
                 $saved = ['source' => $this->url(), 'fetchedAt' => time(), 'folios' => self::rows($payload)];
                 $this->writeCache($saved);
@@ -115,7 +115,7 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
             }
         }
 
-        $this->fetchedAt = $saved !== null ? (int) ($saved['fetchedAt'] ?? 0) ?: null : null;
+        $this->fetchedAt = null !== $saved ? (int) ($saved['fetchedAt'] ?? 0) ?: null : null;
 
         $entries = [];
         foreach (is_array($saved['folios'] ?? null) ? $saved['folios'] : [] as $row) {
@@ -130,7 +130,7 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
     public function find(string $datasetKey): ?FolioCatalogEntry
     {
         foreach ($this->all() as $entry) {
-            if ($entry->datasetKey === $datasetKey && $entry->locale === null) {
+            if ($entry->datasetKey === $datasetKey && null === $entry->locale) {
                 return $entry;
             }
         }
@@ -138,9 +138,15 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
         return null;
     }
 
-    public function usesDatasetApi(): bool { return $this->datasets !== null; }
+    public function usesDatasetApi(): bool
+    {
+        return null !== $this->datasets;
+    }
 
-    public function source(): string { return $this->datasets?->source() ?? rtrim($this->server, '/'); }
+    public function source(): string
+    {
+        return $this->datasets?->source() ?? rtrim($this->server, '/');
+    }
 
     public function downloadHeaders(string $url): array
     {
@@ -150,7 +156,10 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
     /** Download a dataset API artifact, verified against the provider's X-Artifact-Sha256. */
     public function download(string $url, string $destination): int
     {
-        if ($this->datasets === null) { throw new \LogicException('Verified artifact downloads require dataset_api configuration.'); }
+        if (null === $this->datasets) {
+            throw new \LogicException('Verified artifact downloads require dataset_api configuration.');
+        }
+
         return $this->datasets->download($url, $destination);
     }
 
@@ -159,20 +168,23 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
     {
         $this->entries = null;
         $this->stale = false;
-        if ($this->datasets === null) {
+        if (null === $this->datasets) {
             $payload = $this->http->request('GET', $this->url())->toArray();
             $rows = self::rows($payload);
         } else {
             $rows = $this->datasetRows($this->datasets->datasets());
         }
         $this->publishRows($rows);
+
         return $this->entries;
     }
 
     /** Make the candidate catalog visible to the caller, but return a checkpoint only on success. */
     public function synchronize(?array $checkpoint, bool $full, callable $apply): array
     {
-        if ($this->datasets === null) { throw new \LogicException('Incremental sync requires dataset_api configuration.'); }
+        if (null === $this->datasets) {
+            throw new \LogicException('Incremental sync requires dataset_api configuration.');
+        }
         $prepared = $this->datasets->changes($checkpoint, $full);
         $previous = $this->entries;
         $previousFetchedAt = $this->fetchedAt;
@@ -185,6 +197,7 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
             $apply($this->entries);
             $prepared[DatasetField::LAST_SUCCESSFUL_SYNC_AT] = (new \DateTimeImmutable())->format(DATE_ATOM);
             $this->publishRows($rows);
+
             return $prepared;
         } catch (\Throwable $error) {
             $this->entries = $previous;
@@ -198,8 +211,11 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
     {
         $rows = [];
         foreach ($datasets as $dataset) {
-            foreach (FolioCatalogEntry::fromDataset($dataset, $this->datasets) as $entry) { $rows[] = get_object_vars($entry); }
+            foreach (FolioCatalogEntry::fromDataset($dataset, $this->datasets) as $entry) {
+                $rows[] = get_object_vars($entry);
+            }
         }
+
         return $rows;
     }
 
@@ -229,7 +245,7 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
                 'datasetKey' => $e->datasetKey,
                 'provider' => $e->provider,
                 'tags' => $e->tags,
-                'contentTypes' => $e->contentType !== null ? [strtolower($e->contentType)] : [],
+                'contentTypes' => null !== $e->contentType ? [strtolower($e->contentType)] : [],
                 'rowCount' => $e->rowCount,
             ]),
         ));

@@ -6,23 +6,23 @@ namespace Survos\FolioBundle\Tests\Bundle;
 
 use PHPUnit\Framework\TestCase;
 use Survos\DataContracts\Path\DataPaths;
-use Survos\FolioBundle\Controller\FolioCollectionController;
-use Survos\FolioBundle\Controller\FolioController;
-use Survos\FolioBundle\Controller\FolioSearchController;
 use Survos\FolioBundle\Command\FolioArchiveCommand;
 use Survos\FolioBundle\Command\FolioBuildCommand;
 use Survos\FolioBundle\Command\FolioPullCommand;
 use Survos\FolioBundle\Command\FolioTranslateCommand;
 use Survos\FolioBundle\Command\FolioValidateCommand;
+use Survos\FolioBundle\Controller\FolioCollectionController;
+use Survos\FolioBundle\Controller\FolioController;
+use Survos\FolioBundle\Controller\FolioSearchController;
 use Survos\FolioBundle\EventListener\BuildFolioRequestedListener;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\FolioBundle\SurvosFolioBundle;
 use Symfony\Component\Config\Definition\Processor;
+use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
-use Symfony\Component\Config\FileLocator;
 
 /** Builder and reader services must not wire a dataset registry or removed commands. */
 final class FolioServicesTest extends TestCase

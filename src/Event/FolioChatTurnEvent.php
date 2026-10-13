@@ -14,5 +14,6 @@ final class FolioChatTurnEvent extends Event
         public readonly FolioContext $context,
         public readonly string $conversationId,
         public readonly FolioChatResult $result,
-    ) {}
+    ) {
+    }
 }

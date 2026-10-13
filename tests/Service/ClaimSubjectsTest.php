@@ -39,7 +39,11 @@ final class ClaimSubjectsTest extends TestCase
             $reflection = new \ReflectionClass(FolioIngestService::class);
             $resolved = $reflection->getMethod('claimSubjects')->invoke($reflection->newInstanceWithoutConstructor(), $conn, $file);
 
-            self::assertSame(['a' => 'i1', 'asset-9' => 'i2', 'c' => 'i3'], (static function (array $r): array { ksort($r); return $r; })($resolved));
+            self::assertSame(['a' => 'i1', 'asset-9' => 'i2', 'c' => 'i3'], (static function (array $r): array {
+                ksort($r);
+
+                return $r;
+            })($resolved));
             self::assertSame(0, (int) $conn->fetchOne("SELECT count(*) FROM sqlite_temp_master WHERE name = 'claim_subject'"));
 
             file_put_contents($file, "\n");

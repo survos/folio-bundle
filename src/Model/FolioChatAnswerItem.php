@@ -19,5 +19,6 @@ final class FolioChatAnswerItem
         public string $localId = '',
         #[Schema(description: 'One or two natural sentences on this item and why it answers the question, grounded only in its title/description.')]
         public string $caption = '',
-    ) {}
+    ) {
+    }
 }

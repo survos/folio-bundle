@@ -8,7 +8,6 @@ declare(strict_types=1);
  *
  * nomic-embed-text is used so the spikes have vectors; it is not the embedding decision.
  */
-
 const ES = 'http://localhost:9200';
 const OLLAMA = 'http://localhost:11434/api/embed';
 const MODEL = 'nomic-embed-text';
@@ -19,7 +18,7 @@ function http(string $method, string $url, mixed $body = null, string $type = 'a
     $ctx = stream_context_create(['http' => [
         'method' => $method,
         'header' => "Content-Type: $type\r\n",
-        'content' => $body === null ? '' : (is_string($body) ? $body : json_encode($body, JSON_UNESCAPED_UNICODE)),
+        'content' => null === $body ? '' : (is_string($body) ? $body : json_encode($body, JSON_UNESCAPED_UNICODE)),
         'ignore_errors' => true,
         'timeout' => 300,
     ]]);
@@ -43,14 +42,14 @@ function embed(array $texts): array
 {
     $r = http('POST', OLLAMA, ['model' => MODEL, 'input' => $texts]);
 
-    return $r['embeddings'] ?? throw new RuntimeException('ollama: ' . json_encode($r));
+    return $r['embeddings'] ?? throw new RuntimeException('ollama: '.json_encode($r));
 }
 
 /** @return list<float> */
 function embedQuery(string $q): array
 {
     // nomic-embed-text is trained with task prefixes; documents get "search_document: ".
-    return embed(['search_query: ' . $q])[0];
+    return embed(['search_query: '.$q])[0];
 }
 
 /** @return list<array> windows from article-windows.php --json, each with embedText + cache key */
@@ -58,13 +57,13 @@ function loadWindows(string $file): array
 {
     $windows = [];
     foreach (new SplFileObject($file) as $line) {
-        if (trim($line) === '') {
+        if ('' === trim($line)) {
             continue;
         }
         $w = json_decode($line, true, flags: JSON_THROW_ON_ERROR);
         // What to embed is itself a choice; here: headline › subheads, then the body text.
-        $w['embedText'] = 'search_document: ' . implode(' › ', array_filter([$w['headline'], ...$w['subheads']])) . "\n\n" . plain($w['text']);
-        $w['key'] = hash('xxh3', MODEL . "\0" . $w['embedText']);
+        $w['embedText'] = 'search_document: '.implode(' › ', array_filter([$w['headline'], ...$w['subheads']]))."\n\n".plain($w['text']);
+        $w['key'] = hash('xxh3', MODEL."\0".$w['embedText']);
         $windows[] = $w;
     }
 
@@ -77,7 +76,7 @@ function vectors(array $windows, string $cacheFile): array
     $cache = [];
     if (is_file($cacheFile)) {
         foreach (new SplFileObject($cacheFile) as $line) {
-            if (trim($line) !== '') {
+            if ('' !== trim($line)) {
                 [$k, $v] = json_decode($line, true);
                 $cache[$k] = $v;
             }
@@ -89,7 +88,7 @@ function vectors(array $windows, string $cacheFile): array
     foreach (array_chunk($todo, 32) as $chunk) {
         foreach (embed(array_column($chunk, 'embedText')) as $i => $vec) {
             $cache[$chunk[$i]['key']] = $vec;
-            fwrite($out, json_encode([$chunk[$i]['key'], $vec]) . "\n");
+            fwrite($out, json_encode([$chunk[$i]['key'], $vec])."\n");
         }
     }
     fclose($out);
@@ -121,11 +120,11 @@ function numberSynonyms(): array
 /** Create and fill a probe index; it is deleted at shutdown unless $keep. */
 function buildIndex(array $windows, array $vectors, bool $keep = false): string
 {
-    $idx = 'probe_articles_' . time() . '_' . getmypid();
+    $idx = 'probe_articles_'.time().'_'.getmypid();
     if (!$keep) {
-        register_shutdown_function(fn () => fprintf(STDERR, "deleted %s: %s\n", $idx, json_encode(http('DELETE', ES . "/$idx"))));
+        register_shutdown_function(fn () => fprintf(STDERR, "deleted %s: %s\n", $idx, json_encode(http('DELETE', ES."/$idx"))));
     }
-    $created = http('PUT', ES . "/$idx", [
+    $created = http('PUT', ES."/$idx", [
         'settings' => [
             'number_of_shards' => 1, 'number_of_replicas' => 0,
             'analysis' => [
@@ -160,22 +159,22 @@ function buildIndex(array $windows, array $vectors, bool $keep = false): string
             'vec' => ['type' => 'dense_vector', 'dims' => DIMS, 'index' => true, 'similarity' => 'cosine'],
         ]],
     ]);
-    isset($created['acknowledged']) || throw new RuntimeException('create failed: ' . json_encode($created));
+    isset($created['acknowledged']) || throw new RuntimeException('create failed: '.json_encode($created));
 
     foreach (array_chunk($windows, 500) as $chunk) {
         $bulk = '';
         foreach ($chunk as $w) {
-            $bulk .= json_encode(['index' => ['_index' => $idx, '_id' => $w['id']]]) . "\n";
+            $bulk .= json_encode(['index' => ['_index' => $idx, '_id' => $w['id']]])."\n";
             $bulk .= json_encode([
                 'rowId' => $w['rowId'], 'headline' => $w['headline'], 'subheads' => $w['subheads'], 'body' => plain($w['text']),
                 'bylines' => $w['bylines'], 'sections' => $w['sections'], 'date' => $w['date'],
                 'from' => $w['from'], 'to' => $w['to'], 'vec' => $vectors[$w['key']],
-            ], JSON_UNESCAPED_UNICODE) . "\n";
+            ], JSON_UNESCAPED_UNICODE)."\n";
         }
-        $r = http('POST', ES . '/_bulk', $bulk, 'application/x-ndjson');
-        empty($r['errors']) || throw new RuntimeException('bulk errors: ' . json_encode(array_slice($r['items'] ?? [], 0, 2)));
+        $r = http('POST', ES.'/_bulk', $bulk, 'application/x-ndjson');
+        empty($r['errors']) || throw new RuntimeException('bulk errors: '.json_encode(array_slice($r['items'] ?? [], 0, 2)));
     }
-    http('POST', ES . "/$idx/_refresh");
+    http('POST', ES."/$idx/_refresh");
 
     return $idx;
 }
@@ -183,7 +182,7 @@ function buildIndex(array $windows, array $vectors, bool $keep = false): string
 /** @return list<array> window hits for a BM25 query with the given field boosts */
 function bm25(string $idx, string $q, array $fields, int $size = 50): array
 {
-    return http('POST', ES . "/$idx/_search", [
+    return http('POST', ES."/$idx/_search", [
         'size' => $size, '_source' => ['rowId', 'headline', 'subheads'],
         'query' => ['multi_match' => ['query' => $q, 'fields' => $fields, 'type' => 'best_fields']],
         'highlight' => ['fields' => ['body' => ['fragment_size' => 140, 'number_of_fragments' => 1]]],
@@ -193,7 +192,7 @@ function bm25(string $idx, string $q, array $fields, int $size = 50): array
 /** @return list<array> window hits for a kNN query */
 function knn(string $idx, array $vec, int $k = 50): array
 {
-    return http('POST', ES . "/$idx/_search", [
+    return http('POST', ES."/$idx/_search", [
         'size' => $k, '_source' => ['rowId', 'headline', 'subheads'],
         'knn' => ['field' => 'vec', 'query_vector' => $vec, 'k' => $k, 'num_candidates' => max(200, 4 * $k)],
     ])['hits']['hits'] ?? [];
@@ -220,6 +219,7 @@ function groupByArticle(array $hits): array
  * matching windows cannot crowd the list). Scores: Σ weight / (k + rank).
  *
  * @param array<string, array{0: list<array>, 1: float}> $lists name => [article list, weight]
+ *
  * @return list<array{rowId: string, hit: array, score: float, ranks: array<string,int>}>
  */
 function rrf(array $lists, int $k = 60): array

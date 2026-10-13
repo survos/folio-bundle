@@ -17,5 +17,6 @@ final readonly class FolioChatResult
         public array $hits,
         public array $cards = [],
         public ?string $error = null,
-    ) {}
+    ) {
+    }
 }

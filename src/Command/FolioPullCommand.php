@@ -10,7 +10,8 @@ use Survos\FetchBundle\Service\ChunkDownloader;
 use Survos\FolioBundle\Catalog\ArtifactChecksumException;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
 use Survos\FolioBundle\Catalog\FolioCatalogEntry;
-use Survos\FolioBundle\Service\{FolioArchiveService,FolioService};
+use Survos\FolioBundle\Service\FolioArchiveService;
+use Survos\FolioBundle\Service\FolioService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
@@ -43,7 +44,8 @@ final class FolioPullCommand
         private readonly bool $localPassthrough = false,
         private readonly ?LoggerInterface $logger = null,
         private readonly ?FolioCatalogClient $catalog = null,
-    ) {}
+    ) {
+    }
 
     #[AsCommand('folio:pull', 'Download folio archives from the folio_archive storage (or Hugging Face) and inflate')]
     public function __invoke(
@@ -73,26 +75,32 @@ final class FolioPullCommand
         #[Option('Hugging Face dataset repo (with --hf)')]
         string $repo = 'museado/folios',
     ): int {
-        if (!$hf && !$storage && $api === null && $this->catalog?->usesDatasetApi()) {
+        if (!$hf && !$storage && null === $api && $this->catalog?->usesDatasetApi()) {
             $entries = $this->catalog->refresh();
-            if (!$all && $dataset === null && $provider === null) {
+            if (!$all && null === $dataset && null === $provider) {
                 $io->listing(array_map(static fn (FolioCatalogEntry $entry): string => $entry->datasetKey, $entries));
+
                 return Command::SUCCESS;
             }
             $matched = false;
             foreach ($entries as $entry) {
-                if (($dataset !== null && $entry->datasetKey !== $dataset) || ($provider !== null && $entry->provider !== $provider) || $entry->locale !== null) { continue; }
+                if ((null !== $dataset && $entry->datasetKey !== $dataset) || (null !== $provider && $entry->provider !== $provider) || null !== $entry->locale) {
+                    continue;
+                }
                 $matched = true;
-                if ($this->pullEntry($io, $entry, $force) !== Command::SUCCESS) { return Command::FAILURE; }
+                if (Command::SUCCESS !== $this->pullEntry($io, $entry, $force)) {
+                    return Command::FAILURE;
+                }
             }
+
             return $matched ? Command::SUCCESS : Command::FAILURE;
         }
         if (!$hf) {
             // Default to the folio API (folio_server) unless --api overrides it; storage is the
             // fallback. --storage skips the API outright, for a machine whose FOLIO_SERVER points
             // at an app that does not serve folios (or is simply not up).
-            $apiBase = ($api !== null && $api !== '') ? $api : $this->folioServer;
-            if (!$storage && $apiBase !== null && $apiBase !== '') {
+            $apiBase = (null !== $api && '' !== $api) ? $api : $this->folioServer;
+            if (!$storage && null !== $apiBase && '' !== $apiBase) {
                 try {
                     return $this->pullFromApi($io, $apiBase, $dataset, $provider, $all, $force);
                 } catch (\Throwable $e) {
@@ -101,7 +109,7 @@ final class FolioPullCommand
                     // and are the same artifacts the API would have served. Previously this threw
                     // "Could not resolve host" / "Syntax error for .../folio/list.json" and stopped,
                     // so a laptop could not pull at all without unsetting FOLIO_SERVER by hand.
-                    if ($this->archiveStorage === null) {
+                    if (null === $this->archiveStorage) {
                         throw $e;
                     }
                     $io->warning(sprintf('Folio API %s unusable (%s); falling back to folio_archive storage.',
@@ -113,13 +121,14 @@ final class FolioPullCommand
         }
 
         $remotes = $this->resolveRemotes($io, $repo, $dataset, $provider, $all);
-        if ($remotes === []) {
+        if ([] === $remotes) {
             $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
+
             return Command::SUCCESS;
         }
 
         $io->title(sprintf('Syncing %d folio(s) from %s', count($remotes), $repo));
-        $tmpDir = sys_get_temp_dir() . '/folio_pull_' . uniqid();
+        $tmpDir = sys_get_temp_dir().'/folio_pull_'.uniqid();
         mkdir($tmpDir, 0775, true);
 
         $pulled = 0;
@@ -131,12 +140,12 @@ final class FolioPullCommand
             $target = $this->folios->path($code, locale: $locale);
             if (is_file($target) && !$force && $this->isCurrent($target, $remote)) {
                 $io->text('Current, skipping');
-                $skipped++;
+                ++$skipped;
                 continue;
             }
 
             $downloadedFile = $this->download($io, $repo, $remote['path'], $tmpDir);
-            if ($downloadedFile === null) {
+            if (null === $downloadedFile) {
                 continue;
             }
 
@@ -151,12 +160,13 @@ final class FolioPullCommand
                 $inflated['views'],
                 $inflated['ftsRows'],
             ));
-            $pulled++;
+            ++$pulled;
         }
 
         $this->rmdir($tmpDir);
 
         $io->success(sprintf('Pulled %d folio(s), skipped %d current folio(s)', $pulled, $skipped));
+
         return Command::SUCCESS;
     }
 
@@ -166,29 +176,32 @@ final class FolioPullCommand
      */
     private function pullFromApi(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all, bool $force, ?array $entries = null, array $headers = [], ?\Closure $download = null): int
     {
-        if ($this->http === null) {
+        if (null === $this->http) {
             $io->error('No HTTP client available (require symfony/http-client).');
+
             return Command::FAILURE;
         }
         $baseUrl = rtrim($baseUrl, '/');
 
         // Nothing requested → just show what's available (first page of the registry).
-        if (($dataset === null || $dataset === '') && ($provider === null || $provider === '') && !$all) {
+        if ((null === $dataset || '' === $dataset) && (null === $provider || '' === $provider) && !$all) {
             return $this->showApiList($io, $baseUrl);
         }
 
         $entries ??= $this->resolveApiEntries($io, $baseUrl, $dataset, $provider, $all);
-        if ($entries === []) {
+        if ([] === $entries) {
             $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
+
             return Command::SUCCESS;
         }
-        if ($download === null && $this->downloader === null) {
+        if (null === $download && null === $this->downloader) {
             $io->error('HTTP folio downloads require survos/fetch-bundle. Install it to use folio:pull from a folio server.');
+
             return Command::FAILURE;
         }
 
         $io->title(sprintf('Pulling %d folio(s) from %s', count($entries), $baseUrl));
-        $tmpDir = sys_get_temp_dir() . '/folio_pull_' . uniqid();
+        $tmpDir = sys_get_temp_dir().'/folio_pull_'.uniqid();
         mkdir($tmpDir, 0775, true);
 
         $pulled = 0;
@@ -196,14 +209,14 @@ final class FolioPullCommand
         foreach ($entries as $entry) {
             $code = (string) ($entry['datasetKey'] ?? '');
             $downloadUrl = (string) ($entry['downloadUrl'] ?? '');
-            if ($code === '' || $downloadUrl === '') {
+            if ('' === $code || '' === $downloadUrl) {
                 continue;
             }
             // Translated variant entries carry a locale (e.g. mus/jarc + "en" → jarc.en.folio);
             // absent/empty on the source-language build and on pre-locale servers.
             $locale = (string) ($entry['locale'] ?? '');
-            $locale = $locale !== '' ? $locale : null;
-            $display = $code . ($locale !== null ? '.' . $locale : '');
+            $locale = '' !== $locale ? $locale : null;
+            $display = $code.(null !== $locale ? '.'.$locale : '');
             $io->section($display);
 
             $target = $this->folios->path($code, locale: $locale);
@@ -211,13 +224,13 @@ final class FolioPullCommand
                 $io->text($this->localPassthrough
                     ? 'Local copy found (local_passthrough), skipping fetch'
                     : 'Exists, skipping (use --force to replace)');
-                $skipped++;
+                ++$skipped;
                 continue;
             }
 
-            $localGz = $tmpDir . '/' . str_replace('/', '_', $display) . '.folio.gz';
+            $localGz = $tmpDir.'/'.str_replace('/', '_', $display).'.folio.gz';
             $this->logger?->info('folio:pull downloading folio', ['code' => $display, 'url' => $downloadUrl]);
-            $bytes = $download !== null
+            $bytes = null !== $download
                 ? $download($downloadUrl, $localGz)
                 : $this->downloader->download($downloadUrl, $localGz, null, ['overwrite' => true, 'timeout' => 120.0, 'headers' => $headers]);
             $io->text(sprintf('Downloaded: %s (%s)', $downloadUrl, Bytes::parse($bytes)->humanize()));
@@ -230,12 +243,13 @@ final class FolioPullCommand
                 Bytes::parse($result['targetBytes'])->humanize(),
                 number_format($result['indexedRows']),
             ));
-            $pulled++;
+            ++$pulled;
         }
 
         $this->rmdir($tmpDir);
 
         $io->success(sprintf('Pulled %d folio(s) from API, skipped %d existing', $pulled, $skipped));
+
         return Command::SUCCESS;
     }
 
@@ -245,48 +259,50 @@ final class FolioPullCommand
         if ($this->folios->exists($entry->datasetKey, $entry->locale) && ($this->localPassthrough || !$force)) {
             return Command::SUCCESS;
         }
-        if ($entry->downloadUrl === null || !$entry->compressed) {
+        if (null === $entry->downloadUrl || !$entry->compressed) {
             $io->error($entry->datasetKey.': no published archive is available.');
+
             return Command::FAILURE;
         }
         // Dataset API artifacts are verified against X-Artifact-Sha256 before they replace anything.
         $download = $this->catalog?->usesDatasetApi() ? $this->catalog->download(...) : null;
         try {
             return $this->pullFromApi($io, $this->catalog?->url() ?? $entry->downloadUrl, $entry->datasetKey, null, false, $force,
-                entries: [get_object_vars($entry)], headers: $download === null ? ($this->catalog?->downloadHeaders($entry->downloadUrl) ?? []) : [],
+                entries: [get_object_vars($entry)], headers: null === $download ? ($this->catalog?->downloadHeaders($entry->downloadUrl) ?? []) : [],
                 download: $download);
         } catch (ArtifactChecksumException $mismatch) {
             $io->error($entry->datasetKey.': '.$mismatch->getMessage());
+
             return Command::FAILURE;
         }
     }
 
     /**
      * @return list<array<string,mixed>> folio entries from `<baseUrl>/folio/list.json`
-     *   (each has at least datasetKey + downloadUrl), filtered to the requested dataset.
+     *                                   (each has at least datasetKey + downloadUrl), filtered to the requested dataset.
      */
     private function resolveApiEntries(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all): array
     {
-        if (!$all && ($dataset === null || $dataset === '') && ($provider === null || $provider === '')) {
+        if (!$all && (null === $dataset || '' === $dataset) && (null === $provider || '' === $provider)) {
             return [];
         }
 
         $query = [];
-        if ($provider !== null && $provider !== '') {
+        if (null !== $provider && '' !== $provider) {
             $query['provider'] = $provider;
         }
-        $url = $baseUrl . $this->routePrefix . '/list.json' . ($query !== [] ? '?' . http_build_query($query) : '');
+        $url = $baseUrl.$this->routePrefix.'/list.json'.([] !== $query ? '?'.http_build_query($query) : '');
 
         $this->logger?->info('folio:pull fetching registry', ['url' => $url]);
         $data = $this->http->request('GET', $url)->toArray(false);
         $folios = is_array($data['folios'] ?? null) ? $data['folios'] : [];
 
-        if ($dataset !== null && $dataset !== '') {
+        if (null !== $dataset && '' !== $dataset) {
             $folios = array_values(array_filter(
                 $folios,
                 static fn (array $f): bool => ($f['datasetKey'] ?? null) === $dataset,
             ));
-            if ($folios === []) {
+            if ([] === $folios) {
                 $io->warning(sprintf('Not in API registry: %s', $dataset));
             }
         }
@@ -297,16 +313,18 @@ final class FolioPullCommand
     /** GET <baseUrl>/folio/list.json and render the first page as a table — the "nothing requested" view. */
     private function showApiList(SymfonyStyle $io, string $baseUrl): int
     {
-        if ($this->http === null) {
+        if (null === $this->http) {
             $io->error('No HTTP client available (require symfony/http-client).');
+
             return Command::FAILURE;
         }
 
-        $this->logger?->info('folio:pull fetching registry', ['url' => $baseUrl . $this->routePrefix . '/list.json']);
-        $data = $this->http->request('GET', $baseUrl . $this->routePrefix . '/list.json')->toArray(false);
+        $this->logger?->info('folio:pull fetching registry', ['url' => $baseUrl.$this->routePrefix.'/list.json']);
+        $data = $this->http->request('GET', $baseUrl.$this->routePrefix.'/list.json')->toArray(false);
         $folios = is_array($data['folios'] ?? null) ? $data['folios'] : [];
-        if ($folios === []) {
+        if ([] === $folios) {
             $io->warning(sprintf('No folios available at %s', $baseUrl));
+
             return Command::SUCCESS;
         }
 
@@ -338,7 +356,7 @@ final class FolioPullCommand
      */
     private function pullFromStorage(SymfonyStyle $io, ?string $dataset, ?string $provider, bool $all, bool $force): int
     {
-        if ($this->archiveStorage === null) {
+        if (null === $this->archiveStorage) {
             $io->error([
                 'No folio_archive.storage configured, so there is nothing to pull from.',
                 'Folios are produced by the harvest-side app, which has that storage (a local'
@@ -352,13 +370,14 @@ final class FolioPullCommand
         }
 
         $codes = $this->resolveStorageCodes($dataset, $provider, $all);
-        if ($codes === []) {
+        if ([] === $codes) {
             $io->warning('No folios to pull. Pass --dataset, --provider, or --all.');
+
             return Command::SUCCESS;
         }
 
         $io->title(sprintf('Pulling %d folio(s) from folio_archive storage', count($codes)));
-        $tmpDir = sys_get_temp_dir() . '/folio_pull_' . uniqid();
+        $tmpDir = sys_get_temp_dir().'/folio_pull_'.uniqid();
         mkdir($tmpDir, 0775, true);
 
         $pulled = 0;
@@ -372,17 +391,17 @@ final class FolioPullCommand
                 $io->text($this->localPassthrough
                     ? 'Local copy found (local_passthrough), skipping fetch'
                     : 'Exists, skipping (use --force to replace)');
-                $skipped++;
+                ++$skipped;
                 continue;
             }
 
-            $remotePath = $stem . '.folio.gz';
+            $remotePath = $stem.'.folio.gz';
             if (!$this->archiveStorage->fileExists($remotePath)) {
                 $io->warning(sprintf('Not in archive: %s', $remotePath));
                 continue;
             }
 
-            $localGz = $tmpDir . '/' . str_replace('/', '_', $stem) . '.folio.gz';
+            $localGz = $tmpDir.'/'.str_replace('/', '_', $stem).'.folio.gz';
             $stream = $this->archiveStorage->readStream($remotePath);
             $out = fopen($localGz, 'wb');
             stream_copy_to_stream($stream, $out);
@@ -400,11 +419,12 @@ final class FolioPullCommand
                 Bytes::parse($result['targetBytes'])->humanize(),
                 number_format($result['indexedRows']),
             ));
-            $pulled++;
+            ++$pulled;
         }
 
         $this->rmdir($tmpDir);
         $io->success(sprintf('Pulled %d folio(s) from storage, skipped %d existing', $pulled, $skipped));
+
         return Command::SUCCESS;
     }
 
@@ -420,7 +440,7 @@ final class FolioPullCommand
     {
         $slash = strrpos($stem, '/');
         $dot = strrpos($stem, '.');
-        if ($dot === false || ($slash !== false && $dot < $slash) || $dot === strlen($stem) - 1) {
+        if (false === $dot || (false !== $slash && $dot < $slash) || $dot === strlen($stem) - 1) {
             return [$stem, null];
         }
 
@@ -430,10 +450,10 @@ final class FolioPullCommand
     /** @return list<string> archive stems (provider/code or provider/code.locale) in the archive storage */
     private function resolveStorageCodes(?string $dataset, ?string $provider, bool $all): array
     {
-        if ($dataset !== null && $dataset !== '') {
+        if (null !== $dataset && '' !== $dataset) {
             return [$dataset];
         }
-        if (!$all && ($provider === null || $provider === '')) {
+        if (!$all && (null === $provider || '' === $provider)) {
             return [];
         }
 
@@ -443,13 +463,14 @@ final class FolioPullCommand
                 continue;
             }
             $code = substr($item->path(), 0, -strlen('.folio.gz'));
-            if ($provider !== null && $provider !== '' && !str_starts_with($code, $provider . '/')) {
+            if (null !== $provider && '' !== $provider && !str_starts_with($code, $provider.'/')) {
                 continue;
             }
             $codes[] = $code;
         }
 
         sort($codes);
+
         return $codes;
     }
 
@@ -458,12 +479,13 @@ final class FolioPullCommand
      */
     private function resolveRemotes(SymfonyStyle $io, string $repo, ?string $dataset, ?string $provider, bool $all): array
     {
-        if ($dataset !== null && $dataset !== '') {
-            $path = $dataset . '.folio.gz';
+        if (null !== $dataset && '' !== $dataset) {
+            $path = $dataset.'.folio.gz';
+
             return [$this->remoteFromPath($path)];
         }
 
-        if (!$all && ($provider === null || $provider === '')) {
+        if (!$all && (null === $provider || '' === $provider)) {
             return [];
         }
 
@@ -478,13 +500,14 @@ final class FolioPullCommand
                 continue;
             }
             $code = substr($path, 0, -strlen('.folio.gz'));
-            if ($provider !== null && $provider !== '' && !str_starts_with($code, $provider . '/')) {
+            if (null !== $provider && '' !== $provider && !str_starts_with($code, $provider.'/')) {
                 continue;
             }
             $remotes[] = $this->remoteFromEntry($entry);
         }
 
         usort($remotes, static fn (array $a, array $b): int => $a['code'] <=> $b['code']);
+
         return $remotes;
     }
 
@@ -493,14 +516,16 @@ final class FolioPullCommand
     {
         $url = sprintf('https://huggingface.co/api/datasets/%s/tree/main?recursive=true', $repo);
         $json = $this->fetch($url);
-        if ($json === null) {
+        if (null === $json) {
             $io->warning('Could not list repo files. Specify --dataset explicitly.');
+
             return [];
         }
 
         $entries = json_decode($json, true);
         if (!is_array($entries)) {
             $io->warning('Could not parse repo file list. Specify --dataset explicitly.');
+
             return [];
         }
 
@@ -549,7 +574,7 @@ final class FolioPullCommand
         }
 
         foreach (['path', 'size', 'oid', 'lfsOid', 'xetHash'] as $key) {
-            if ($remote[$key] !== null && ($metadata[$key] ?? null) !== $remote[$key]) {
+            if (null !== $remote[$key] && ($metadata[$key] ?? null) !== $remote[$key]) {
                 return false;
             }
         }
@@ -571,12 +596,12 @@ final class FolioPullCommand
 
     private function metadataFile(string $target): string
     {
-        return $target . '.hf.json';
+        return $target.'.hf.json';
     }
 
     private function download(SymfonyStyle $io, string $repo, string $remoteFile, string $tmpDir): ?string
     {
-        $downloadedFile = $tmpDir . '/' . $remoteFile;
+        $downloadedFile = $tmpDir.'/'.$remoteFile;
         $downloadedDir = dirname($downloadedFile);
         if (!is_dir($downloadedDir) && !mkdir($downloadedDir, 0775, true) && !is_dir($downloadedDir)) {
             throw new \RuntimeException(sprintf('Unable to create temporary download directory "%s".', $downloadedDir));
@@ -587,11 +612,12 @@ final class FolioPullCommand
             $repo,
             implode('/', array_map(rawurlencode(...), explode('/', $remoteFile))),
         );
-        $io->text('Downloading: ' . $url);
+        $io->text('Downloading: '.$url);
 
         $source = $this->open($url);
         if (!is_resource($source)) {
             $io->error('Download failed.');
+
             return null;
         }
 
@@ -605,8 +631,9 @@ final class FolioPullCommand
         fclose($source);
         fclose($target);
 
-        if (!is_file($downloadedFile) || filesize($downloadedFile) === 0) {
+        if (!is_file($downloadedFile) || 0 === filesize($downloadedFile)) {
             $io->error('Download failed.');
+
             return null;
         }
 
@@ -623,7 +650,7 @@ final class FolioPullCommand
         $contents = stream_get_contents($source);
         fclose($source);
 
-        return is_string($contents) && $contents !== '' ? $contents : null;
+        return is_string($contents) && '' !== $contents ? $contents : null;
     }
 
     /** @return resource|null */
@@ -631,8 +658,8 @@ final class FolioPullCommand
     {
         $headers = [];
         $token = getenv('HF_TOKEN') ?: getenv('HUGGING_FACE_HUB_TOKEN') ?: null;
-        if (is_string($token) && $token !== '') {
-            $headers[] = 'Authorization: Bearer ' . $token;
+        if (is_string($token) && '' !== $token) {
+            $headers[] = 'Authorization: Bearer '.$token;
         }
 
         $context = stream_context_create([
@@ -644,6 +671,7 @@ final class FolioPullCommand
         ]);
 
         $source = @fopen($url, 'rb', false, $context);
+
         return is_resource($source) ? $source : null;
     }
 

@@ -44,14 +44,15 @@ final class FolioRouteAttributeListener
     public function __construct(
         private readonly FolioService $folioService,
         private readonly ?FolioSlugResolverInterface $slugResolver = null,
-    ) {}
+    ) {
+    }
 
     public function __invoke(RequestEvent $event): void
     {
         $request = $event->getRequest();
 
         $folioCode = $request->attributes->get('folioCode');
-        if ($folioCode === null) {
+        if (null === $folioCode) {
             return;
         }
 
@@ -59,13 +60,13 @@ final class FolioRouteAttributeListener
 
         if (!str_contains($folioCode, '/')) {
             $resolved = $this->slugResolver?->resolve($folioCode);
-            if ($resolved === null) {
+            if (null === $resolved) {
                 throw new NotFoundHttpException(sprintf('Unknown folio slug "%s".', $folioCode));
             }
             $folioCode = $resolved;
         }
 
-        if ($this->folioService->requestContentLocale === null) {
+        if (null === $this->folioService->requestContentLocale) {
             $this->applySiteLocaleIfBuilt($folioCode, $request);
         }
 
@@ -93,7 +94,7 @@ final class FolioRouteAttributeListener
     private function applySiteLocaleIfBuilt(string $folioCode, Request $request): void
     {
         $siteLocale = $request->attributes->get('_locale');
-        if (!is_string($siteLocale) || $siteLocale === '') {
+        if (!is_string($siteLocale) || '' === $siteLocale) {
             return;
         }
 

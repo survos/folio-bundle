@@ -14,11 +14,11 @@ declare(strict_types=1);
  * Uses vanderlee/php-sentence from ~/sites/lingua only to split turns that are too long on their own.
  */
 
-require getenv('HOME') . '/sites/lingua/vendor/autoload.php';
+require getenv('HOME').'/sites/lingua/vendor/autoload.php';
 
 use Vanderlee\Sentence\Sentence;
 
-require __DIR__ . '/windows-lib.php';
+require __DIR__.'/windows-lib.php';
 
 const BOILERPLATE = [
     '/^Washington, D\.C\., \d{4}$/',
@@ -48,13 +48,13 @@ function toUnits(array $dialogue, int $maxWords, int $targetWords): array
         $startMs = $turn['startMs'] ?? null;
         $endMs = $turn['endMs'] ?? null;
         $uncertain = false;
-        if ($text === '') {
+        if ('' === $text) {
             continue;
         }
-        if ($speaker === null) {
+        if (null === $speaker) {
             foreach (BOILERPLATE as $re) {
                 if (preg_match($re, $text)) {
-                    $dropped['boilerplate']++;
+                    ++$dropped['boilerplate'];
                     continue 2;
                 }
             }
@@ -64,20 +64,20 @@ function toUnits(array $dialogue, int $maxWords, int $targetWords): array
             }
             if (preg_match(INLINE_SPEAKER, $text, $m)) {
                 $speaker = $m[1];
-                $uncertain = $m[2] !== '';
+                $uncertain = '' !== $m[2];
                 $text = substr($text, strlen($m[0]));
             } elseif (!$seenSpeaker) {
                 // Front matter before anyone speaks: a timed line is a curated index entry (COVID
                 // transcripts carry a synopsis per time range), anything else is a title block.
-                if ($startMs !== null) {
+                if (null !== $startMs) {
                     $index[] = ['turn' => $i, 'text' => $text, 'startMs' => $startMs, 'endMs' => $endMs];
                 } else {
-                    $dropped['header']++;
+                    ++$dropped['header'];
                 }
                 continue;
             }
         }
-        $seenSpeaker = $seenSpeaker || $speaker !== null;
+        $seenSpeaker = $seenSpeaker || null !== $speaker;
         $base = ['kind' => 'speech', 'turn' => $i, 'speaker' => $speaker, 'uncertain' => $uncertain,
             'startMs' => $startMs, 'endMs' => $endMs, 'question' => str_ends_with(rtrim($text, ' "”\''), '?')];
 
@@ -92,19 +92,19 @@ function toUnits(array $dialogue, int $maxWords, int $targetWords): array
         $buf = null;
         foreach ($splitter->split($text) as $sentence) {
             $s = trim($sentence);
-            if ($s === '') {
+            if ('' === $s) {
                 continue;
             }
             $at = strpos($text, $s, $cursor);
-            $at = $at === false ? $cursor : $at;
+            $at = false === $at ? $cursor : $at;
             $cursor = $at + strlen($s);
-            if ($buf !== null && words(substr($text, $buf[0], $cursor - $buf[0])) > $targetWords) {
+            if (null !== $buf && words(substr($text, $buf[0], $cursor - $buf[0])) > $targetWords) {
                 $pieces[] = $buf;
                 $buf = null;
             }
             $buf = [$buf[0] ?? $at, $cursor];
         }
-        if ($buf !== null) {
+        if (null !== $buf) {
             $pieces[] = $buf;
         }
         foreach ($pieces as $n => [$from, $to]) {
@@ -116,9 +116,9 @@ function toUnits(array $dialogue, int $maxWords, int $targetWords): array
     // Score each boundary. A backchannel ("Yeah.", "I know.") answers the turn before it and never heads a window.
     $prev = null;
     foreach ($units as &$u) {
-        if ($u['kind'] === 'speech') {
+        if ('speech' === $u['kind']) {
             $backchannel = !$u['question'] && $u['words'] <= 3;
-            $u['cut'] = $prev === null || $prev['speaker'] === $u['speaker'] || $backchannel ? Q_SAME
+            $u['cut'] = null === $prev || $prev['speaker'] === $u['speaker'] || $backchannel ? Q_SAME
                 : ($u['question'] ? Q_QUESTION : Q_SPEAKER);
             $prev = $u;
         }
@@ -132,17 +132,17 @@ function toWindow(string $pageId, array $w, ?string $context): array
 {
     $firstU = $w[0];
     $lastU = $w[array_key_last($w)];
-    $ref = static fn (array $u): string => 't' . $u['turn'] . ($u['piece'] ? '.' . ($u['piece'][0] + 1) : '');
+    $ref = static fn (array $u): string => 't'.$u['turn'].($u['piece'] ? '.'.($u['piece'][0] + 1) : '');
     $lines = [];
     foreach ($w as $j => $u) {
         $cont = $j > 0 && $w[$j - 1]['speaker'] === $u['speaker'] && $w[$j - 1]['turn'] === $u['turn'];
-        $lines[] = $cont ? $u['text'] : sprintf('%s: %s', ($u['speaker'] ?? '(unattributed)') . ($u['uncertain'] ? ' [?]' : ''), $u['text']);
+        $lines[] = $cont ? $u['text'] : sprintf('%s: %s', ($u['speaker'] ?? '(unattributed)').($u['uncertain'] ? ' [?]' : ''), $u['text']);
     }
     $starts = array_filter(array_column($w, 'startMs'), 'is_int');
     $ends = array_filter(array_column($w, 'endMs'), 'is_int');
 
     return [
-        'id' => $pageId . '~' . $ref($firstU) . ($firstU === $lastU ? '' : '-' . $ref($lastU)),
+        'id' => $pageId.'~'.$ref($firstU).($firstU === $lastU ? '' : '-'.$ref($lastU)),
         'pageId' => $pageId,
         'turns' => [$firstU['turn'], $lastU['turn']],
         // Present only when the window starts or ends mid-turn: [turn, byteFrom, byteTo].
@@ -169,12 +169,12 @@ foreach (array_slice($argv, 1) as $a) {
     }
 }
 [$folio, $like] = $args + [null, '%'];
-if ($folio === null) {
+if (null === $folio) {
     fwrite(STDERR, "usage: php dialogue-windows.php <folio> [pageIdLike] [--target=120 --max=250 --min=40 --overlap=0 --json --stats]\n");
     exit(1);
 }
 
-$pdo = new PDO('sqlite:file:' . $folio . '?mode=ro', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$pdo = new PDO('sqlite:file:'.$folio.'?mode=ro', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $stmt = $pdo->prepare('SELECT id, dialogue FROM page WHERE dialogue IS NOT NULL AND id LIKE ? ORDER BY id');
 $stmt->execute([$like]);
 
@@ -183,7 +183,7 @@ $totals = ['pages' => 0, 'turns' => 0, 'index' => 0, 'boilerplate' => 0, 'header
 foreach ($stmt as $row) {
     $dialogue = json_decode($row['dialogue'], true, flags: JSON_THROW_ON_ERROR);
     $u = toUnits($dialogue, (int) $opts['max'], (int) $opts['target']);
-    $totals['pages']++;
+    ++$totals['pages'];
     $totals['turns'] += count($dialogue);
     $totals['index'] += count($u['index']);
     $totals['boilerplate'] += $u['dropped']['boilerplate'];
@@ -193,9 +193,9 @@ foreach ($stmt as $row) {
     $prev = null;
     foreach (packWindows($u['units'], (int) $opts['target'], (int) $opts['max'], (int) $opts['min']) as $w) {
         $context = null;
-        if ($prev !== null && (int) $opts['overlap'] > 0) {
+        if (null !== $prev && (int) $opts['overlap'] > 0) {
             $tail = array_slice($prev, -(int) $opts['overlap']);
-            $context = implode("\n", array_map(fn ($t) => ($t['speaker'] ?? '(unattributed)') . ': ' . $t['text'], $tail));
+            $context = implode("\n", array_map(fn ($t) => ($t['speaker'] ?? '(unattributed)').': '.$t['text'], $tail));
         }
         $all[] = toWindow($row['id'], $w, $context);
         $prev = $w;
@@ -211,7 +211,7 @@ if ($opts['json'] ?? false) {
 
 if (!($opts['stats'] ?? false)) {
     foreach ($all as $w) {
-        $time = $w['startMs'] !== null ? sprintf(' @%s–%s', gmdate('G:i:s', intdiv($w['startMs'], 1000)), $w['endMs'] !== null ? gmdate('G:i:s', intdiv($w['endMs'], 1000)) : '?') : '';
+        $time = null !== $w['startMs'] ? sprintf(' @%s–%s', gmdate('G:i:s', intdiv($w['startMs'], 1000)), null !== $w['endMs'] ? gmdate('G:i:s', intdiv($w['endMs'], 1000)) : '?') : '';
         printf("── %s  [%d words, %s]%s\n", substr($w['id'], strrpos($w['id'], ':') + 1), $w['words'], implode(' / ', $w['speakers']) ?: '—', $time);
         if ($w['context']) {
             echo '   ┆ ', str_replace("\n", "\n   ┆ ", mb_strimwidth($w['context'], 0, 160, '…')), "\n";
@@ -229,6 +229,6 @@ fprintf(STDERR, "\n%d pages, %d turns → %d windows  (target %d, max %d, min %d
     $totals['pages'], $totals['turns'], count($all), $opts['target'], $opts['max'], $opts['min'], $opts['overlap']);
 fprintf(STDERR, "  words/window  min %d · p10 %d · median %d · p90 %d · max %d\n", $pct(0), $pct(.1), $pct(.5), $pct(.9), $pct(1));
 fprintf(STDERR, "  under min: %d · speakers/window: %s\n", count(array_filter($sizes, fn ($s) => $s < $opts['min'])),
-    implode(', ', array_map(fn ($k, $v) => ($k === 3 ? '3+' : $k) . "→$v", array_keys($bySpeakers), $bySpeakers)));
+    implode(', ', array_map(fn ($k, $v) => (3 === $k ? '3+' : $k)."→$v", array_keys($bySpeakers), $bySpeakers)));
 fprintf(STDERR, "  set aside: %d boilerplate, %d header, %d index entries · %d long turns split by sentence\n",
     $totals['boilerplate'], $totals['header'], $totals['index'], $totals['splitTurns']);

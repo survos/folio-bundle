@@ -15,7 +15,7 @@ final class FolioSummaryService
         }
 
         try {
-            $pdo = new \PDO('sqlite:' . $dbFile);
+            $pdo = new \PDO('sqlite:'.$dbFile);
             $rowCount = (int) $pdo->query('SELECT COUNT(*) FROM item')->fetchColumn();
             $cores = $pdo->query('SELECT code, label, row_count AS rowCount FROM core ORDER BY code')
                 ->fetchAll(\PDO::FETCH_ASSOC);
@@ -26,7 +26,7 @@ final class FolioSummaryService
             }
 
             $columns = array_map(
-                static fn(array $row): string => (string) $row['name'],
+                static fn (array $row): string => (string) $row['name'],
                 $pdo->query('PRAGMA table_info(item)')->fetchAll(\PDO::FETCH_ASSOC)
             );
             $dtoColumn = in_array('dto_type', $columns, true)
@@ -34,7 +34,7 @@ final class FolioSummaryService
                 : (in_array('dto_class', $columns, true) ? 'dto_class' : null);
 
             $dtoCounts = [];
-            if ($dtoColumn !== null) {
+            if (null !== $dtoColumn) {
                 $dtoRows = $pdo->query(sprintf(
                     "SELECT COALESCE(NULLIF(%s, ''), '(none)') AS dtoType, COUNT(*) AS cnt FROM item GROUP BY dtoType ORDER BY cnt DESC, dtoType",
                     $dtoColumn,
@@ -47,9 +47,9 @@ final class FolioSummaryService
 
             return new FolioSummary(
                 rowCount: $rowCount,
-                cores: array_map(static fn(array $row): array => [
+                cores: array_map(static fn (array $row): array => [
                     'code' => (string) $row['code'],
-                    'label' => $row['label'] !== null ? (string) $row['label'] : null,
+                    'label' => null !== $row['label'] ? (string) $row['label'] : null,
                     'rowCount' => (int) $row['rowCount'],
                 ], $cores ?: []),
                 coreCounts: $coreCounts,
@@ -62,7 +62,7 @@ final class FolioSummaryService
 
     private function shortDtoType(string $type): string
     {
-        $short = substr(strrchr('\\' . $type, '\\'), 1);
+        $short = substr(strrchr('\\'.$type, '\\'), 1);
         $short = preg_replace('/Dto$/', '', $short) ?? $short;
 
         return lcfirst($short);

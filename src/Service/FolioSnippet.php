@@ -27,7 +27,7 @@ final class FolioSnippet
     public static function fromText(?string $text, string $query, int $tokens = 32): string
     {
         $text = trim(preg_replace('/\s+/u', ' ', (string) $text) ?? '');
-        if ($text === '') {
+        if ('' === $text) {
             return '';
         }
         $words = preg_split('/ /u', $text) ?: [];
@@ -36,13 +36,13 @@ final class FolioSnippet
         foreach ($words as $i => $word) {
             $bare = mb_strtolower(preg_replace('/[^\p{L}\p{N}]+/u', '', $word) ?? '');
             foreach ($terms as $term) {
-                if ($bare !== '' && (str_starts_with($bare, $term) || self::sameStem($bare, $term))) {
+                if ('' !== $bare && (str_starts_with($bare, $term) || self::sameStem($bare, $term))) {
                     $matches[$i] = true;
                     break;
                 }
             }
         }
-        $first = $matches === [] ? 0 : array_key_first($matches);
+        $first = [] === $matches ? 0 : array_key_first($matches);
         $start = max(0, $first - intdiv($tokens, 3));
         $slice = array_slice($words, $start, $tokens, true);
         $out = [];
@@ -59,6 +59,6 @@ final class FolioSnippet
         $suffixes = '(?:s|es|ed|er|ers|ing|ings|ly|ies|ied|y|e)?';
         $root = preg_replace('/'.$suffixes.'$/u', '', $term) ?? $term;
 
-        return mb_strlen($root) >= 4 && preg_match('/^'.preg_quote($root, '/').$suffixes.'$/u', $word) === 1;
+        return mb_strlen($root) >= 4 && 1 === preg_match('/^'.preg_quote($root, '/').$suffixes.'$/u', $word);
     }
 }

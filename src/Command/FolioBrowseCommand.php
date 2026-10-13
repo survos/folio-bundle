@@ -5,16 +5,21 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Command;
 
 use Survos\FolioBundle\Console\Input\DatasetArg;
-use Survos\FolioBundle\Entity\{Core,Row};
+use Survos\FolioBundle\Entity\Core;
+use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Service\FolioService;
-use Symfony\Component\Console\Attribute\{AsCommand,MapInput,Option};
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Attribute\MapInput;
+use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand('folio:browse', 'Browse folio cores or rows from the CLI.')]
 final class FolioBrowseCommand
 {
-    public function __construct(private readonly FolioService $folios) {}
+    public function __construct(private readonly FolioService $folios)
+    {
+    }
 
     public function __invoke(
         SymfonyStyle $io,
@@ -33,6 +38,7 @@ final class FolioBrowseCommand
                 ['core', 'label', 'rows'],
                 array_map(fn (Core $c) => [$c->code, $c->label ?? '—', $c->rowCount], $cores),
             );
+
             return Command::SUCCESS;
         }
 

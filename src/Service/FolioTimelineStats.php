@@ -31,7 +31,7 @@ final class FolioTimelineStats
     {
         $ctx = $this->folioService->context($folioCode);
         $core = $this->resolveCore($ctx->em, $folioCode, $coreCode);
-        if ($core === null) {
+        if (null === $core) {
             return null;
         }
 
@@ -50,7 +50,7 @@ final class FolioTimelineStats
             $params,
         )->fetchAssociative();
 
-        if ($ends === false || $ends['lo'] === null || $ends['hi'] === null || $ends['lo'] == $ends['hi']) {
+        if (false === $ends || null === $ends['lo'] || null === $ends['hi'] || $ends['lo'] == $ends['hi']) {
             return null;
         }
 
@@ -71,12 +71,12 @@ final class FolioTimelineStats
      * since that method is app-private and Core lookup is a two-line query either way. */
     private function resolveCore(\Doctrine\ORM\EntityManagerInterface $em, string $folioCode, ?string $coreCode): ?Core
     {
-        if ($coreCode !== null) {
+        if (null !== $coreCode) {
             return $em->find(Core::class, Core::id($folioCode, $coreCode));
         }
 
         $objCore = $em->find(Core::class, Core::id($folioCode, 'obj'));
-        if ($objCore !== null) {
+        if (null !== $objCore) {
             return $objCore;
         }
 

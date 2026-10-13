@@ -83,7 +83,7 @@ final class PhotoGrid
      * listed here is silently left at its property default instead of the value the
      * tag attribute passed in. (Components with no derived default, like iiif-bundle's
      * IiifViewer, skip mount() entirely and get plain reflection-based hydration for
-     * every public property instead.)
+     * every public property instead.).
      */
     public function mount(
         string $provider = '',
@@ -117,7 +117,7 @@ final class PhotoGrid
     #[ExposeInTemplate]
     public function getFiltersForStimulus(): array|\stdClass
     {
-        return $this->filters === [] ? new \stdClass() : $this->filters;
+        return [] === $this->filters ? new \stdClass() : $this->filters;
     }
 
     /**
@@ -133,11 +133,11 @@ final class PhotoGrid
     #[ExposeInTemplate]
     public function getItems(): array
     {
-        if ($this->items !== null) {
+        if (null !== $this->items) {
             return $this->items;
         }
 
-        if ($this->httpClient === null || $this->endpoint === null) {
+        if (null === $this->httpClient || null === $this->endpoint) {
             return $this->items = [];
         }
 

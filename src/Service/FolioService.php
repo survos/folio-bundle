@@ -85,7 +85,7 @@ final class FolioService
         $temp = $this->buildPaths[$key] ?? null;
         unset($this->buildPaths[$key], $this->preservedProperties[$key]);
         $target = $this->path($folioCode, locale: $locale);
-        if ($temp === null || !is_file($temp)) {
+        if (null === $temp || !is_file($temp)) {
             return $target;
         }
         // Drop anything named after the temp file before it takes the real name: SQLite's own
@@ -110,7 +110,7 @@ final class FolioService
         $temp = $this->buildPaths[$key] ?? null;
         unset($this->buildPaths[$key], $this->preservedProperties[$key]);
         foreach ([$temp, $temp.'-wal', $temp.'-shm', $temp.'-journal', $temp.'.lock'] as $path) {
-            if (is_string($path) && $path !== '' && is_file($path)) {
+            if (is_string($path) && '' !== $path && is_file($path)) {
                 unlink($path);
             }
         }
@@ -138,7 +138,9 @@ final class FolioService
     public function finishMetadataReset(string $code, ?string $locale = null): void
     {
         $backup = $this->path($code, locale: $locale).'.metadata-backup.json';
-        if (is_file($backup)) { unlink($backup); }
+        if (is_file($backup)) {
+            unlink($backup);
+        }
     }
 
     private function buildKey(string $folioCode, ?string $locale): string
@@ -171,7 +173,7 @@ final class FolioService
     /** Path to the index-free distributable archive, e.g. <root>/folio-archive/<provider>/<code>.folio.gz. */
     public function archivePath(string $folioCode, bool $createDirectory = false, ?string $locale = null): string
     {
-        return $this->dataPaths->folioArchiveFile($folioCode, $this->localizedExtension($locale) . '.gz', $createDirectory);
+        return $this->dataPaths->folioArchiveFile($folioCode, $this->localizedExtension($locale).'.gz', $createDirectory);
     }
 
     /**
@@ -188,7 +190,7 @@ final class FolioService
     {
         $locale ??= $this->requestContentLocale;
 
-        return $locale !== null && $locale !== '' ? $locale . '.' . $this->extension : $this->extension;
+        return null !== $locale && '' !== $locale ? $locale.'.'.$this->extension : $this->extension;
     }
 
     /**
@@ -327,11 +329,11 @@ final class FolioService
         }
 
         try {
-            $pdo = new \PDO('sqlite:' . $path);
+            $pdo = new \PDO('sqlite:'.$path);
 
-            return $pdo
+            return false !== $pdo
                 ->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='item_fts' LIMIT 1")
-                ->fetchColumn() !== false;
+                ->fetchColumn();
         } catch (\Throwable) {
             return false;
         }
@@ -340,7 +342,7 @@ final class FolioService
     private function removeSidecars(string $target): void
     {
         foreach (['-wal', '-shm', '-journal'] as $suffix) {
-            $sidecar = $target . $suffix;
+            $sidecar = $target.$suffix;
             if (is_file($sidecar)) {
                 @unlink($sidecar);
             }
@@ -355,8 +357,9 @@ final class FolioService
             throw new \RuntimeException(sprintf('Configure the folio DBAL connection with wrapper_class: %s', FolioConnectionWrapper::class));
         }
 
-        if ($folioCode === '_bootstrap/_bootstrap') {
+        if ('_bootstrap/_bootstrap' === $folioCode) {
             $this->currentFolioCode = $folioCode;
+
             return $em;
         }
 
@@ -366,7 +369,10 @@ final class FolioService
         }
         if ($conn->currentPath !== $target) {
             if (!$this->readOnly) {
-                try { $em->flush(); } catch (\Throwable) {}
+                try {
+                    $em->flush();
+                } catch (\Throwable) {
+                }
             }
             $em->clear();
             $conn->selectDatabase($target, $this->readOnly);
@@ -374,6 +380,7 @@ final class FolioService
             $this->logger?->info('Folio database selected', ['folio' => $folioCode, 'path' => $target]);
         }
         $this->currentFolioCode = $folioCode;
+
         return $em;
     }
 
@@ -402,7 +409,7 @@ final class FolioService
             // indistinguishable from a genuinely incompatible folio, and the suggested remedy
             // (re-import a multi-GB folio) was wrong for the former.
             $root = $e;
-            while ($root->getPrevious() !== null) {
+            while (null !== $root->getPrevious()) {
                 $root = $root->getPrevious();
             }
 
@@ -414,15 +421,10 @@ final class FolioService
                 'error' => $root->getMessage(),
             ]);
 
-            throw new \RuntimeException(sprintf(
-                'Folio "%s" could not be opened: its schema is out of date and the in-place migration failed with %s: %s',
-                $folioCode,
-                $root::class,
-                $root->getMessage(),
-            ), 0, $e);
+            throw new \RuntimeException(sprintf('Folio "%s" could not be opened: its schema is out of date and the in-place migration failed with %s: %s', $folioCode, $root::class, $root->getMessage()), 0, $e);
         }
 
-        if ($em->find(Folio::class, $folioCode) === null) {
+        if (null === $em->find(Folio::class, $folioCode)) {
             $folio = new Folio($folioCode);
             $em->persist($folio);
             $em->flush();
@@ -431,7 +433,9 @@ final class FolioService
         $key = $this->buildKey($folioCode, $locale);
         if (isset($this->preservedProperties[$key])) {
             $folio = $em->find(Folio::class, $folioCode);
-            foreach ($this->preservedProperties[$key] as $name => $property) { $folio->put($name, $property); }
+            foreach ($this->preservedProperties[$key] as $name => $property) {
+                $folio->put($name, $property);
+            }
             $em->flush();
             unset($this->preservedProperties[$key]);
         }

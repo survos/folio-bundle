@@ -6,7 +6,8 @@ namespace Survos\FolioBundle\EventListener;
 
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\Event\{RequestEvent, ResponseEvent};
+use Symfony\Component\HttpKernel\Event\RequestEvent;
+use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 final class WallCardResponseListener
@@ -25,7 +26,7 @@ final class WallCardResponseListener
     public function mark(RequestEvent $event): void
     {
         // Mark before folio resolution so errors (unknown folio, invalid filters) also carry CORS.
-        if ($event->getRequest()->attributes->get('_api_operation_name') === \Survos\FolioBundle\Entity\Row::API_ROWS) {
+        if (\Survos\FolioBundle\Entity\Row::API_ROWS === $event->getRequest()->attributes->get('_api_operation_name')) {
             $event->getRequest()->attributes->set('_wallcard_response', true);
         }
     }
@@ -34,7 +35,9 @@ final class WallCardResponseListener
     public function response(ResponseEvent $event): void
     {
         $request = $event->getRequest();
-        if (!$request->attributes->get('_wallcard_response')) { return; }
+        if (!$request->attributes->get('_wallcard_response')) {
+            return;
+        }
         $response = $event->getResponse();
         // Public catalogue data: allow sandboxed itch.io origins (including opaque/null origins).
         $response->headers->set('Access-Control-Allow-Origin', '*');

@@ -37,9 +37,10 @@ final class FolioElasticClient
     }
 
     /**
-     * @param array<string, string> $headers extra headers, e.g. an NDJSON Content-Type
+     * @param array<string, string>     $headers  extra headers, e.g. an NDJSON Content-Type
      * @param array<string, mixed>|null $json
-     * @param list<int> $expected HTTP codes that are not failures; empty means 2xx only
+     * @param list<int>                 $expected HTTP codes that are not failures; empty means 2xx only
+     *
      * @return array<string, mixed>|int decoded body, or the status code when $decode is false
      */
     public function request(
@@ -54,24 +55,23 @@ final class FolioElasticClient
     ): array|int {
         $this->endpoint();
         $options = ['headers' => $headers + $this->headers, 'timeout' => $timeout];
-        if ($this->caBundle !== null) {
+        if (null !== $this->caBundle) {
             $options['cafile'] = $this->caBundle;
         }
-        if ($json !== null) {
+        if (null !== $json) {
             $options['json'] = $json;
         }
-        if ($raw !== null) {
+        if (null !== $raw) {
             $options['body'] = $raw;
         }
         $url = $this->base.'/'.ltrim($path, '/');
         $response = $this->http->request($method, $url, $options);
         $status = $response->getStatusCode();
-        if ($expected !== [] && in_array($status, $expected, true)) {
+        if ([] !== $expected && in_array($status, $expected, true)) {
             return $decode ? $response->toArray(false) : $status;
         }
         if ($status >= 400) {
-            throw new \RuntimeException(sprintf('Elasticsearch %s %s → %d: %s', $method, $url, $status,
-                substr($response->getContent(false), 0, 400)));
+            throw new \RuntimeException(sprintf('Elasticsearch %s %s → %d: %s', $method, $url, $status, substr($response->getContent(false), 0, 400)));
         }
 
         return $decode ? $response->toArray(false) : $status;
@@ -79,7 +79,7 @@ final class FolioElasticClient
 
     private function endpoint(): void
     {
-        if ($this->base !== null) {
+        if (null !== $this->base) {
             return;
         }
         if (!$this->isConfigured()) {
@@ -92,10 +92,10 @@ final class FolioElasticClient
         $scheme = ($parts['scheme'] ?? '') === 'elasticsearch+https' ? 'https' : 'http';
         parse_str($parts['query'] ?? '', $query);
         $this->headers = ['Accept' => 'application/json'];
-        if (is_string($query['api_key'] ?? null) && $query['api_key'] !== '') {
+        if (is_string($query['api_key'] ?? null) && '' !== $query['api_key']) {
             $this->headers['Authorization'] = 'ApiKey '.$query['api_key'];
         }
-        $this->caBundle = is_string($query['ca'] ?? null) && $query['ca'] !== '' ? $query['ca'] : null;
+        $this->caBundle = is_string($query['ca'] ?? null) && '' !== $query['ca'] ? $query['ca'] : null;
         $this->base = sprintf('%s://%s:%d', $scheme, $parts['host'], $parts['port'] ?? 9200);
     }
 }

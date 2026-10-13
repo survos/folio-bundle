@@ -25,12 +25,13 @@ final readonly class FolioChatService
         private ?AgentInterface $agent = null,
         private ?EventDispatcherInterface $dispatcher = null,
         private ?LoggerInterface $logger = null,
-    ) {}
+    ) {
+    }
 
     public function ask(FolioContext $ctx, string $question, ?string $coreCode = null, ?string $dtoType = null, int $limit = 12, ?string $conversationId = null): FolioChatResult
     {
         $question = trim($question);
-        if ($question === '') {
+        if ('' === $question) {
             return new FolioChatResult('', '', '', [], []);
         }
 
@@ -45,7 +46,7 @@ final readonly class FolioChatService
             cards: $cards,
         );
 
-        if ($conversationId !== null && $this->dispatcher !== null) {
+        if (null !== $conversationId && null !== $this->dispatcher) {
             $this->dispatcher->dispatch(new FolioChatTurnEvent($ctx, $conversationId, $result));
         }
 
@@ -59,11 +60,11 @@ final readonly class FolioChatService
     {
         $question = trim($question);
         $contextPrompt = $this->scopedContextPrompt($question, $scope, $contextSections);
-        if ($question === '') {
+        if ('' === $question) {
             return new FolioChatResult('', '', $contextPrompt, [], []);
         }
 
-        if ($this->agent === null) {
+        if (null === $this->agent) {
             return new FolioChatResult(
                 question: $question,
                 answer: 'The Scholar agent is not configured, but the source context for this scope is shown on this page.',
@@ -102,7 +103,7 @@ final readonly class FolioChatService
         }
 
         $answer = $result->getContent();
-        if (!\is_string($answer) || trim($answer) === '') {
+        if (!\is_string($answer) || '' === trim($answer)) {
             $answer = 'I could not produce a useful Scholar response from the available context.';
         }
 
@@ -114,7 +115,7 @@ final readonly class FolioChatService
             cards: [],
         );
 
-        if ($conversationId !== null && $this->dispatcher !== null) {
+        if (null !== $conversationId && null !== $this->dispatcher) {
             $this->dispatcher->dispatch(new FolioChatTurnEvent($ctx, $conversationId, $chatResult));
         }
 
@@ -122,18 +123,18 @@ final readonly class FolioChatService
     }
 
     /**
-     * @param array<string, mixed> $contextSections
+     * @param array<string, mixed>   $contextSections
      * @param callable(string): void $onText
      */
     public function streamScoped(FolioContext $ctx, string $question, string $scope, array $contextSections, callable $onText, ?string $conversationId = null): FolioChatResult
     {
         $question = trim($question);
         $contextPrompt = $this->scopedContextPrompt($question, $scope, $contextSections);
-        if ($question === '') {
+        if ('' === $question) {
             return new FolioChatResult('', '', $contextPrompt, [], []);
         }
 
-        if ($this->agent === null) {
+        if (null === $this->agent) {
             $answer = 'The Scholar agent is not configured, but the source context for this scope is shown on this page.';
             $onText($answer);
 
@@ -157,7 +158,7 @@ final readonly class FolioChatService
             // "stream" option above ever goes away, which the catch below already reports.
             foreach ($result->asTextStream() as $delta) {
                 $text = $delta->getText();
-                if ($text === '') {
+                if ('' === $text) {
                     continue;
                 }
 
@@ -187,7 +188,7 @@ final readonly class FolioChatService
             $this->holder->set(null);
         }
 
-        if (trim($answer) === '') {
+        if ('' === trim($answer)) {
             $answer = 'I could not produce a useful Scholar response from the available context.';
             $onText($answer);
         }
@@ -200,7 +201,7 @@ final readonly class FolioChatService
             cards: [],
         );
 
-        if ($conversationId !== null && $this->dispatcher !== null) {
+        if (null !== $conversationId && null !== $this->dispatcher) {
             $this->dispatcher->dispatch(new FolioChatTurnEvent($ctx, $conversationId, $chatResult));
         }
 
@@ -213,11 +214,12 @@ final readonly class FolioChatService
      * the row's photo (with the database record as the supporting footnote).
      *
      * @param list<FolioChatHit> $hits
+     *
      * @return array{0: string, 1: list<FolioChatCard>}
      */
     private function compose(FolioContext $ctx, string $question, array $hits, ?string $conversationId): array
     {
-        if ($this->agent === null || $hits === []) {
+        if (null === $this->agent || [] === $hits) {
             return [$this->extractiveAnswer($hits), $this->fallbackCards($hits)];
         }
 
@@ -261,7 +263,7 @@ final readonly class FolioChatService
         $cards = [];
         foreach ($answer->items as $item) {
             $localId = trim($item->localId);
-            if ($localId === '') {
+            if ('' === $localId) {
                 continue;
             }
             // Seed hit if present, else fetch it — the model may cite an item it found via a tool
@@ -269,7 +271,7 @@ final readonly class FolioChatService
             $hit = $byId[$localId] ?? $this->retriever->byLocalId($ctx, $localId);
             if ($hit instanceof FolioChatHit) {
                 $caption = trim($item->caption);
-                $cards[] = new FolioChatCard($hit, $caption !== '' ? $caption : null);
+                $cards[] = new FolioChatCard($hit, '' !== $caption ? $caption : null);
             }
         }
 
@@ -278,8 +280,8 @@ final readonly class FolioChatService
         // Model cites specific items → captioned cards. Cites none but search found rows → those as
         // uncaptioned "backup" (the summary explains). Only an empty search yields no cards.
         return [
-            $summary !== '' ? $summary : $this->extractiveAnswer($hits),
-            $cards !== [] ? $cards : $this->fallbackCards($hits),
+            '' !== $summary ? $summary : $this->extractiveAnswer($hits),
+            [] !== $cards ? $cards : $this->fallbackCards($hits),
         ];
     }
 
@@ -288,6 +290,7 @@ final readonly class FolioChatService
      * so the user still gets the matched rows (image + record) instead of nothing.
      *
      * @param list<FolioChatHit> $hits
+     *
      * @return list<FolioChatCard>
      */
     private function fallbackCards(array $hits): array
@@ -303,7 +306,7 @@ final readonly class FolioChatService
      */
     private function extractiveAnswer(array $hits): string
     {
-        if ($hits === []) {
+        if ([] === $hits) {
             return 'No matching rows were found in this folio.';
         }
 
@@ -312,7 +315,7 @@ final readonly class FolioChatService
             array_slice($hits, 0, 3),
         )));
 
-        if ($labels === []) {
+        if ([] === $labels) {
             return sprintf('I found %d matching rows. Review the cited sources below.', count($hits));
         }
 
@@ -328,8 +331,8 @@ final readonly class FolioChatService
      */
     private function contextPrompt(string $question, array $hits): string
     {
-        if ($hits === []) {
-            return trim('Question: ' . $question . "\n\nCandidate items from the collection: none found.");
+        if ([] === $hits) {
+            return trim('Question: '.$question."\n\nCandidate items from the collection: none found.");
         }
 
         // denseSummary (curated) is missing for most rows today, and the row's own description()
@@ -343,10 +346,10 @@ final readonly class FolioChatService
                 'title' => $hit->label ?: '(untitled)',
             ];
             $summary = $hit->denseSummary() ?? $hit->description();
-            if ($summary !== null) {
+            if (null !== $summary) {
                 $row['description'] = $summary;
             }
-            if ($hit->snippet !== '') {
+            if ('' !== $hit->snippet) {
                 $row['snippet'] = $hit->snippet;
             }
 
@@ -366,19 +369,19 @@ final readonly class FolioChatService
     private function scopedContextPrompt(string $question, string $scope, array $contextSections): string
     {
         $lines = [
-            'Question: ' . ($question !== '' ? $question : '(no question yet)'),
-            'Scope: ' . $scope,
+            'Question: '.('' !== $question ? $question : '(no question yet)'),
+            'Scope: '.$scope,
             '',
             'Available source context:',
         ];
 
         foreach ($contextSections as $label => $value) {
             $body = $this->contextValueToText($value);
-            if ($body === '') {
+            if ('' === $body) {
                 continue;
             }
             $lines[] = '';
-            $lines[] = '## ' . $label;
+            $lines[] = '## '.$label;
             $lines[] = $body;
         }
 
@@ -387,7 +390,7 @@ final readonly class FolioChatService
 
     private function contextValueToText(mixed $value): string
     {
-        if ($value === null || $value === '') {
+        if (null === $value || '' === $value) {
             return '';
         }
 

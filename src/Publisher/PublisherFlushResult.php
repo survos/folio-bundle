@@ -16,12 +16,22 @@ final readonly class PublisherFlushResult
         public int $remaining = 0,
         public bool $staleGeneration = false,
         public ?string $error = null,
-    ) {}
+    ) {
+    }
 
-    public function count(ReceiptStatus $status): int { return $this->statuses[$status->value] ?? 0; }
+    public function count(ReceiptStatus $status): int
+    {
+        return $this->statuses[$status->value] ?? 0;
+    }
 
-    public function acknowledged(): int { return array_sum($this->statuses); }
+    public function acknowledged(): int
+    {
+        return array_sum($this->statuses);
+    }
 
     /** Everything queued reached Harvest. */
-    public function isComplete(): bool { return $this->remaining === 0 && !$this->staleGeneration && $this->error === null; }
+    public function isComplete(): bool
+    {
+        return 0 === $this->remaining && !$this->staleGeneration && null === $this->error;
+    }
 }

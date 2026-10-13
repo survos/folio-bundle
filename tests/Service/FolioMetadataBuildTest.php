@@ -1,25 +1,31 @@
 <?php
 
 declare(strict_types=1);
+
 namespace Survos\FolioBundle\Tests\Service;
 
 use Doctrine\DBAL\DriverManager;
 use Doctrine\ORM\EntityManager;
-use Doctrine\ORM\ORMSetup;
 use Doctrine\ORM\Mapping\UnderscoreNamingStrategy;
+use Doctrine\ORM\ORMSetup;
 use PHPUnit\Framework\TestCase;
 use Survos\DataContracts\Metadata\DatasetDocument;
 use Survos\DataContracts\Path\DataPaths;
-use Survos\FolioBundle\Dto\FolioBuildInput;
-use Survos\FolioBundle\DBAL\FolioConnectionWrapper;
-use Survos\FolioBundle\Entity\Folio;
-use Survos\FolioBundle\Service\{FolioService,FolioSchemaManager,FolioIngestService,FolioDtoTypeResolver,FolioSummaryService};
 use Survos\Folio\PropertyStore;
-use Survos\JsonlBundle\Service\{JsonlCountService,JsonlStateService};
-use Symfony\Component\Cache\Adapter\ArrayAdapter;
-use Symfony\Component\Filesystem\Filesystem;
-use Symfony\Component\Console\Tester\CommandTester;
 use Survos\FolioBundle\Command\FolioMigrateCommand;
+use Survos\FolioBundle\DBAL\FolioConnectionWrapper;
+use Survos\FolioBundle\Dto\FolioBuildInput;
+use Survos\FolioBundle\Entity\Folio;
+use Survos\FolioBundle\Service\FolioDtoTypeResolver;
+use Survos\FolioBundle\Service\FolioIngestService;
+use Survos\FolioBundle\Service\FolioSchemaManager;
+use Survos\FolioBundle\Service\FolioService;
+use Survos\FolioBundle\Service\FolioSummaryService;
+use Survos\JsonlBundle\Service\JsonlCountService;
+use Survos\JsonlBundle\Service\JsonlStateService;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Console\Tester\CommandTester;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class FolioMetadataBuildTest extends TestCase
 {
@@ -103,12 +109,16 @@ final class FolioMetadataBuildTest extends TestCase
         $sample = getenv('FOLIO_TEST_JSONL') ? fopen(getenv('FOLIO_TEST_JSONL'), 'r') : null;
         for ($i = 0; $i < 200; ++$i) {
             $line = $sample ? fgets($sample) : json_encode(['id' => (string) $i, 'label' => 'Issue '.$i, 'contentType' => 'newspaper'], JSON_THROW_ON_ERROR)."\n";
-            if ($line === false) { break; }
+            if (false === $line) {
+                break;
+            }
             fwrite($stream, $line);
         }
         $expectedRows = $i;
         self::assertGreaterThan(0, $expectedRows);
-        if ($sample) { fclose($sample); }
+        if ($sample) {
+            fclose($sample);
+        }
         fclose($stream);
         $ingest = new FolioIngestService($this->folios, new FolioDtoTypeResolver(), new FolioSummaryService(), new JsonlCountService(new JsonlStateService()));
         $input = new FolioBuildInput($code, ['doc' => $dir.'/doc.jsonl'], $metadata, 'en');
@@ -127,15 +137,19 @@ final class FolioMetadataBuildTest extends TestCase
         self::assertSame('https://example.org/title', $folio->properties()['title.essay']->provenance['sourceRef']);
         $folio->set('description', 'Human correction', 'human', 'editor');
         $folio->set('custom.note', ['preserve' => true], 'import', 'external');
-        $ctx->em->flush(); $this->folios->finalize();
+        $ctx->em->flush();
+        $this->folios->finalize();
         $build();
-        $ctx = $this->folios->context($code); $folio = $ctx->em->find(Folio::class, $code);
+        $ctx = $this->folios->context($code);
+        $folio = $ctx->em->find(Folio::class, $code);
         self::assertSame('Human correction', $folio->description);
         self::assertSame('external', $folio->properties()['custom.note']->owner);
         self::assertSame($expectedRows, $folio->rowCount);
         $this->folios->finalize();
         $before = hash_file('sha256', $this->folios->path($code));
-        $this->folios->buildAt($code); $this->folios->reset($code); $this->folios->discardBuildAt($code);
+        $this->folios->buildAt($code);
+        $this->folios->reset($code);
+        $this->folios->discardBuildAt($code);
         self::assertSame($before, hash_file('sha256', $this->folios->path($code)), 'failed staged build leaves the live folio intact');
     }
 
@@ -187,7 +201,8 @@ final class FolioMetadataBuildTest extends TestCase
         $ctx = $this->folios->context($code);
         $folio = $ctx->em->find(Folio::class, $code);
         $folio->set('description', 'Keep me', 'human', 'editor');
-        $ctx->em->flush(); $this->folios->finalize();
+        $ctx->em->flush();
+        $this->folios->finalize();
         $this->folios->reset($code); // Simulate stopping before context restored the snapshot.
         $this->folios->reset($code);
         $ctx = $this->folios->context($code);

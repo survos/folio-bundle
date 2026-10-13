@@ -12,8 +12,8 @@ declare(strict_types=1);
  *   php article-windows.php --folio=<rappnews-digital.folio> [...]   roles from the folio's segments instead
  */
 
-require getenv('HOME') . '/sites/lingua/vendor/autoload.php';
-require __DIR__ . '/windows-lib.php';
+require getenv('HOME').'/sites/lingua/vendor/autoload.php';
+require __DIR__.'/windows-lib.php';
 
 use Vanderlee\Sentence\Sentence;
 
@@ -37,12 +37,13 @@ function role(string $text, bool $bodySeen, bool $nearEnd, bool $letter, ?string
 {
     $words = words($text);
     $bare = trim($text, "*_ \t");
+
     return match (true) {
         (bool) preg_match('/^(#{1,6})\s+(.*)$/s', $text, $m) => ['subhead', strlen($m[1]), trim($m[2])],
         // Emphasis does not make a byline a subhead: "**By Anita L. Sherman**".
         (bool) preg_match('/^By\s+\p{Lu}/u', $bare) && $words < 12 => ['byline', null, $bare],
         // A letter closes with a name, then often a place: "**Patty O’Brien**" / "Huntly".
-        $prevRole === 'signature' && $words <= 4 => ['signature', null, $bare],
+        'signature' === $prevRole && $words <= 4 => ['signature', null, $bare],
         $letter && $nearEnd && $words <= 8 && (bool) preg_match('/^\p{Lu}[\p{L}.’\'-]*(\s+\p{Lu}[\p{L}.’\'-]*){1,3}(,\s*[\p{L} ]+)?$/u', $bare) => ['signature', null, $bare],
         (bool) preg_match('/^(\*\*|__)([^*_\n]{1,80})\1:?$/u', $text, $m) => ['subhead', 7, trim($m[2])],
         (bool) preg_match('/^[*_]\s*[—–-]\s*(.{1,80})[*_]$/u', $text, $m) => ['signature', null, trim($m[1])],
@@ -71,7 +72,7 @@ function markdownBlocks(string $body, bool $letter = false): array
         $text = rtrim($text);
         [$role, $level, $value] = role($text, $bodySeen, $n >= count($m[0]) - 2, $letter, $prevRole);
         $prevRole = $role;
-        $bodySeen = $bodySeen || $role === 'body';
+        $bodySeen = $bodySeen || 'body' === $role;
         $blocks[] = ['para' => $n, 'role' => $role, 'level' => $level, 'text' => $value, 'from' => $from, 'to' => $from + strlen($text)];
     }
 
@@ -85,6 +86,7 @@ function markdownBlocks(string $body, bool $letter = false): array
  * anchor points at the raw source, so "###" there is a heading (hard boundary), "**" a minor one.
  *
  * @param list<array<string, mixed>> $segments
+ *
  * @return list<array{para: int, role: string, level: ?int, text: string, from: int, to: int}>
  */
 function segmentBlocks(array $segments, string $body): array
@@ -94,9 +96,12 @@ function segmentBlocks(array $segments, string $body): array
     foreach ($segments as $s) {
         $anchor = null;
         foreach ($s['anchors'] ?? [] as $a) {
-            if (($a['field'] ?? null) === 'bodyText') { $anchor = $a; break; }
+            if (($a['field'] ?? null) === 'bodyText') {
+                $anchor = $a;
+                break;
+            }
         }
-        if ($anchor === null) {
+        if (null === $anchor) {
             continue; // headline (title), byline (creators)
         }
         $raw = substr($body, $anchor['from'], $anchor['to'] - $anchor['from']);
@@ -105,7 +110,7 @@ function segmentBlocks(array $segments, string $body): array
             ['byline', null] => 'byline',
             default => $s['role'] ?? $s['kind'],
         };
-        $level = $role === 'subhead' ? (preg_match('/^(#{1,6})\s/', $raw, $h) ? strlen($h[1]) : 7) : null;
+        $level = 'subhead' === $role ? (preg_match('/^(#{1,6})\s/', $raw, $h) ? strlen($h[1]) : 7) : null;
         $blocks[] = ['para' => count($blocks), 'role' => $role, 'level' => $level, 'text' => (string) ($s['text'] ?? ''),
             'from' => $anchor['from'], 'to' => $anchor['to']];
     }
@@ -126,20 +131,20 @@ function blockUnits(array $blocks, string $body, int $max, int $target): array
     $afterMinor = false; // the body block after a "**Jackson**" subhead is a preferred window head
     $hard = false;
     foreach ($blocks as ['para' => $n, 'role' => $role, 'level' => $level, 'text' => $value, 'from' => $from, 'to' => $to]) {
-        if ($role === 'subhead') {
+        if ('subhead' === $role) {
             $path = array_filter($path, fn ($l) => $l < $level, ARRAY_FILTER_USE_KEY) + [$level => $value];
             ksort($path);
             $hard = $hard || $level <= 6;
-            $afterMinor = $level === 7;
+            $afterMinor = 7 === $level;
             continue;
         }
-        if ($role === 'byline') {
+        if ('byline' === $role) {
             // A byline starts the story proper and never sits inside a section: a factbox heading
             // before it ("### If you go") no longer applies, and the story is a fresh run.
             $path = [];
             $hard = true;
         }
-        if ($role !== 'body') {
+        if ('body' !== $role) {
             continue;
         }
         $text = substr($body, $from, $to - $from);
@@ -156,24 +161,24 @@ function blockUnits(array $blocks, string $body, int $max, int $target): array
         $pieces = [];
         foreach ($splitter->split($text) as $sentence) {
             $sText = trim($sentence);
-            if ($sText === '') {
+            if ('' === $sText) {
                 continue;
             }
             $at = $cursor < strlen($text) ? strpos($text, $sText, $cursor) : false;
-            $at = $at === false ? min($cursor, strlen($text)) : $at;
+            $at = false === $at ? min($cursor, strlen($text)) : $at;
             $cursor = min(strlen($text), $at + strlen($sText));
-            if ($buf !== null && words(substr($text, $buf[0], $cursor - $buf[0])) > $target) {
+            if (null !== $buf && words(substr($text, $buf[0], $cursor - $buf[0])) > $target) {
                 $pieces[] = $buf;
                 $buf = null;
             }
             $buf = [$buf[0] ?? $at, $cursor];
         }
-        if ($buf !== null) {
+        if (null !== $buf) {
             $pieces[] = $buf;
         }
         foreach ($pieces as $i => [$a, $b]) {
             $pt = substr($text, $a, $b - $a);
-            $units[] = ($i === 0 ? $base : ['hard' => false] + $base) + ['cut' => $i === 0 ? $cut : Q_SAME, 'text' => $pt,
+            $units[] = (0 === $i ? $base : ['hard' => false] + $base) + ['cut' => 0 === $i ? $cut : Q_SAME, 'text' => $pt,
                 'from' => $from + $a, 'to' => $from + $b, 'words' => words($pt), 'piece' => [$i, count($pieces)]];
         }
     }
@@ -187,18 +192,19 @@ function blockUnits(array $blocks, string $body, int $max, int $target): array
  */
 function articleSource(?string $file, ?string $folio): Generator
 {
-    if ($folio !== null) {
-        $pdo = new PDO('sqlite:file:' . $folio . '?mode=ro', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    if (null !== $folio) {
+        $pdo = new PDO('sqlite:file:'.$folio.'?mode=ro', options: [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         foreach ($pdo->query("SELECT id, dto_data, extras FROM item WHERE core_id LIKE '%:article' ORDER BY id") as $r) {
             $dto = json_decode($r['dto_data'], true) ?? [];
             $extras = json_decode($r['extras'] ?? 'null', true) ?? [];
             yield ['id' => substr($r['id'], strrpos($r['id'], ':') + 1), 'bodyText' => $dto['bodyText'] ?? $extras['bodyText'] ?? '',
                 'segments' => $extras['segments'] ?? []] + $dto + $extras;
         }
+
         return;
     }
     foreach (new SplFileObject($file) as $line) {
-        if (trim($line) !== '') {
+        if ('' !== trim($line)) {
             yield json_decode($line, true, flags: JSON_THROW_ON_ERROR);
         }
     }
@@ -215,10 +221,10 @@ foreach (array_slice($argv, 1) as $a) {
 }
 [$file, $filter] = $args + [null, null];
 $folio = isset($opts['folio']) ? (string) $opts['folio'] : null;
-if ($folio !== null) {
+if (null !== $folio) {
     [$file, $filter] = [null, $args[0] ?? null];
 }
-if ($file === null && $folio === null) {
+if (null === $file && null === $folio) {
     fwrite(STDERR, "usage: php article-windows.php <article.jsonl> | --folio=<folio> [idOrTitleSubstring] [--target --max --min --whole --json --stats]\n");
     exit(1);
 }
@@ -227,12 +233,12 @@ $all = [];
 $roles = [];
 $articles = $empty = $single = $split = 0;
 foreach (articleSource($file, $folio) as $a) {
-    if ($filter !== null && !str_contains($a['id'], $filter) && stripos($a['title'] ?? '', $filter) === false) {
+    if (null !== $filter && !str_contains($a['id'], $filter) && false === stripos($a['title'] ?? '', $filter)) {
         continue;
     }
     $body = (string) ($a['bodyText'] ?? '');
-    $articles++;
-    $blocks = $folio !== null
+    ++$articles;
+    $blocks = null !== $folio
         ? segmentBlocks($a['segments'] ?? [], $body)
         : markdownBlocks($body, str_starts_with((string) ($a['title'] ?? ''), 'Letter') || in_array('opinion/letters', $a['sections'] ?? [], true));
     $units = blockUnits($blocks, $body, (int) $opts['max'], (int) $opts['target']);
@@ -245,15 +251,15 @@ foreach (articleSource($file, $folio) as $a) {
             $meta[$b['role']][] = $b['text'];
         }
     }
-    if ($units === []) {
-        $empty++;
+    if ([] === $units) {
+        ++$empty;
         continue;
     }
-    $split += count(array_unique(array_column(array_filter($units, fn ($u) => $u['piece'] !== null), 'para')));
+    $split += count(array_unique(array_column(array_filter($units, fn ($u) => null !== $u['piece']), 'para')));
     // --whole: the no-windowing baseline, one document per article (all body blocks, roles still applied).
     $windows = ($opts['whole'] ?? false) ? [array_map(fn ($u) => ['path' => []] + $u, $units)]
         : packWindows($units, (int) $opts['target'], (int) $opts['max'], (int) $opts['min']);
-    $single += count($windows) === 1 ? 1 : 0;
+    $single += 1 === count($windows) ? 1 : 0;
     foreach ($windows as $w) {
         $first = $w[0];
         $last = $w[array_key_last($w)];
@@ -285,7 +291,7 @@ if ($opts['json'] ?? false) {
 if (!($opts['stats'] ?? false)) {
     foreach ($all as $w) {
         printf("── %s  «%s»%s  ¶%d–%d  bytes %d–%d  [%d words]\n", substr($w['rowId'], 0, 8), mb_strimwidth((string) $w['headline'], 0, 50, '…'),
-            $w['subheads'] ? ' › ' . implode(' › ', $w['subheads']) : '', $w['paras'][0], $w['paras'][1], $w['from'], $w['to'], $w['words']);
+            $w['subheads'] ? ' › '.implode(' › ', $w['subheads']) : '', $w['paras'][0], $w['paras'][1], $w['from'], $w['to'], $w['words']);
         echo '   ', str_replace("\n", "\n   ", wordwrap($w['text'], 110)), "\n\n";
     }
 }

@@ -42,7 +42,7 @@ final class FolioBulkInserter
     private readonly string $tuple;
     private readonly int $maxRows;
 
-    /** @var list<list<mixed>> positional value tuples, each aligned to $columns */
+    /** @var list<list<mixed>> positional value tuples, each aligned to */
     private array $buffer = [];
 
     private int $inserted = 0;
@@ -61,7 +61,7 @@ final class FolioBulkInserter
         $colCount = \count($this->columns);
         $this->sqlPrefix = sprintf('INSERT INTO %s (%s) VALUES ', $table, implode(', ', $this->columns));
         $this->sqlSuffix = sprintf(' ON CONFLICT(%s) DO NOTHING', $conflictColumn);
-        $this->tuple = '(' . implode(', ', array_fill(0, $colCount, '?')) . ')';
+        $this->tuple = '('.implode(', ', array_fill(0, $colCount, '?')).')';
         // e.g. 8 columns -> 2000 rows per statement (16000 params); a logical batch of 500 fits easily.
         $this->maxRows = max(1, intdiv(self::MAX_PARAMS, $colCount));
     }
@@ -78,12 +78,12 @@ final class FolioBulkInserter
     /** Emit the buffered rows as a single multi-row INSERT. Idempotent when the buffer is empty. */
     public function flush(): void
     {
-        if ($this->buffer === []) {
+        if ([] === $this->buffer) {
             return;
         }
 
         $rows = \count($this->buffer);
-        $sql = $this->sqlPrefix . implode(', ', array_fill(0, $rows, $this->tuple)) . $this->sqlSuffix;
+        $sql = $this->sqlPrefix.implode(', ', array_fill(0, $rows, $this->tuple)).$this->sqlSuffix;
         $params = [];
         foreach ($this->buffer as $row) {
             foreach ($row as $value) {

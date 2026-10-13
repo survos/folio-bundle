@@ -38,6 +38,7 @@ final class FolioDocumentStream
      * @param list<string>|null $keep         content fields to keep; null keeps every dtoData key
      * @param list<string>|null $contentTypes when set, scans every core and filters by dtoData.contentType instead of $core
      * @param list<string>      $extraKeys    extras keys lifted onto the document
+     *
      * @return \Generator<array<string,mixed>>
      */
     public function documents(
@@ -56,7 +57,7 @@ final class FolioDocumentStream
         // filters on the item's actual dtoData.contentType across every core in the folio instead.
         $select = 'SELECT i.id, i.local_id, i.label, i.dto_type, i.dto_data, i.extras, c.code AS core_code';
         $from = "\nFROM item i\nJOIN core c ON c.id = i.core_id\n";
-        $where = $contentTypes !== null
+        $where = null !== $contentTypes
             ? "WHERE json_extract(i.dto_data, '$.contentType') IN (:contentTypes)\n"
             : "WHERE c.code = :core\n";
 
@@ -74,7 +75,7 @@ final class FolioDocumentStream
                 $sql = $select
                     .($hasPages ? ', (SELECT p.url FROM page p WHERE p.row_id = i.id ORDER BY p.seq LIMIT 1) AS page_url' : ', NULL AS page_url')
                     .$from.$where.'ORDER BY i.id';
-                $result = $contentTypes !== null
+                $result = null !== $contentTypes
                     ? $connection->executeQuery($sql, ['contentTypes' => $contentTypes], ['contentTypes' => ArrayParameterType::STRING])
                     : $connection->executeQuery($sql, ['core' => $core]);
 
@@ -84,13 +85,13 @@ final class FolioDocumentStream
                         (string) $row['core_code'],
                         (string) $row['id'],
                         (string) $row['local_id'],
-                        $row['label'] !== null ? (string) $row['label'] : null,
-                        $row['dto_type'] !== null ? (string) $row['dto_type'] : null,
+                        null !== $row['label'] ? (string) $row['label'] : null,
+                        null !== $row['dto_type'] ? (string) $row['dto_type'] : null,
                         $this->decodeJson($row['dto_data'] ?? null),
                         null, // common-field index: drop source-specific extras (we lift only source_tags below)
                     );
 
-                    if (is_string($row['page_url']) && $row['page_url'] !== '') {
+                    if (is_string($row['page_url']) && '' !== $row['page_url']) {
                         $doc['pageUrl'] = $row['page_url'];
                     }
 
@@ -105,7 +106,7 @@ final class FolioDocumentStream
                     // is meant to be an index of.
                     foreach ($extraKeys as $key) {
                         $value = is_array($extras) ? ($extras[$key] ?? null) : null;
-                        if ($value === null || $value === '' || $value === []) {
+                        if (null === $value || '' === $value || [] === $value) {
                             continue;
                         }
                         if (is_scalar($value) || (is_array($value) && $value === array_filter($value, 'is_scalar'))) {
@@ -113,8 +114,8 @@ final class FolioDocumentStream
                         }
                     }
 
-                    $report->count++;
-                    $report->perFolio[$folioCode]++;
+                    ++$report->count;
+                    ++$report->perFolio[$folioCode];
                     yield $this->project($doc, $keep);
                 }
             } catch (\Throwable $e) {
@@ -126,12 +127,13 @@ final class FolioDocumentStream
     /**
      * @param array<string,mixed> $doc
      * @param list<string>|null   $keep
+     *
      * @return array<string,mixed>
      */
     private function project(array $doc, ?array $keep): array
     {
         $doc = $this->normalizeAliases($doc);
-        $out = $keep === null ? $doc : $this->projectWhitelist($doc, $keep);
+        $out = null === $keep ? $doc : $this->projectWhitelist($doc, $keep);
 
         // The row id is a composite "folioCode:coreCode:localId" (e.g. "mus/fortepan:obj:1"),
         // whose "/" and ":" are illegal in a Meili document id. Keep the original as rowId and
@@ -150,17 +152,18 @@ final class FolioDocumentStream
      * the folio actually populated.
      *
      * @param array<string,mixed> $doc
+     *
      * @return array<string,mixed>
      */
     private function normalizeAliases(array $doc): array
     {
         foreach (self::SOURCES as $field => $candidates) {
-            if (($doc[$field] ?? null) !== null && $doc[$field] !== '' && $doc[$field] !== []) {
+            if (($doc[$field] ?? null) !== null && '' !== $doc[$field] && [] !== $doc[$field]) {
                 continue;
             }
             foreach ($candidates as $src) {
                 $value = $doc[$src] ?? null;
-                if ($value !== null && $value !== '' && $value !== []) {
+                if (null !== $value && '' !== $value && [] !== $value) {
                     $doc[$field] = $value;
                     break;
                 }
@@ -173,6 +176,7 @@ final class FolioDocumentStream
     /**
      * @param array<string,mixed> $doc
      * @param list<string>        $keep
+     *
      * @return array<string,mixed>
      */
     private function projectWhitelist(array $doc, array $keep): array
@@ -186,13 +190,13 @@ final class FolioDocumentStream
 
         // Thumbnail/image URLs for the hit template — kept verbatim when present.
         foreach (self::MEDIA as $k) {
-            if (($doc[$k] ?? null) !== null && $doc[$k] !== '') {
+            if (($doc[$k] ?? null) !== null && '' !== $doc[$k]) {
                 $out[$k] = $doc[$k];
             }
         }
 
         foreach ($keep as $field) {
-            if (($doc[$field] ?? null) !== null && $doc[$field] !== '' && $doc[$field] !== []) {
+            if (($doc[$field] ?? null) !== null && '' !== $doc[$field] && [] !== $doc[$field]) {
                 $out[$field] = $doc[$field];
             }
         }
@@ -206,7 +210,7 @@ final class FolioDocumentStream
         if (is_array($value)) {
             return $value;
         }
-        if (!is_string($value) || trim($value) === '') {
+        if (!is_string($value) || '' === trim($value)) {
             return null;
         }
 

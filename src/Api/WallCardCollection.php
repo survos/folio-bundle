@@ -17,5 +17,6 @@ final readonly class WallCardCollection
         public array $query,
         public string $contextUrl,
         public string $itemPath,
-    ) {}
+    ) {
+    }
 }

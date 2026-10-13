@@ -59,14 +59,14 @@ final class FolioSitemapCommand
         #[Option('Write .xml.gz alongside; bots accept gzip and these compress ~10:1')]
         bool $gzip = true,
     ): int {
-        if ($folio === null && !$all) {
+        if (null === $folio && !$all) {
             $io->error('Pass --folio=<code> or --all.');
 
             return Command::INVALID;
         }
 
         $host ??= $this->defaultHost();
-        if ($host === null) {
+        if (null === $host) {
             $io->error('No host given and none could be derived; pass --host=https://example.org.');
 
             return Command::INVALID;
@@ -81,10 +81,10 @@ final class FolioSitemapCommand
         // whole index on every dump() call, so looping per folio would do that 664 times; a null
         // section lets the populator emit every folio's URLs from a single event and write the
         // index once at the end.
-        if ($folio === null) {
+        if (null === $folio) {
             $filenames = $this->dumper->dump($this->targetDir($target), $this->hostForTarget($host, $target), null, ['gzip' => $gzip]);
 
-            if ($filenames === false) {
+            if (false === $filenames) {
                 $io->warning('No published folios produced any URLs.');
 
                 return Command::SUCCESS;
@@ -97,7 +97,7 @@ final class FolioSitemapCommand
 
         $filenames = $this->dumpFolio($folio, $host, $target, $gzip);
 
-        if ($filenames === []) {
+        if ([] === $filenames) {
             $io->warning(sprintf('%s produced no URLs (empty or missing folio?)', $folio));
 
             return Command::SUCCESS;
@@ -136,12 +136,12 @@ final class FolioSitemapCommand
             ['gzip' => $gzip],
         );
 
-        return $filenames === false ? [] : array_values($filenames);
+        return false === $filenames ? [] : array_values($filenames);
     }
 
     private function targetDir(string $target): string
     {
-        return rtrim($this->projectDir . '/public/' . trim($target, '/'), '/');
+        return rtrim($this->projectDir.'/public/'.trim($target, '/'), '/');
     }
 
     /**
@@ -152,7 +152,7 @@ final class FolioSitemapCommand
     {
         $target = trim($target, '/');
 
-        return $target === '' ? $host : $host . '/' . $target;
+        return '' === $target ? $host : $host.'/'.$target;
     }
 
     /**
@@ -165,18 +165,18 @@ final class FolioSitemapCommand
     {
         $context = $this->router->getContext();
         $host = $context->getHost();
-        if ($host === '') {
+        if ('' === $host) {
             return null;
         }
 
         $scheme = $context->getScheme() ?: 'https';
         $port = match (true) {
-            $scheme === 'http' && $context->getHttpPort() !== 80 => ':' . $context->getHttpPort(),
-            $scheme === 'https' && $context->getHttpsPort() !== 443 => ':' . $context->getHttpsPort(),
+            'http' === $scheme && 80 !== $context->getHttpPort() => ':'.$context->getHttpPort(),
+            'https' === $scheme && 443 !== $context->getHttpsPort() => ':'.$context->getHttpsPort(),
             default => '',
         };
 
-        return $scheme . '://' . $host . $port;
+        return $scheme.'://'.$host.$port;
     }
 
     private function applyRouterContext(string $host): void

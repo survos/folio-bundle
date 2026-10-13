@@ -19,7 +19,8 @@ final readonly class Publication
         public ?string $label = null,
         public ?string $occurredAt = null,
         public ?string $confirmedAt = null,
-    ) {}
+    ) {
+    }
 
     public static function fromArray(array $data): self
     {

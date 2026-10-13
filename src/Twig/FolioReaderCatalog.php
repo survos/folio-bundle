@@ -34,7 +34,8 @@ final class FolioReaderCatalog
         private readonly ?string $server = null,
         private readonly ?string $proxy = null,
         private readonly ?DatasetPublicationClient $datasets = null,
-    ) {}
+    ) {
+    }
 
     /**
      * Current publications of a dataset's folios, one per URL; stale receipts (an older revision)
@@ -45,9 +46,10 @@ final class FolioReaderCatalog
     #[AsTwigFunction('folio_publications')]
     public function publications(string $datasetKey): array
     {
-        if ($this->datasets === null) {
+        if (null === $this->datasets) {
             return [];
         }
+
         return $this->publications[$datasetKey] ??= $this->cache->get('folio_publications.'.hash('sha256', $this->datasets->source().'|'.$datasetKey), function (ItemInterface $item) use ($datasetKey): array {
             $item->expiresAfter(60);
             try {
@@ -57,11 +59,13 @@ final class FolioReaderCatalog
                         $byUrl[$publication->url] ??= $publication;
                     }
                 }
+
                 return array_values($byUrl);
             } catch (\Throwable $e) {
                 // A page render must not fail because the hub is down; it just shows no links.
                 $item->expiresAfter(10);
                 $this->logger->warning('Folio publications unavailable', ['datasetKey' => $datasetKey, 'exception' => $e]);
+
                 return [];
             }
         });
@@ -82,9 +86,11 @@ final class FolioReaderCatalog
                 if (!isset($data['folios']) || !is_array($data['folios'])) {
                     throw new \UnexpectedValueException('Reader catalog has no folios map.');
                 }
+
                 return $data['folios'];
             } catch (\Throwable $e) {
                 $this->logger->warning('Reader catalog unavailable', ['server' => $this->server, 'exception' => $e]);
+
                 return [];
             }
         });
@@ -93,6 +99,7 @@ final class FolioReaderCatalog
         if (!is_string($path) || !preg_match('~^/[a-z0-9-]+$~D', $path)) {
             return null;
         }
+
         return rtrim($this->server, '/').$path;
     }
 }

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\FolioBundle\Model\FolioChatHit;
-use Symfony\AI\Agent\Toolbox\Attribute\AsTool;
 use Symfony\AI\Platform\Contract\JsonSchema\Attribute\Schema;
 
 /**
@@ -22,7 +21,8 @@ final class FolioChatTools
     public function __construct(
         private readonly FolioChatContextHolder $holder,
         private readonly FolioRetriever $retriever,
-    ) {}
+    ) {
+    }
 
     /**
      * Full-text search the current collection for items matching a query and return the closest
@@ -30,6 +30,7 @@ final class FolioChatTools
      * compare groups, or to look beyond the items already shown.
      *
      * @param string $query Natural-language search, e.g. "schools and graduating classes" or "maps of Boston"
+     *
      * @return list<array{localId: string, title: string, description: string}>
      */
     public function searchCollection(
@@ -38,7 +39,7 @@ final class FolioChatTools
         int $limit = 8,
     ): array {
         $ctx = $this->holder->get();
-        if ($ctx === null || trim($query) === '') {
+        if (null === $ctx || '' === trim($query)) {
             return [];
         }
 
@@ -52,13 +53,14 @@ final class FolioChatTools
      * Fetch the full details of one item by its localId — its title, full description, and any extra
      * catalog fields — to ground a specific, detailed statement about that item.
      *
-     * @param string $localId The exact localId of the item, as returned by search_collection.
+     * @param string $localId the exact localId of the item, as returned by search_collection
+     *
      * @return array{found: bool, localId?: string, title?: string, description?: string, fields?: array<string, mixed>}
      */
     public function getObject(string $localId): array
     {
         $ctx = $this->holder->get();
-        if ($ctx === null || trim($localId) === '') {
+        if (null === $ctx || '' === trim($localId)) {
             return ['found' => false];
         }
 

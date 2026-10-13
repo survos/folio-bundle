@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Twig\Components;
 
 use Survos\DataContracts\Dto\Item\BaseItemDto;
-use Survos\FieldBundle\Model\FieldDescriptor;
 use Survos\FieldBundle\Service\FieldReader;
 use Symfony\UX\TwigComponent\Attribute\AsTwigComponent;
 use Symfony\UX\TwigComponent\Attribute\ExposeInTemplate;
@@ -56,7 +55,7 @@ final class FolioNarrative
     #[ExposeInTemplate]
     public function isMainTextMarkdown(): bool
     {
-        return $this->dto !== null && $this->dto->mainTextIsMarkdown();
+        return null !== $this->dto && $this->dto->mainTextIsMarkdown();
     }
 
     /** Plain-text source caption, only when it isn't already the main text shown above. */
@@ -64,7 +63,7 @@ final class FolioNarrative
     public function getSourceCaption(): ?string
     {
         $dto = $this->dto;
-        if ($dto === null || $dto->sourceCaption === null) {
+        if (null === $dto || null === $dto->sourceCaption) {
             return null;
         }
 
@@ -79,14 +78,14 @@ final class FolioNarrative
     public function getDate(): ?string
     {
         $date = $this->dto?->date;
-        if ($date === null || $date === '') {
+        if (null === $date || '' === $date) {
             return null;
         }
         if (str_starts_with($date, '[') && \is_array($list = json_decode($date, true))) {
-            $date = implode('; ', array_filter(array_map(strval(...), $list), static fn (string $v): bool => $v !== ''));
+            $date = implode('; ', array_filter(array_map(strval(...), $list), static fn (string $v): bool => '' !== $v));
         }
 
-        return $date === '' ? null : $date;
+        return '' === $date ? null : $date;
     }
 
     /**
@@ -97,7 +96,7 @@ final class FolioNarrative
     public function getRights(): ?string
     {
         $rights = $this->dto?->rights;
-        if ($rights === null || trim($rights) === '') {
+        if (null === $rights || '' === trim($rights)) {
             return $this->dto?->rightsUri;
         }
         if ($rights !== strip_tags($rights)) {
@@ -116,13 +115,13 @@ final class FolioNarrative
     public function getLocation(): ?string
     {
         $dto = $this->dto;
-        if ($dto === null) {
+        if (null === $dto) {
             return null;
         }
 
-        $parts = array_filter([$dto->city, $dto->state, $dto->country], static fn (?string $v): bool => $v !== null && $v !== '');
+        $parts = array_filter([$dto->city, $dto->state, $dto->country], static fn (?string $v): bool => null !== $v && '' !== $v);
 
-        return $parts === [] ? null : implode(', ', $parts);
+        return [] === $parts ? null : implode(', ', $parts);
     }
 
     /**
@@ -135,7 +134,7 @@ final class FolioNarrative
     public function getDetailFacts(): array
     {
         $dto = $this->dto;
-        if ($dto === null) {
+        if (null === $dto) {
             return [];
         }
 
@@ -148,7 +147,7 @@ final class FolioNarrative
             }
 
             $value = $dto->{$descriptor->name} ?? null;
-            if ($value === null || $value === '' || $value === []) {
+            if (null === $value || '' === $value || [] === $value) {
                 continue;
             }
 

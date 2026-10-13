@@ -20,15 +20,15 @@ final class FolioCoreTwig
 {
     /** Canonical Core code → Tabler icon name. */
     private const ICONS = [
-        Core::OBJECT       => 'tabler:box',
-        Core::DOCUMENT     => 'tabler:file-text',
-        Core::IMAGE        => 'tabler:photo',
-        Core::COLLECTION   => 'tabler:folders',
-        Core::SERIES       => 'tabler:stack-2',
-        Core::PERSON       => 'tabler:user',
-        Core::PLACE        => 'tabler:map-pin',
+        Core::OBJECT => 'tabler:box',
+        Core::DOCUMENT => 'tabler:file-text',
+        Core::IMAGE => 'tabler:photo',
+        Core::COLLECTION => 'tabler:folders',
+        Core::SERIES => 'tabler:stack-2',
+        Core::PERSON => 'tabler:user',
+        Core::PLACE => 'tabler:map-pin',
         Core::ORGANISATION => 'tabler:building',
-        Core::EVENT        => 'tabler:calendar-event',
+        Core::EVENT => 'tabler:calendar-event',
     ];
 
     private ?CommonMarkConverter $converter = null;
@@ -43,7 +43,7 @@ final class FolioCoreTwig
     #[AsTwigFunction('slideshow_filter')]
     public function slideshowFilter(array $params): string
     {
-        if ($params === []) {
+        if ([] === $params) {
             return '';
         }
 
@@ -64,7 +64,8 @@ final class FolioCoreTwig
         private readonly ?string $folioServer = null,
         private readonly string $folioRoutePrefix = '',
         private readonly ?string $folioLocalePrefix = null,
-    ) {}
+    ) {
+    }
 
     /**
      * Label for a term-set code (e.g. 'gender' -> "Gender", 'eventType' -> "Event Type") shown
@@ -79,8 +80,8 @@ final class FolioCoreTwig
     #[AsTwigFunction('term_set_label')]
     public function termSetLabel(string $set): string
     {
-        $key = 'term.' . $set;
-        if ($this->translator !== null) {
+        $key = 'term.'.$set;
+        if (null !== $this->translator) {
             $label = $this->translator->trans($key, domain: 'system');
             if ($label !== $key) {
                 return $label;
@@ -124,12 +125,12 @@ final class FolioCoreTwig
     #[AsTwigFilter('markdown', isSafe: ['html'])]
     public function markdown(?string $text): string
     {
-        if ($text === null || trim($text) === '') {
+        if (null === $text || '' === trim($text)) {
             return '';
         }
 
         $trimmed = trim($text);
-        if (\strlen($trimmed) >= 2 && $trimmed[0] === '"' && str_ends_with($trimmed, '"')) {
+        if (\strlen($trimmed) >= 2 && '"' === $trimmed[0] && str_ends_with($trimmed, '"')) {
             $decoded = json_decode($trimmed);
             if (\is_string($decoded)) {
                 $text = $decoded;
@@ -158,10 +159,11 @@ final class FolioCoreTwig
     #[AsTwigFunction('folio_browse_url')]
     public function browseUrl(string $folioCode): ?string
     {
-        if ($this->folioServer !== null && $this->folioServer !== '') {
+        if (null !== $this->folioServer && '' !== $this->folioServer) {
             $locale = $this->folioLocalePrefix ? '/'.rawurlencode($this->folioLocalePrefix) : '';
             $code = implode('/', array_map(rawurlencode(...), explode('/', $folioCode)));
-            return rtrim($this->folioServer, '/').$locale.(trim($this->folioRoutePrefix, '/') !== '' ? '/'.trim($this->folioRoutePrefix, '/') : '').'/'.$code;
+
+            return rtrim($this->folioServer, '/').$locale.('' !== trim($this->folioRoutePrefix, '/') ? '/'.trim($this->folioRoutePrefix, '/') : '').'/'.$code;
         }
         try {
             return $this->urlGenerator?->generate('survos_folio_show', ['folioCode' => $folioCode]);
@@ -173,7 +175,7 @@ final class FolioCoreTwig
     #[AsTwigFunction('folio_provider_url')]
     public function providerUrl(string $provider): ?string
     {
-        if ($this->searchRoute === null || $this->urlGenerator === null) {
+        if (null === $this->searchRoute || null === $this->urlGenerator) {
             return null;
         }
 

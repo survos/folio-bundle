@@ -49,7 +49,7 @@ final class FolioElasticRowIndex
     /** Whether a folio's build left text search to this index (fts_content = off). */
     public function wantsIndex(string $dbFile): bool
     {
-        return FolioFtsIndexer::ftsContent($this->open($dbFile)) === Folio::FTS_CONTENT_OFF;
+        return Folio::FTS_CONTENT_OFF === FolioFtsIndexer::ftsContent($this->open($dbFile));
     }
 
     /**
@@ -58,6 +58,7 @@ final class FolioElasticRowIndex
      * rows or the new ones and never an empty folio.
      *
      * @param (callable(int): void)|null $progress called with the running row count after each chunk
+     *
      * @return array{rows: int, bytes: int, removed: int}
      */
     public function index(string $folioCode, ?callable $progress = null): array
@@ -65,7 +66,9 @@ final class FolioElasticRowIndex
         // All producers on this host share the lock, including explicit CLI reindexes.
         // Deploy one writer host (Harvest); multiple hosts need a distributed lock.
         $lock = fopen(sys_get_temp_dir().'/folio-es-'.hash('sha256', $this->index.':'.$folioCode).'.lock', 'c');
-        if ($lock === false) { throw new \RuntimeException('Cannot open Folio index lock.'); }
+        if (false === $lock) {
+            throw new \RuntimeException('Cannot open Folio index lock.');
+        }
         if (!flock($lock, LOCK_EX | LOCK_NB)) {
             fclose($lock);
             throw new \RuntimeException('Another index run is active for '.$folioCode);
@@ -111,7 +114,7 @@ final class FolioElasticRowIndex
                 $progress && $progress($rows);
             }
         }
-        if ($buffer !== []) {
+        if ([] !== $buffer) {
             $this->flush($buffer);
             $progress && $progress($rows);
         }
@@ -157,7 +160,7 @@ final class FolioElasticRowIndex
     public function match(string $folioCode, string $text, ?string $coreCode = null): ?array
     {
         $filter = [['term' => ['folioCode' => $folioCode]]];
-        if ($coreCode !== null) {
+        if (null !== $coreCode) {
             $filter[] = ['term' => ['coreCode' => $coreCode]];
         }
         try {
@@ -184,7 +187,7 @@ final class FolioElasticRowIndex
         }
         $ids = array_map(static fn (array $hit): string => (string) ($hit['_source']['rowId'] ?? $hit['_id']), $response['hits']['hits']);
         // No match in a folio that was never indexed is not "no match".
-        if ($ids === [] && !$this->count($folioCode)) {
+        if ([] === $ids && !$this->count($folioCode)) {
             return null;
         }
 
@@ -210,13 +213,14 @@ final class FolioElasticRowIndex
 
     private function ensureIndex(): void
     {
-        if ($this->elastic->request('HEAD', $this->index, expected: [200, 404]) === 200) {
+        if (200 === $this->elastic->request('HEAD', $this->index, expected: [200, 404])) {
             $mappings = $this->elastic->request('GET', $this->index.'/_mapping', decode: true);
             foreach ($mappings as $definition) {
                 if (($definition['mappings']['_meta']['folioRowVersion'] ?? null) !== 2) {
                     throw new \RuntimeException('Legacy Folio ES mapping: configure a new elastic_row_index, reindex selected Folios, then switch readers. Existing index was not changed.');
                 }
             }
+
             return;
         }
         // Neutral baseline across source and translated Folios. Language-specific stemming
@@ -248,8 +252,7 @@ final class FolioElasticRowIndex
         if ($response['errors'] ?? false) {
             foreach ($response['items'] ?? [] as $item) {
                 if (isset($item['index']['error'])) {
-                    throw new \RuntimeException(sprintf('Elasticsearch rejected %s: %s', $item['index']['_id'] ?? '?',
-                        $item['index']['error']['reason'] ?? json_encode($item['index']['error'])));
+                    throw new \RuntimeException(sprintf('Elasticsearch rejected %s: %s', $item['index']['_id'] ?? '?', $item['index']['error']['reason'] ?? json_encode($item['index']['error'])));
                 }
             }
         }
@@ -264,6 +267,7 @@ final class FolioElasticRowIndex
         if (($response['timed_out'] ?? false) || ($response['failures'] ?? []) !== [] || ($response['version_conflicts'] ?? 0) > 0) {
             throw new \RuntimeException('Folio stale-document cleanup was incomplete; retry indexing.');
         }
+
         return (int) ($response['deleted'] ?? 0);
     }
 

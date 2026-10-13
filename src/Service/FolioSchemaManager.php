@@ -10,8 +10,21 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
 use Psr\Cache\CacheItemPoolInterface;
 use Psr\Log\LoggerInterface;
+use Survos\FolioBundle\Entity\Claim;
+use Survos\FolioBundle\Entity\Core;
+use Survos\FolioBundle\Entity\Doc;
+use Survos\FolioBundle\Entity\Folio;
+use Survos\FolioBundle\Entity\Link;
+use Survos\FolioBundle\Entity\LinkType;
+use Survos\FolioBundle\Entity\Page;
+use Survos\FolioBundle\Entity\Row;
+use Survos\FolioBundle\Entity\SchemaProperty;
+use Survos\FolioBundle\Entity\SchemaTable;
+use Survos\FolioBundle\Entity\Str;
+use Survos\FolioBundle\Entity\StrTranslation;
+use Survos\FolioBundle\Entity\Term;
+use Survos\FolioBundle\Entity\TermSet;
 use Survos\FolioBundle\Exception\FolioMigrationInProgressException;
-use Survos\FolioBundle\Entity\{Claim,Core,Doc,Folio,Link,LinkType,Page,Row,SchemaProperty,SchemaTable,Str,StrTranslation,Term,TermSet};
 
 final class FolioSchemaManager
 {
@@ -20,7 +33,7 @@ final class FolioSchemaManager
     /** Memoized per process — the entity schema is constant for a deploy. */
     private ?int $expectedVersion = null;
 
-    /** @see schemaTool() — memoized because building one creates a metadata factory. */
+    /** @see SchemaTool() — memoized because building one creates a metadata factory. */
     private ?SchemaTool $schemaTool = null;
 
     public function __construct(
@@ -87,14 +100,14 @@ final class FolioSchemaManager
      */
     public function expectedVersion(EntityManagerInterface $em): int
     {
-        if ($this->expectedVersion !== null) {
+        if (null !== $this->expectedVersion) {
             return $this->expectedVersion;
         }
 
         $fingerprint = $this->entitySourcesFingerprint();
         // No readable entity sources (unexpected) — compute every time rather than cache under a
         // key that can never change.
-        $item = $fingerprint === null ? null : $this->cache->getItem('survos_folio.schema_version.' . $fingerprint);
+        $item = null === $fingerprint ? null : $this->cache->getItem('survos_folio.schema_version.'.$fingerprint);
         if ($item?->isHit()) {
             return $this->expectedVersion = (int) $item->get();
         }
@@ -103,9 +116,9 @@ final class FolioSchemaManager
         $metas = array_map(static fn (string $class) => $mf->getMetadataFor($class), self::ENTITIES);
         $sql = $this->schemaTool($em)->getCreateSchemaSql($metas);
         sort($sql);
-        $version = crc32(implode("\n", $sql)) & 0x7fffffff;
+        $version = crc32(implode("\n", $sql)) & 0x7FFFFFFF;
 
-        if ($item !== null) {
+        if (null !== $item) {
             // A read-only build dir just means save() fails and we recompute next process — the
             // value stays correct either way.
             $this->cache->save($item->set($version));
@@ -117,8 +130,8 @@ final class FolioSchemaManager
     /** Newest mtime across the entity sources, or null when they can't be read. */
     private function entitySourcesFingerprint(): ?string
     {
-        $files = glob(dirname(__DIR__) . '/Entity/*.php') ?: [];
-        if ($files === []) {
+        $files = glob(dirname(__DIR__).'/Entity/*.php') ?: [];
+        if ([] === $files) {
             return null;
         }
 
@@ -127,7 +140,7 @@ final class FolioSchemaManager
             $newest = max($newest, (int) filemtime($file));
         }
 
-        return $newest === 0 ? null : (string) $newest;
+        return 0 === $newest ? null : (string) $newest;
     }
 
     /**
@@ -184,16 +197,16 @@ final class FolioSchemaManager
         // and it is pure duplicated work. The loser waits ~25 ms, re-checks, and finds the folio
         // already current.
         $path = (string) ($em->getConnection()->getParams()['path'] ?? '');
-        $handle = $path === '' ? null : $this->lockForMigration($path);
+        $handle = '' === $path ? null : $this->lockForMigration($path);
 
         try {
             // Re-check under the lock: whoever held it may have just done our work for us.
-            if ($handle !== null && $this->isCurrent($em)) {
+            if (null !== $handle && $this->isCurrent($em)) {
                 return;
             }
             $this->applySchema($em);
         } finally {
-            if ($handle !== null) {
+            if (null !== $handle) {
                 flock($handle, LOCK_UN);
                 fclose($handle);
             }
@@ -210,8 +223,8 @@ final class FolioSchemaManager
      */
     private function lockForMigration(string $path, int $waitMs = 2000): mixed
     {
-        $handle = @fopen($path . '.lock', 'c');
-        if ($handle === false) {
+        $handle = @fopen($path.'.lock', 'c');
+        if (false === $handle) {
             // An unwritable folio dir is a deployment problem, not a reason to refuse to open a
             // folio that may not even need migrating. Proceed unlocked, as before this existed.
             $this->logger?->warning('Folio migration lock unavailable; proceeding unserialized', ['path' => $path]);
@@ -261,7 +274,7 @@ final class FolioSchemaManager
             $info = $conn->fetchAllAssociative(sprintf('PRAGMA table_info(%s)', $quotedTable));
             $existing = array_map(static fn (array $r): string => (string) $r['name'], $info);
 
-            if ($existing === []) {
+            if ([] === $existing) {
                 // Brand-new table: create it from metadata (also introspection-free).
                 foreach ($schemaTool->getCreateSchemaSql([$meta]) as $sql) {
                     $conn->executeStatement($sql);
@@ -285,7 +298,7 @@ final class FolioSchemaManager
                         $quotedTable,
                         $platform->getColumnDeclarationSQL($column->getObjectName()->toSQL($platform), $columnOptions),
                     ));
-                    $addedColumns[] = $table . '.' . $column->getObjectName()->toString();
+                    $addedColumns[] = $table.'.'.$column->getObjectName()->toString();
                 } catch (\Throwable $e) {
                     // Tolerate a concurrent open that already added it (auto-migrate on open can race).
                     if (!str_contains($e->getMessage(), 'duplicate column')) {

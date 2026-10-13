@@ -28,6 +28,7 @@ final class FolioPublicationsTest extends TestCase
         $requested = null;
         $http = new MockHttpClient(function (string $method, string $url) use (&$requested): MockResponse {
             $requested = $url;
+
             return new MockResponse(json_encode(['version' => 1, 'datasetKey' => 'loc/one', 'publications' => [
                 self::publication('ink', 'Ink', 'https://inkstory.org/one', true),
                 self::publication('ink', 'Ink', 'https://inkstory.org/one', true, 'folio'),

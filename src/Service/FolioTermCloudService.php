@@ -39,7 +39,7 @@ final readonly class FolioTermCloudService
         foreach ($this->facetFields->refinementFieldNames($conn) as $field) {
             $fieldMeta[$field['name']] = $field;
         }
-        if ($fieldMeta === []) {
+        if ([] === $fieldMeta) {
             return [];
         }
 
@@ -88,8 +88,8 @@ final readonly class FolioTermCloudService
             }
 
             $setCode = $fieldToSetCode[$field] ?? null;
-            $termId = $setCode !== null ? "{$ctx->folioCode}:{$setCode}:{$row['value']}" : null;
-            if ($termId !== null) {
+            $termId = null !== $setCode ? "{$ctx->folioCode}:{$setCode}:{$row['value']}" : null;
+            if (null !== $termId) {
                 $neededIds[$termId] = true;
             }
 
@@ -102,7 +102,7 @@ final readonly class FolioTermCloudService
         }
 
         $terms = [];
-        if ($neededIds !== []) {
+        if ([] !== $neededIds) {
             $ids = array_keys($neededIds);
             $placeholders = implode(', ', array_fill(0, count($ids), '?'));
             foreach ($conn->executeQuery(
@@ -116,14 +116,14 @@ final readonly class FolioTermCloudService
         $byField = [];
         foreach ($candidates as $field => $entries) {
             foreach ($entries as $entry) {
-                if ($entry['termId'] !== null) {
+                if (null !== $entry['termId']) {
                     $termRow = $terms[$entry['termId']] ?? null;
-                    if ($termRow === null) {
+                    if (null === $termRow) {
                         // An unclassified value under a controlled set isn't real vocabulary yet --
                         // skip rather than show a raw code where a translated label is expected.
                         continue;
                     }
-                    $label = $termRow['label'] !== null && $termRow['label'] !== '' ? (string) $termRow['label'] : (string) $termRow['code'];
+                    $label = null !== $termRow['label'] && '' !== $termRow['label'] ? (string) $termRow['label'] : (string) $termRow['code'];
                     $code = (string) $termRow['code'];
                 } else {
                     $label = $entry['value'];
@@ -141,7 +141,7 @@ final readonly class FolioTermCloudService
 
         $result = [];
         foreach ($byField as $field => $entries) {
-            if ($entries === []) {
+            if ([] === $entries) {
                 continue;
             }
 

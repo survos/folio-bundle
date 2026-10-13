@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Controller;
 
 use Survos\DataContracts\Util\ImageUrl;
-use Survos\DataContracts\Util\ImageUrlVerdict;
 use Survos\FolioBundle\Entity\Claim;
 use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Service\FolioService;
@@ -60,7 +59,7 @@ final class FolioImageDebugController extends AbstractController
             'verdict' => $verdict,
             // Only sign a URL we'd actually request; signing a known-bad one would imply the
             // gallery still emits it, which after the Row::getThumbnailSource() gate it does not.
-            'imgproxyUrl' => $verdict->isRenderable() && $raw !== null && $this->imgproxy !== null
+            'imgproxyUrl' => $verdict->isRenderable() && null !== $raw && null !== $this->imgproxy
                 ? $this->imgproxy->resizePreset($raw, 'thumb')
                 : null,
             'folioPath' => $this->folioPath($folioCode),
@@ -83,10 +82,10 @@ final class FolioImageDebugController extends AbstractController
         [$row] = $this->loadRow($rowId);
 
         $url = $row->getRawThumbnailSource();
-        if ($url === null) {
+        if (null === $url) {
             return $this->json(['ok' => false, 'error' => 'This row has no image URL at all.']);
         }
-        if ($this->http === null) {
+        if (null === $this->http) {
             return $this->json(['ok' => false, 'error' => 'No HTTP client available in this app.']);
         }
 
@@ -181,11 +180,11 @@ final class FolioImageDebugController extends AbstractController
     private function builtAt(string $folioCode): ?\DateTimeImmutable
     {
         $path = $this->folioPath($folioCode);
-        if ($path === null || !is_file($path)) {
+        if (null === $path || !is_file($path)) {
             return null;
         }
         $mtime = filemtime($path);
 
-        return $mtime === false ? null : new \DateTimeImmutable('@' . $mtime);
+        return false === $mtime ? null : new \DateTimeImmutable('@'.$mtime);
     }
 }

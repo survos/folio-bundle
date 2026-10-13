@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Command;
 
-use Survos\FolioBundle\Service\{FolioArchiveService,FolioService};
+use Survos\FolioBundle\Service\FolioArchiveService;
+use Survos\FolioBundle\Service\FolioService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
@@ -17,7 +18,8 @@ final class FolioPublishCommand
     public function __construct(
         private readonly FolioService $folios,
         private readonly FolioArchiveService $archiveService,
-    ) {}
+    ) {
+    }
 
     public function __invoke(
         SymfonyStyle $io,
@@ -40,8 +42,9 @@ final class FolioPublishCommand
         $folioDir = $this->folios->rootPath();
         $folioPaths = $this->resolveFolios($folioDir, $dataset, $provider, $all);
 
-        if ($folioPaths === []) {
+        if ([] === $folioPaths) {
             $io->warning('No folios found to publish.');
+
             return Command::SUCCESS;
         }
 
@@ -67,7 +70,7 @@ final class FolioPublishCommand
                 continue;
             }
 
-            $pathInRepo = $folioCode . '.folio.gz';
+            $pathInRepo = $folioCode.'.folio.gz';
             $process = new Process(['hf', 'upload', $repo, $result['archive'], $pathInRepo, '--type', 'dataset']);
             $process->setTimeout(300);
             $process->run();
@@ -77,24 +80,26 @@ final class FolioPublishCommand
                 continue;
             }
 
-            $io->text('Uploaded: ' . $pathInRepo);
+            $io->text('Uploaded: '.$pathInRepo);
             $published[] = $pathInRepo;
         }
 
         $io->success(sprintf('Published %d folio(s)', count($published)));
+
         return Command::SUCCESS;
     }
 
     /** @return array<string, string> folioCode => path */
     private function resolveFolios(string $folioDir, ?string $dataset, ?string $provider, bool $all): array
     {
-        if ($dataset !== null && $dataset !== '') {
+        if (null !== $dataset && '' !== $dataset) {
             $path = $this->folios->path($dataset);
+
             return is_file($path) ? [$dataset => $path] : [];
         }
 
         $folios = [];
-        $searchDir = $folioDir . '/' . ($provider ?? '');
+        $searchDir = $folioDir.'/'.($provider ?? '');
 
         if (!is_dir($searchDir)) {
             return [];
@@ -113,21 +118,23 @@ final class FolioPublishCommand
             }
             $relative = substr($file->getPathname(), strlen($folioDir) + 1);
             $folioCode = substr($relative, 0, -strlen('.folio'));
-            if (!$all && $provider === null) {
+            if (!$all && null === $provider) {
                 continue;
             }
             $folios[$folioCode] = $file->getPathname();
         }
 
         ksort($folios);
+
         return $folios;
     }
 
     private function formatBytes(int $bytes): string
     {
         if ($bytes >= 1_048_576) {
-            return round($bytes / 1_048_576, 1) . ' MB';
+            return round($bytes / 1_048_576, 1).' MB';
         }
-        return round($bytes / 1024, 1) . ' KB';
+
+        return round($bytes / 1024, 1).' KB';
     }
 }

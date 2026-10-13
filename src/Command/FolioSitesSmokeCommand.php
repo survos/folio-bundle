@@ -7,7 +7,9 @@ namespace Survos\FolioBundle\Command;
 use Psr\Log\LoggerInterface;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\FolioBundle\Set\FolioSiteRegistry;
-use Symfony\Component\Console\Attribute\{Argument, AsCommand, Option};
+use Symfony\Component\Console\Attribute\Argument;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -39,7 +41,8 @@ final class FolioSitesSmokeCommand
         #[Autowire(service: 'services_resetter')]
         private readonly ResetInterface $resetter,
         private readonly ?LoggerInterface $logger = null,
-    ) {}
+    ) {
+    }
 
     public function __invoke(
         SymfonyStyle $io,
@@ -48,8 +51,8 @@ final class FolioSitesSmokeCommand
         #[Option('Locale for folio routes')] string $locale = 'en',
         #[Option('Log failures at critical level, for alerting')] bool $notify = false,
     ): int {
-        $sites = $site !== null ? [$site => $this->sites->get($site)] : $this->sites->all();
-        if ($sites === []) {
+        $sites = null !== $site ? [$site => $this->sites->get($site)] : $this->sites->all();
+        if ([] === $sites) {
             $io->note('No folio sites are configured (survos_folio.sites).');
 
             return Command::SUCCESS;
@@ -70,7 +73,7 @@ final class FolioSitesSmokeCommand
         }
 
         $io->table(['site', 'page', 'path', 'status'], $rows);
-        if ($failures === []) {
+        if ([] === $failures) {
             $io->success(sprintf('%d page(s), all 2xx.', count($rows)));
 
             return Command::SUCCESS;
@@ -111,13 +114,13 @@ final class FolioSitesSmokeCommand
             return null; // the folio home request reports why the folio cannot be opened
         }
 
-        return is_string($value) && $value !== '' ? $value : null;
+        return is_string($value) && '' !== $value ? $value : null;
     }
 
     /** @return array{int, string} status, and the path it ended on after same-host redirects */
     private function request(string $host, string $path): array
     {
-        for ($hop = 0; ; ++$hop) {
+        for ($hop = 0;; ++$hop) {
             try {
                 $response = $this->kernel->handle(Request::create('https://'.$host.$path), HttpKernelInterface::MAIN_REQUEST, true);
             } catch (\Throwable) {
@@ -127,11 +130,11 @@ final class FolioSitesSmokeCommand
             }
             $status = $response->getStatusCode();
             $location = $response->headers->get('Location');
-            if (!$response->isRedirection() || $location === null || $hop >= self::MAX_REDIRECTS) {
+            if (!$response->isRedirection() || null === $location || $hop >= self::MAX_REDIRECTS) {
                 return [$status, $path];
             }
             $target = parse_url($location);
-            if (isset($target['host']) && strcasecmp($target['host'], $host) !== 0) {
+            if (isset($target['host']) && 0 !== strcasecmp($target['host'], $host)) {
                 return [$status, $path]; // leaving the site: the redirect itself is the answer
             }
             $path = ($target['path'] ?? '/').(isset($target['query']) ? '?'.$target['query'] : '');
@@ -141,7 +144,7 @@ final class FolioSitesSmokeCommand
     /** @param list<string> $hosts */
     private function pickHost(array $hosts, ?string $contains): string
     {
-        if ($contains !== null) {
+        if (null !== $contains) {
             foreach ($hosts as $h) {
                 if (str_contains($h, $contains)) {
                     return $h;

@@ -18,8 +18,8 @@ final readonly class FolioInput
             $key = str_replace('_', '/', $key);
         }
         $parts = explode('/', $key, 2);
-        $this->provider  = $parts[0];
-        $this->dataset   = $parts[1] ?? $parts[0];
+        $this->provider = $parts[0];
+        $this->dataset = $parts[1] ?? $parts[0];
         $this->folioCode = $key;
     }
 }

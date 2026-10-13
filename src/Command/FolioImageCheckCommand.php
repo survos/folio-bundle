@@ -9,7 +9,9 @@ use Survos\DataContracts\Util\ImageUrlVerdict;
 use Survos\FolioBundle\Service\FolioService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Input\{InputArgument, InputInterface, InputOption};
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -51,7 +53,7 @@ final class FolioImageCheckCommand extends Command
         $limit = max(1, (int) $input->getOption('limit'));
 
         $folioCodes = $this->resolveFolioCodes($input->getArgument('folioCode'));
-        if ($folioCodes === []) {
+        if ([] === $folioCodes) {
             $io->error('No folios matched.');
 
             return Command::FAILURE;
@@ -92,7 +94,7 @@ final class FolioImageCheckCommand extends Command
                 $verdict = is_string($src) ? ImageUrl::classify($src) : ImageUrlVerdict::Empty;
                 $counts[$verdict->value] = ($counts[$verdict->value] ?? 0) + 1;
 
-                $isOffender = $verdict->isHarvestDefect() || ($withDocuments && $verdict === ImageUrlVerdict::Document);
+                $isOffender = $verdict->isHarvestDefect() || ($withDocuments && ImageUrlVerdict::Document === $verdict);
                 if ($isOffender && count($offenders) < $limit) {
                     $offenders[] = [$record['id'], $verdict, (string) $src];
                 }
@@ -107,7 +109,7 @@ final class FolioImageCheckCommand extends Command
             $totals['documents'] += $documents;
             $totals['empty'] += $empty;
 
-            if ($defects === 0 && ($documents === 0 || !$withDocuments)) {
+            if (0 === $defects && (0 === $documents || !$withDocuments)) {
                 continue;
             }
 
@@ -119,13 +121,13 @@ final class FolioImageCheckCommand extends Command
                     $io->writeln(sprintf('  <comment>%s</comment>  %s', $verdict->value, $id));
                     $io->writeln(sprintf('    %s', $src));
                     if ($withHead) {
-                        $io->writeln('    ' . $this->describeHead($src));
+                        $io->writeln('    '.$this->describeHead($src));
                     }
                 }
             }
         }
 
-        if ($rows === []) {
+        if ([] === $rows) {
             $io->success(sprintf('No image-URL defects across %d row(s).', $totals['rows']));
 
             return Command::SUCCESS;
@@ -153,31 +155,31 @@ final class FolioImageCheckCommand extends Command
     {
         $root = $this->folios->rootPath();
         $all = [];
-        foreach (glob($root . '/*/*.folio') ?: [] as $path) {
+        foreach (glob($root.'/*/*.folio') ?: [] as $path) {
             $provider = basename(dirname($path));
             $dataset = basename($path, '.folio');
             // Skip localized builds (<code>.en.folio) — same rows, translated strings.
             if (str_contains($dataset, '.')) {
                 continue;
             }
-            $all[] = $provider . '/' . $dataset;
+            $all[] = $provider.'/'.$dataset;
         }
         sort($all);
 
-        if ($argument === null || $argument === '') {
+        if (null === $argument || '' === $argument) {
             return $all;
         }
         if (str_contains($argument, '/')) {
             return in_array($argument, $all, true) ? [$argument] : [];
         }
 
-        return array_values(array_filter($all, static fn (string $c): bool => str_starts_with($c, $argument . '/')));
+        return array_values(array_filter($all, static fn (string $c): bool => str_starts_with($c, $argument.'/')));
     }
 
     /** Live confirmation that the URL really is (or isn't) an image, for the --head listing. */
     private function describeHead(string $url): string
     {
-        if ($this->http === null) {
+        if (null === $this->http) {
             return '(no http client available)';
         }
 
@@ -188,7 +190,7 @@ final class FolioImageCheckCommand extends Command
 
             return sprintf('HTTP %d · %s', $status, $type);
         } catch (\Throwable $e) {
-            return 'fetch failed: ' . $e->getMessage();
+            return 'fetch failed: '.$e->getMessage();
         }
     }
 }

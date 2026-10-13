@@ -12,5 +12,6 @@ final readonly class FolioContext
         public string $folioCode,
         public string $path,
         public EntityManagerInterface $em,
-    ) {}
+    ) {
+    }
 }

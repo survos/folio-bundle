@@ -67,7 +67,7 @@ class SchemaProperty
         $this->table = $table;
         $this->name = $name;
         $this->label = $this->labelize($name);
-        $this->id = $table->id . ':' . $name;
+        $this->id = $table->id.':'.$name;
     }
 
     private function labelize(string $name): string

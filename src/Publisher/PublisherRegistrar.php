@@ -35,7 +35,8 @@ final readonly class PublisherRegistrar
         private ?string $baseUrl = null,
         private ?LoggerInterface $logger = null,
         private ?ClockInterface $clock = null,
-    ) {}
+    ) {
+    }
 
     /**
      * Load the checkpoint's publisher state and reconcile it with Harvest before a sync.
@@ -48,22 +49,24 @@ final readonly class PublisherRegistrar
     public function begin(?array $saved): PublisherState
     {
         $state = PublisherState::fromArray($saved);
-        if ($state->generation() === null) {
+        if (null === $state->generation()) {
             return $this->reset($state);
         }
         try {
             $registration = $this->api->registration();
         } catch (HttpExceptionInterface $error) {
             $this->logger?->warning('Harvest publisher registration unavailable; receipts stay queued', ['error' => $error->getMessage()]);
+
             return $state;
         }
-        if ($registration === null) {
+        if (null === $registration) {
             return $this->reset($state);
         }
         if ($registration->generation !== $state->generation()) {
             $this->logger?->notice('Harvest publisher generation changed; resynchronizing', ['saved' => $state->generation(), 'current' => $registration->generation]);
             $state->startGeneration($registration->generation);
         }
+
         return $state;
     }
 
@@ -72,6 +75,7 @@ final readonly class PublisherRegistrar
     {
         $state ??= new PublisherState();
         $state->startGeneration($this->api->reset($this->selection, $this->label, $this->baseUrl)->generation);
+
         return $state;
     }
 
@@ -92,15 +96,17 @@ final readonly class PublisherRegistrar
      */
     public function confirm(PublisherState $state, FolioCatalogEntry $entry, string $url): bool
     {
-        if ($entry->artifactType === null || $entry->revision === null) {
+        if (null === $entry->artifactType || null === $entry->revision) {
             throw new \InvalidArgumentException(sprintf('Catalog entry %s has no artifact type/revision; confirm entries read from the dataset API.', $entry->datasetKey));
         }
+
         return $this->confirmVariant($state, $entry->datasetKey, $entry->artifactType, $entry->artifactCode(), $entry->revision, $url);
     }
 
     public function confirmVariant(PublisherState $state, string $datasetKey, string $artifactType, string $artifactCode, string $revision, string $url): bool
     {
         $this->assertOnBaseHost($url);
+
         return $state->record(new PublicationReceipt($datasetKey, $artifactType, $artifactCode, ReceiptState::Published, $this->now(), $revision, $url));
     }
 
@@ -119,7 +125,7 @@ final readonly class PublisherRegistrar
     {
         $keep = [];
         foreach ($published as $entry) {
-            if ($entry->artifactType !== null) {
+            if (null !== $entry->artifactType) {
                 $keep[PublicationReceipt::variantKey($entry->datasetKey, $entry->artifactType, $entry->artifactCode())] = true;
             }
         }
@@ -130,6 +136,7 @@ final readonly class PublisherRegistrar
                 ++$withdrawn;
             }
         }
+
         return $withdrawn;
     }
 
@@ -139,7 +146,7 @@ final readonly class PublisherRegistrar
      */
     public function flush(PublisherState $state): PublisherFlushResult
     {
-        if ($state->generation() === null) {
+        if (null === $state->generation()) {
             return new PublisherFlushResult(remaining: count($state->pending()), error: 'Not registered with Harvest yet.');
         }
         $statuses = [];
@@ -151,17 +158,19 @@ final readonly class PublisherRegistrar
                 return $this->afterStaleGeneration($state, $statuses, $batches);
             } catch (HttpExceptionInterface|\UnexpectedValueException $error) {
                 $this->logger?->warning('Harvest receipts not acknowledged; they stay queued', ['error' => $error->getMessage(), 'pending' => count($state->pending())]);
+
                 return new PublisherFlushResult($statuses, $batches, count($state->pending()), error: $error->getMessage());
             }
             ++$batches;
             foreach ($batch as $i => $receipt) {
-                if ($results[$i] === ReceiptStatus::Unknown) {
+                if (ReceiptStatus::Unknown === $results[$i]) {
                     $this->logger?->notice('Harvest no longer has this folio variant', ['datasetKey' => $receipt->datasetKey, 'artifactType' => $receipt->artifactType]);
                 }
                 $state->acknowledge($receipt, $results[$i]);
                 $statuses[$results[$i]->value] = ($statuses[$results[$i]->value] ?? 0) + 1;
             }
         }
+
         return new PublisherFlushResult($statuses, $batches, count($state->pending()));
     }
 
@@ -174,17 +183,18 @@ final readonly class PublisherRegistrar
         $state->startGeneration($stale);
         try {
             $registration = $this->api->registration();
-            $registration === null ? $this->reset($state) : $state->startGeneration($registration->generation);
+            null === $registration ? $this->reset($state) : $state->startGeneration($registration->generation);
         } catch (HttpExceptionInterface $error) {
             $this->logger?->warning('Cannot re-read the publisher registration after a 409', ['error' => $error->getMessage()]);
         }
         $this->logger?->notice('Harvest publisher generation is stale; queued receipts discarded, full sync required', ['stale' => $stale, 'current' => $state->generation()]);
+
         return new PublisherFlushResult($statuses, $batches, 0, staleGeneration: true);
     }
 
     private function assertOnBaseHost(string $url): void
     {
-        if ($this->baseUrl === null || $this->baseUrl === '') {
+        if (null === $this->baseUrl || '' === $this->baseUrl) {
             return;
         }
         if (strtolower((string) parse_url($url, PHP_URL_HOST)) !== strtolower((string) parse_url($this->baseUrl, PHP_URL_HOST))) {

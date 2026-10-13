@@ -50,6 +50,6 @@ class SchemaTable
         $this->coreCode = $coreCode;
         $this->name = $name;
         $this->kind = $kind;
-        $this->id = $folio->code . ':' . $name;
+        $this->id = $folio->code.':'.$name;
     }
 }

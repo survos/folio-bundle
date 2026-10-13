@@ -69,7 +69,7 @@ final class FolioSetResolver
         $set = $this->sets[$code] ?? throw new \InvalidArgumentException(sprintf('No folio set "%s". Defined: %s.', $code, implode(', ', array_keys($this->sets)) ?: 'none'));
         $criteria = $set['criteria'];
         $named = array_values(array_unique(array_map('strval', $criteria['folios'] ?? [])));
-        $selective = array_filter(self::SELECTIVE, static fn (string $k): bool => ($criteria[$k] ?? []) !== []) !== [];
+        $selective = [] !== array_filter(self::SELECTIVE, static fn (string $k): bool => ($criteria[$k] ?? []) !== []);
 
         $members = [];
         foreach ($this->candidates($criteria) as $candidate) {
@@ -96,13 +96,16 @@ final class FolioSetResolver
      */
     public function members(string $code): array
     {
-        if ($this->recordedMembership !== null) {
-            if (!$this->has($code)) { throw new \InvalidArgumentException('Unknown folio set: '.$code); }
+        if (null !== $this->recordedMembership) {
+            if (!$this->has($code)) {
+                throw new \InvalidArgumentException('Unknown folio set: '.$code);
+            }
+
             return $this->recordedMembership->members($code);
         }
         $recorded = $this->recorded($code);
 
-        return $recorded !== null ? $recorded['members'] : $this->resolve($code);
+        return null !== $recorded ? $recorded['members'] : $this->resolve($code);
     }
 
     /**
@@ -112,7 +115,7 @@ final class FolioSetResolver
      */
     public function isSingle(string $code): bool
     {
-        return count($this->members($code)) === 1;
+        return 1 === count($this->members($code));
     }
 
     /** @return array<string, mixed>|null the only member of a set of one */
@@ -120,7 +123,7 @@ final class FolioSetResolver
     {
         $members = $this->members($code);
 
-        return count($members) === 1 ? $members[0] : null;
+        return 1 === count($members) ? $members[0] : null;
     }
 
     /** @return array{code: string, label: ?string, criteria: array<string, mixed>, resolvedAt: string, members: list<array<string, mixed>>}|null */
@@ -142,7 +145,7 @@ final class FolioSetResolver
     /** The folio file for a dataset key if it is on disk here, else null. */
     public function localPath(string $datasetKey): ?string
     {
-        if ($this->folios === null) {
+        if (null === $this->folios) {
             return null;
         }
         $path = $this->folios->path($datasetKey);
@@ -155,16 +158,16 @@ final class FolioSetResolver
     {
         $norm = static fn (array $values): array => array_map(static fn ($v): string => strtolower(trim((string) $v)), $values);
         $tags = $candidate['tags'];
-        if (($criteria['tags'] ?? []) !== [] && array_intersect($norm($criteria['tags']), $tags) === []) {
+        if (($criteria['tags'] ?? []) !== [] && [] === array_intersect($norm($criteria['tags']), $tags)) {
             return false;
         }
-        if (($criteria['tagsAll'] ?? []) !== [] && array_diff($norm($criteria['tagsAll']), $tags) !== []) {
+        if (($criteria['tagsAll'] ?? []) !== [] && [] !== array_diff($norm($criteria['tagsAll']), $tags)) {
             return false;
         }
         if (($criteria['provider'] ?? []) !== [] && !in_array($candidate['provider'], $norm($criteria['provider']), true)) {
             return false;
         }
-        if (($criteria['contentType'] ?? []) !== [] && array_intersect($norm($criteria['contentType']), $candidate['contentTypes'] ?? []) === []) {
+        if (($criteria['contentType'] ?? []) !== [] && [] === array_intersect($norm($criteria['contentType']), $candidate['contentTypes'] ?? [])) {
             return false;
         }
 
@@ -174,32 +177,28 @@ final class FolioSetResolver
     /** @return iterable<array<string, mixed>> */
     private function candidates(array $criteria): iterable
     {
-        if ($this->catalog === null) {
+        if (null === $this->catalog) {
             throw new \RuntimeException('Configure a folio catalog to resolve set membership.');
         }
-        {
-            $entries = $this->catalog->all();
-            if ($entries === [] && $this->catalog->isStale()) {
-                throw new \RuntimeException(sprintf('The folio catalog %s is unreachable and nothing is cached.', $this->catalog->url()));
-            }
-            foreach ($entries as $entry) {
-                // A translated variant (mus/enterreno + "en") is the same folio for membership;
-                // folio:pull fetches the variants along with it.
-                if ($entry->locale === null) {
-                    yield $this->fromCatalog($entry);
-                }
-            }
 
-            return;
+        $entries = $this->catalog->all();
+        if ([] === $entries && $this->catalog->isStale()) {
+            throw new \RuntimeException(sprintf('The folio catalog %s is unreachable and nothing is cached.', $this->catalog->url()));
         }
-
+        foreach ($entries as $entry) {
+            // A translated variant (mus/enterreno + "en") is the same folio for membership;
+            // folio:pull fetches the variants along with it.
+            if (null === $entry->locale) {
+                yield $this->fromCatalog($entry);
+            }
+        }
     }
 
     private function fromCatalog(FolioCatalogEntry $entry): array
     {
         return $this->member(
             $entry->datasetKey, $entry->title, strtolower($entry->provider), $entry->tags, $entry->rowCount, true, $entry->downloadUrl,
-            $entry->contentType !== null ? [strtolower($entry->contentType)] : [],
+            null !== $entry->contentType ? [strtolower($entry->contentType)] : [],
         );
     }
 
@@ -218,8 +217,7 @@ final class FolioSetResolver
             'inCatalog' => $inCatalog,
             'downloadUrl' => $downloadUrl,
             'local' => $local,
-            'available' => $local !== null,
+            'available' => null !== $local,
         ];
     }
-
 }

@@ -66,7 +66,7 @@ final class FolioElasticBuildSetCommand
         #[Option('Which per-folio file variant to open — a locale, or omitted for each folio\'s default build')] ?string $openLocale = null,
         #[Option('Comma-separated dtoData.contentType allowlist; scans every core and filters per item')] ?string $contentTypes = null,
     ): int {
-        if ($folioCodes === []) {
+        if ([] === $folioCodes) {
             $io->error('Provide at least one folio code.');
 
             return Command::INVALID;
@@ -78,14 +78,14 @@ final class FolioElasticBuildSetCommand
         }
         $index = ($this->prefix ?? '').$indexBase;
 
-        $keep = array_values(array_filter(array_map('trim', explode(',', $fields)), static fn (string $f): bool => $f !== ''));
-        $extraKeys = $extras !== null
-            ? array_values(array_filter(array_map('trim', explode(',', $extras)), static fn (string $k): bool => $k !== ''))
+        $keep = array_values(array_filter(array_map('trim', explode(',', $fields)), static fn (string $f): bool => '' !== $f));
+        $extraKeys = null !== $extras
+            ? array_values(array_filter(array_map('trim', explode(',', $extras)), static fn (string $k): bool => '' !== $k))
             : [];
         // Lifted extras are content, so they survive the whitelist as well as --all-fields.
         $keep = array_values(array_unique([...$keep, ...$extraKeys]));
-        $contentTypeList = $contentTypes !== null
-            ? array_values(array_filter(array_map('trim', explode(',', $contentTypes)), static fn (string $t): bool => $t !== ''))
+        $contentTypeList = null !== $contentTypes
+            ? array_values(array_filter(array_map('trim', explode(',', $contentTypes)), static fn (string $t): bool => '' !== $t))
             : null;
 
         $io->title($index);
@@ -104,7 +104,7 @@ final class FolioElasticBuildSetCommand
             // use the sanitised form the Meilisearch build already uses, so the two indexes hold
             // the same identifiers and can be compared document for document.
             $id = isset($document['id']) ? preg_replace('/[^A-Za-z0-9_-]/', '_', (string) $document['id']) : null;
-            if ($id === null) {
+            if (null === $id) {
                 continue;
             }
             $document['rowId'] ??= $document['id'];
@@ -116,7 +116,7 @@ final class FolioElasticBuildSetCommand
                 $buffer = [];
             }
         }
-        if ($buffer !== []) {
+        if ([] !== $buffer) {
             $count += $this->flush($io, $buffer);
         }
 
@@ -133,7 +133,7 @@ final class FolioElasticBuildSetCommand
         $io->success(sprintf('Indexed %s document(s) from %d folio(s) into %s.',
             number_format($count), count($report->perFolio), $index));
 
-        return $report->failed === [] ? Command::SUCCESS : Command::FAILURE;
+        return [] === $report->failed ? Command::SUCCESS : Command::FAILURE;
     }
 
     /**
@@ -150,12 +150,12 @@ final class FolioElasticBuildSetCommand
     private function createIndex(string $index, array $keep, array $extraKeys, bool $allFields): void
     {
         $exists = $this->elastic->request('HEAD', $index, expected: [200, 404]);
-        if ($exists === 200) {
+        if (200 === $exists) {
             return;
         }
         $properties = [];
         foreach (self::TEXT_FIELDS as $field) {
-            if ($allFields || in_array($field, $keep, true) || $field === 'title' || $field === 'label') {
+            if ($allFields || in_array($field, $keep, true) || 'title' === $field || 'label' === $field) {
                 $properties[$field] = ['type' => 'text'];
             }
         }

@@ -131,7 +131,7 @@ final class FolioItem
         $folioCode = "{$this->provider}/{$this->dataset}";
         $ctx = $this->folios->context($folioCode);
         $core = $ctx->em->find(Core::class, Core::id($folioCode, $this->coreCode));
-        if ($core === null) {
+        if (null === $core) {
             return null;
         }
 
@@ -153,7 +153,7 @@ final class FolioItem
     public function getFocusModeUrl(): ?string
     {
         $row = $this->getRow();
-        if ($row === null) {
+        if (null === $row) {
             return null;
         }
 
@@ -175,7 +175,7 @@ final class FolioItem
     public function getTerms(): array
     {
         $row = $this->getRow();
-        if ($row === null) {
+        if (null === $row) {
             return [];
         }
 
@@ -187,8 +187,8 @@ final class FolioItem
     #[ExposeInTemplate]
     public function getPrevUrl(): ?string
     {
-        if ($this->prevUrlOverride !== null) {
-            return $this->prevUrlOverride !== '' ? $this->prevUrlOverride : null;
+        if (null !== $this->prevUrlOverride) {
+            return '' !== $this->prevUrlOverride ? $this->prevUrlOverride : null;
         }
 
         return $this->buildAdjacentUrl($this->getAdjacent()['prev'] ?? null);
@@ -197,8 +197,8 @@ final class FolioItem
     #[ExposeInTemplate]
     public function getNextUrl(): ?string
     {
-        if ($this->nextUrlOverride !== null) {
-            return $this->nextUrlOverride !== '' ? $this->nextUrlOverride : null;
+        if (null !== $this->nextUrlOverride) {
+            return '' !== $this->nextUrlOverride ? $this->nextUrlOverride : null;
         }
 
         return $this->buildAdjacentUrl($this->getAdjacent()['next'] ?? null);
@@ -213,12 +213,12 @@ final class FolioItem
      */
     private function getAdjacent(): array
     {
-        if ($this->adjacent !== null) {
+        if (null !== $this->adjacent) {
             return $this->adjacent;
         }
 
         $row = $this->getRow();
-        if ($row === null) {
+        if (null === $row) {
             return $this->adjacent = ['prev' => null, 'next' => null];
         }
 
@@ -249,7 +249,7 @@ final class FolioItem
             ['core' => $row->core->id, 'current' => $this->localId],
         ) ?: [];
 
-        $mk = static fn (?string $id, ?string $type): ?array => $id === null || $id === ''
+        $mk = static fn (?string $id, ?string $type): ?array => null === $id || '' === $id
             ? null
             : ['localId' => $id, 'dtoType' => $type ?: 'row'];
 
@@ -261,11 +261,11 @@ final class FolioItem
 
     private function buildAdjacentUrl(?array $target): ?string
     {
-        if ($target === null) {
+        if (null === $target) {
             return null;
         }
 
-        if ($this->rowUrlTemplate === '') {
+        if ('' === $this->rowUrlTemplate) {
             return $this->urlGenerator->generate('survos_folio_row_show', [
                 'folioCode' => "$this->provider/$this->dataset",
                 'coreCode' => $this->coreCode,

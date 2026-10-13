@@ -69,7 +69,7 @@ final class FolioAiBatchPreparer
         $ctx = $this->folios->context($folioCode);
         $source = $this->sourceForTask($task);
         $handle = fopen($inputPath, 'wb');
-        if ($handle === false) {
+        if (false === $handle) {
             throw new \RuntimeException(sprintf('Unable to write "%s".', $inputPath));
         }
 
@@ -77,17 +77,17 @@ final class FolioAiBatchPreparer
         $skippedNoImage = 0;
         try {
             foreach ($this->candidateRows($ctx->em->getConnection(), $coreCode, $dtoType, $source, $includeExisting) as $row) {
-                if ($task === FolioAiPromptBuilder::IMAGE_ENRICH) {
+                if (FolioAiPromptBuilder::IMAGE_ENRICH === $task) {
                     $dtoData = $this->decode($row['dto_data'] ?? null);
-                    if ($this->promptBuilder->imageUrl($dtoData) === null) {
-                        $skippedNoImage++;
+                    if (null === $this->promptBuilder->imageUrl($dtoData)) {
+                        ++$skippedNoImage;
                         continue;
                     }
                 }
 
                 $line = $this->promptBuilder->requestLine($row, $task, $model, $source, $imageDetail);
-                fwrite($handle, json_encode($line, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n");
-                $count++;
+                fwrite($handle, json_encode($line, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n");
+                ++$count;
                 if ($count >= $limit) {
                     break;
                 }
@@ -113,7 +113,7 @@ final class FolioAiBatchPreparer
                 'includeExisting' => $includeExisting,
             ],
         ];
-        file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n");
+        file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n");
 
         return ['count' => $count, 'inputPath' => $inputPath, 'manifestPath' => $manifestPath, 'outputPath' => $outputPath];
     }
@@ -151,7 +151,7 @@ JOIN core c ON c.id = i.core_id
 WHERE c.code = :coreCode
 SQL;
         $params = ['coreCode' => $coreCode];
-        if ($dtoType !== null && $dtoType !== '') {
+        if (null !== $dtoType && '' !== $dtoType) {
             $sql .= ' AND i.dto_type = :dtoType';
             $params['dtoType'] = $dtoType;
         }
@@ -178,11 +178,12 @@ SQL;
         if (is_array($value)) {
             return $value;
         }
-        if (!is_string($value) || trim($value) === '') {
+        if (!is_string($value) || '' === trim($value)) {
             return null;
         }
 
         $decoded = json_decode($value, true);
+
         return is_array($decoded) ? $decoded : null;
     }
 }

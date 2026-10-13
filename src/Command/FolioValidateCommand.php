@@ -90,14 +90,14 @@ final class FolioValidateCommand
             $files = array_slice($files, 0, $limit);
         }
 
-        if ($files === []) {
+        if ([] === $files) {
             $io->warning(sprintf('No folio files under %s.', $root));
 
             return Command::SUCCESS;
         }
 
         $known = $this->knownDatasetKeys();
-        if ($known === null) {
+        if (null === $known) {
             $io->note('No dataset catalog or registry available — orphan detection skipped.');
         }
 
@@ -129,19 +129,19 @@ final class FolioValidateCommand
         }
         $io->progressFinish();
 
-        if ($problems !== []) {
+        if ([] !== $problems) {
             $io->table(['status', 'file', 'detail'], $problems);
         }
 
         $deleted = [];
-        if ($removable !== [] && $fix) {
+        if ([] !== $removable && $fix) {
             foreach ($removable as $file) {
                 if ($this->remove($file)) {
                     $deleted[$file] = true;
                 }
             }
             $io->success(sprintf('Removed %d file(s).', count($deleted)));
-        } elseif ($removable !== []) {
+        } elseif ([] !== $removable) {
             $io->warning(sprintf(
                 '%d file(s) can be removed. Re-run with --fix to delete them.',
                 count($removable),
@@ -152,7 +152,7 @@ final class FolioValidateCommand
         // dataset needs to go back through the pipeline" signal as a file we removed, and the app
         // is the only thing that knows which stage that means. Dispatched after the deletions so
         // $deleted is accurate for listeners that care.
-        if ($fix && $invalid !== []) {
+        if ($fix && [] !== $invalid) {
             foreach ($invalid as [$file, $result]) {
                 [$folioCode, $locale] = $this->parse($file);
                 $this->dispatcher->dispatch(new FolioInvalidatedEvent(
@@ -165,7 +165,7 @@ final class FolioValidateCommand
                 ));
             }
             $io->note(sprintf('Announced %d invalid folio(s) via FolioInvalidatedEvent.', count($invalid)));
-        } elseif ($invalid !== []) {
+        } elseif ([] !== $invalid) {
             $io->note(sprintf(
                 '%d invalid folio(s) found. Re-run with --fix to announce them via FolioInvalidatedEvent.',
                 count($invalid),
@@ -180,7 +180,8 @@ final class FolioValidateCommand
     }
 
     /**
-     * @param  array<string, true>|null $known dataset keys, or null when there is no registry
+     * @param array<string, true>|null $known dataset keys, or null when there is no registry
+     *
      * @return array{status: string, detail: string, removable: bool}
      */
     private function validate(string $file, ?array $known): array
@@ -190,14 +191,14 @@ final class FolioValidateCommand
         // Zero bytes is unambiguous: SQLite writes a 100-byte header the moment it creates a
         // database, so even a completely empty one is never 0 bytes. Nothing can be recovered
         // from this and nothing can open it, so it is safe to delete outright.
-        if ($size === 0) {
+        if (0 === $size) {
             return ['status' => 'empty', 'detail' => '0 bytes — never a SQLite database', 'removable' => true];
         }
 
         if (($handle = @fopen($file, 'rb')) !== false) {
             $magic = (string) fread($handle, 16);
             fclose($handle);
-            if ($magic !== self::SQLITE_MAGIC) {
+            if (self::SQLITE_MAGIC !== $magic) {
                 // NOT removable: unlike a 0-byte file this holds bytes we cannot account for — a
                 // truncated download, a wrong-format upload, something half-written. Report it and
                 // let a human decide; silently deleting data we failed to identify is not a fix.
@@ -207,7 +208,7 @@ final class FolioValidateCommand
 
         [$folioCode, $locale] = $this->parse($file);
 
-        if ($known !== null && !$this->isKnown($folioCode, $locale, $known)) {
+        if (null !== $known && !$this->isKnown($folioCode, $locale, $known)) {
             return [
                 'status' => 'orphan',
                 'detail' => sprintf('no dataset "%s" in the registry', $folioCode),
@@ -260,13 +261,13 @@ final class FolioValidateCommand
     private function parse(string $file): array
     {
         $provider = basename(dirname($file));
-        $base = basename($file, '.' . $this->folios->fileExtension());
+        $base = basename($file, '.'.$this->folios->fileExtension());
 
-        if (preg_match('/^(.+)\.([a-z]{2}(?:_[A-Z]{2})?)$/', $base, $m) === 1) {
-            return [$provider . '/' . $m[1], $m[2]];
+        if (1 === preg_match('/^(.+)\.([a-z]{2}(?:_[A-Z]{2})?)$/', $base, $m)) {
+            return [$provider.'/'.$m[1], $m[2]];
         }
 
-        return [$provider . '/' . $base, null];
+        return [$provider.'/'.$base, null];
     }
 
     /**
@@ -283,7 +284,7 @@ final class FolioValidateCommand
             return true;
         }
 
-        return $locale !== null && isset($known[$folioCode . '.' . $locale]);
+        return null !== $locale && isset($known[$folioCode.'.'.$locale]);
     }
 
     /** @return array<string, true>|null */
@@ -293,7 +294,7 @@ final class FolioValidateCommand
             $entries = $this->catalog->all();
             // An unreachable catalog with nothing cached is "don't know", never "nothing is real":
             // the latter would mark every folio on disk an orphan.
-            if ($entries === [] && $this->catalog->isStale()) {
+            if ([] === $entries && $this->catalog->isStale()) {
                 return null;
             }
             $keys = [];
@@ -318,7 +319,7 @@ final class FolioValidateCommand
     private function userVersion(string $file): int
     {
         try {
-            return (int) (new \PDO('sqlite:file:' . $file . '?mode=ro&immutable=1'))
+            return (int) (new \PDO('sqlite:file:'.$file.'?mode=ro&immutable=1'))
                 ->query('PRAGMA user_version')
                 ->fetchColumn();
         } catch (\Throwable) {
@@ -329,8 +330,8 @@ final class FolioValidateCommand
     private function remove(string $file): bool
     {
         foreach (self::SIDECARS as $suffix) {
-            if (is_file($file . $suffix)) {
-                @unlink($file . $suffix);
+            if (is_file($file.$suffix)) {
+                @unlink($file.$suffix);
             }
         }
 
@@ -339,12 +340,12 @@ final class FolioValidateCommand
 
     private function relative(string $file, string $root): string
     {
-        return str_starts_with($file, $root . '/') ? substr($file, strlen($root) + 1) : $file;
+        return str_starts_with($file, $root.'/') ? substr($file, strlen($root) + 1) : $file;
     }
 
     private function bytes(int $size): string
     {
-        return $size < 1024 ? $size . ' B' : sprintf('%.1f MB', $size / 1048576);
+        return $size < 1024 ? $size.' B' : sprintf('%.1f MB', $size / 1048576);
     }
 
     /** @param array<string, int> $counts */

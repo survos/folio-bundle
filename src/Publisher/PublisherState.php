@@ -29,7 +29,8 @@ final class PublisherState
         private array $pending = [],
         private array $confirmed = [],
         private bool $resyncRequired = false,
-    ) {}
+    ) {
+    }
 
     public static function fromArray(?array $saved): self
     {
@@ -42,12 +43,14 @@ final class PublisherState
             $receipt = PublicationReceipt::fromArray($row);
             $state->pending[$receipt->variant()] = $receipt;
         }
+
         return $state;
     }
 
     public function toArray(): array
     {
         $rows = static fn (array $receipts): array => array_values(array_map(static fn (PublicationReceipt $r): array => $r->toArray(), $receipts));
+
         return [
             'version' => 1,
             'generation' => $this->generation,
@@ -57,19 +60,34 @@ final class PublisherState
         ];
     }
 
-    public function generation(): ?int { return $this->generation; }
+    public function generation(): ?int
+    {
+        return $this->generation;
+    }
 
     /** True after a reset or a stale-generation 409, until {@see markResynced()}. Run a full sync. */
-    public function resyncRequired(): bool { return $this->resyncRequired; }
+    public function resyncRequired(): bool
+    {
+        return $this->resyncRequired;
+    }
 
     /** Call after a full sync (and its confirms) completed. */
-    public function markResynced(): void { $this->resyncRequired = false; }
+    public function markResynced(): void
+    {
+        $this->resyncRequired = false;
+    }
 
     /** @return list<PublicationReceipt> oldest queued first */
-    public function pending(): array { return array_values($this->pending); }
+    public function pending(): array
+    {
+        return array_values($this->pending);
+    }
 
     /** @return list<PublicationReceipt> */
-    public function confirmed(): array { return array_values($this->confirmed); }
+    public function confirmed(): array
+    {
+        return array_values($this->confirmed);
+    }
 
     public function confirmedRevision(string $datasetKey, string $artifactType, string $artifactCode = PublicationReceipt::DEFAULT_CODE): ?string
     {
@@ -103,6 +121,7 @@ final class PublisherState
         // Re-queue at the end so batches stay in the order events happened.
         unset($this->pending[$key]);
         $this->pending[$key] = $receipt;
+
         return true;
     }
 
@@ -115,7 +134,7 @@ final class PublisherState
             unset($this->pending[$key]);
         }
         // Harvest has no such variant: it was deleted there, so it is not ours to publish either.
-        if ($status === ReceiptStatus::Unknown && isset($this->confirmed[$key]) && $this->confirmed[$key]->sameAs($receipt)) {
+        if (ReceiptStatus::Unknown === $status && isset($this->confirmed[$key]) && $this->confirmed[$key]->sameAs($receipt)) {
             unset($this->confirmed[$key]);
         }
     }

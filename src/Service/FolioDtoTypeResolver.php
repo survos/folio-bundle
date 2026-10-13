@@ -65,7 +65,7 @@ final class FolioDtoTypeResolver
     public function typeFromPayload(array $payload): string
     {
         $type = $payload['contentType'] ?? $payload['content_type'] ?? null;
-        if (is_string($type) && trim($type) !== '') {
+        if (is_string($type) && '' !== trim($type)) {
             return $this->normalizeType($type);
         }
 

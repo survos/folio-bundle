@@ -4,35 +4,86 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle;
 
-use Survos\FolioBundle\Catalog\FolioCatalogClient;
+use Survos\BookmarkBundle\Service\BookmarkManager;
 use Survos\FolioBundle\Catalog\DatasetPublicationClient;
+use Survos\FolioBundle\Catalog\FolioCatalogClient;
+use Survos\FolioBundle\Command\FolioBrowseCommand;
+use Survos\FolioBundle\Command\FolioFtsRebuildCommand;
+use Survos\FolioBundle\Command\FolioInfoCommand;
+use Survos\FolioBundle\Command\FolioMigrateCommand;
+use Survos\FolioBundle\Command\FolioPublishCommand;
+use Survos\FolioBundle\Command\FolioPullCommand;
+use Survos\FolioBundle\Command\FolioRestoreCommand;
+use Survos\FolioBundle\Command\FolioSitemapCommand;
+use Survos\FolioBundle\Controller\FolioAiController;
+use Survos\FolioBundle\Controller\FolioController;
+use Survos\FolioBundle\Controller\FolioSearchController;
+use Survos\FolioBundle\EventListener\FolioFtsIndexListener;
+use Survos\FolioBundle\EventListener\FolioRouteAttributeListener;
+use Survos\FolioBundle\Menu\FolioMenu;
+use Survos\FolioBundle\Menu\RowMenu;
 use Survos\FolioBundle\Publisher\PublisherApiClient;
 use Survos\FolioBundle\Publisher\PublisherRegistrar;
 use Survos\FolioBundle\Publisher\PublisherSelection;
-use Survos\IiifBundle\SurvosIiifBundle;
-use Survos\ImgproxyBundle\SurvosImgproxyBundle;
-use Survos\BookmarkBundle\Service\BookmarkManager;
-use Survos\FolioBundle\Command\{FolioBrowseCommand,FolioFtsRebuildCommand,FolioInfoCommand,FolioMigrateCommand,FolioPublishCommand,FolioPullCommand,FolioRestoreCommand,FolioValidateCommand};
-use Survos\FolioBundle\EventListener\{BuildFolioRequestedListener,FolioFtsIndexListener,FolioRouteAttributeListener};
-use Survos\FolioBundle\Menu\FolioMenu;
-use Survos\FolioBundle\Menu\RowMenu;
-use Survos\FolioBundle\Controller\{FolioAiController,FolioController,FolioSearchController};
-use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
-use Survos\FolioBundle\Repository\{CoreRepository,FolioRepository,LinkRepository,LinkTypeRepository,RowRepository,StrRepository,StrTranslationRepository,TermRepository,TermSetRepository};
-use Survos\FolioBundle\Service\{FolioAiArtifactPaths,FolioAiBatchPreparer,FolioAiClaimImporter,FolioAiPromptBuilder,FolioArchivePreparer,FolioArchiveService,FolioElasticBuildSetCommand,FolioMeiliBuildSetCommand,FolioMeiliDocumentBuilder,FolioMeiliIndexer,FolioChatContextHolder,FolioChatPromptSuggester,FolioChatService,FolioChatTools,FolioDocsBuilder,FolioDtoTypeResolver,FolioFacetFieldResolver,FolioFtsIndexer,FolioIngestService,FolioQueryAnalyzer,FolioRetriever,FolioSchemaManager,FolioSchemaSnapshotter,FolioService,FolioSlugResolverInterface,FolioTermCloudService,FolioViewBuilder,FolioSummaryService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
-use Survos\FolioBundle\Command\FolioSitemapCommand;
+use Survos\FolioBundle\Repository\CoreRepository;
+use Survos\FolioBundle\Repository\FolioRepository;
+use Survos\FolioBundle\Repository\LinkRepository;
+use Survos\FolioBundle\Repository\LinkTypeRepository;
+use Survos\FolioBundle\Repository\RowRepository;
+use Survos\FolioBundle\Repository\StrRepository;
+use Survos\FolioBundle\Repository\StrTranslationRepository;
+use Survos\FolioBundle\Repository\TermRepository;
+use Survos\FolioBundle\Repository\TermSetRepository;
+use Survos\FolioBundle\Service\FolioAiArtifactPaths;
+use Survos\FolioBundle\Service\FolioAiBatchPreparer;
+use Survos\FolioBundle\Service\FolioAiClaimImporter;
+use Survos\FolioBundle\Service\FolioAiPromptBuilder;
+use Survos\FolioBundle\Service\FolioArchivePreparer;
+use Survos\FolioBundle\Service\FolioArchiveService;
+use Survos\FolioBundle\Service\FolioChatContextHolder;
+use Survos\FolioBundle\Service\FolioChatPromptSuggester;
+use Survos\FolioBundle\Service\FolioChatService;
+use Survos\FolioBundle\Service\FolioChatTools;
+use Survos\FolioBundle\Service\FolioDocsBuilder;
+use Survos\FolioBundle\Service\FolioDtoTypeResolver;
+use Survos\FolioBundle\Service\FolioElasticBuildSetCommand;
+use Survos\FolioBundle\Service\FolioFacetFieldResolver;
+use Survos\FolioBundle\Service\FolioFtsIndexer;
+use Survos\FolioBundle\Service\FolioIngestService;
+use Survos\FolioBundle\Service\FolioMeiliBuildSetCommand;
+use Survos\FolioBundle\Service\FolioMeiliDocumentBuilder;
+use Survos\FolioBundle\Service\FolioMeiliIndexer;
+use Survos\FolioBundle\Service\FolioQueryAnalyzer;
+use Survos\FolioBundle\Service\FolioRetriever;
+use Survos\FolioBundle\Service\FolioSchemaManager;
+use Survos\FolioBundle\Service\FolioSchemaSnapshotter;
+use Survos\FolioBundle\Service\FolioService;
+use Survos\FolioBundle\Service\FolioSlugResolverInterface;
+use Survos\FolioBundle\Service\FolioSummaryService;
+use Survos\FolioBundle\Service\FolioTermCloudService;
+use Survos\FolioBundle\Service\FolioViewBuilder;
+use Survos\FolioBundle\Service\FolioWordCloudService;
+use Survos\FolioBundle\Service\RowClaimsResolver;
+use Survos\FolioBundle\Service\RowSchemaOrgBuilder;
+use Survos\FolioBundle\Service\RowTermsResolver;
 use Survos\FolioBundle\Sitemap\FolioSitemapPopulator;
 use Survos\FolioBundle\Sitemap\FolioSitemapRegistry;
-use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
-use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use Survos\FolioBundle\State\FolioRowProvider;
+use Survos\IiifBundle\SurvosIiifBundle;
+use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
+use Survos\ImgproxyBundle\SurvosImgproxyBundle;
 use Survos\Kit\AbstractUxBundle;
 use Survos\Kit\SurvosKitBundle;
 use Survos\Kit\Traits\HasConfigurableRoutes;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
-use Symfony\Component\DependencyInjection\{ContainerBuilder,ContainerInterface,Reference};
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Kernel\RequiredBundle;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\DependencyInjection\Reference;
+
+use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
 #[RequiredBundle(SurvosKitBundle::class)]
 #[RequiredBundle(SurvosIiifBundle::class, ignoreOnInvalid: true)]
@@ -281,7 +332,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // Engine-neutral: the Meili commands below and an app's Elasticsearch search both read
         // folio rows through FolioDocumentStream.
         $services->set(FolioMeiliDocumentBuilder::class)->autowire()->autoconfigure()->public();
-        $services->set(\Survos\FolioBundle\Service\FolioDocumentStream::class)->autowire()->autoconfigure()->public();
+        $services->set(Service\FolioDocumentStream::class)->autowire()->autoconfigure()->public();
         if (class_exists(\Survos\MeiliBundle\Service\MeiliService::class)) {
             $services->set(FolioMeiliIndexer::class)->autowire()->autoconfigure()->public();
             $services->set(FolioMeiliBuildSetCommand::class)->autowire()->autoconfigure()->public();
@@ -290,20 +341,20 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // HTTP through the bundle's existing symfony/http-client, so unlike the Meili commands it
         // needs no engine client installed and nothing to guard on. It errors clearly when
         // ELASTICSEARCH_DSN is unset, which is the right failure for an app that has no cluster.
-        $services->set(\Survos\FolioBundle\Service\FolioElasticClient::class)->autowire()->autoconfigure();
+        $services->set(Service\FolioElasticClient::class)->autowire()->autoconfigure();
         $services->set(FolioElasticBuildSetCommand::class)->autowire()->autoconfigure()->public();
         // Text search for folios built without FTS (fts_content = off): the shared row index, the
         // command that fills it, and — where Messenger exists — the message a finished build queues.
-        $services->set(\Survos\FolioBundle\Service\FolioElasticRowIndex::class)->autowire()->autoconfigure()->public()->args([
+        $services->set(Service\FolioElasticRowIndex::class)->autowire()->autoconfigure()->public()->args([
             '$index' => $config['elastic_row_index'],
             '$matchLimit' => $config['elastic_match_limit'],
         ]);
-        $services->set(\Survos\FolioBundle\Service\FolioElasticIndexCommand::class)->autowire()->autoconfigure()->public();
-        $services->set(\Survos\FolioBundle\EventListener\FolioElasticIndexListener::class)->autowire()->autoconfigure()
+        $services->set(Service\FolioElasticIndexCommand::class)->autowire()->autoconfigure()->public();
+        $services->set(EventListener\FolioElasticIndexListener::class)->autowire()->autoconfigure()
             ->arg('$enabled', $config['elastic_auto_index'])
             ->tag('kernel.event_listener', ['event' => 'Survos\FolioBundle\Event\FolioPublishedEvent']);
         if (interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
-            $services->set(\Survos\FolioBundle\MessageHandler\IndexFolioRowsHandler::class)->autowire()->autoconfigure();
+            $services->set(MessageHandler\IndexFolioRowsHandler::class)->autowire()->autoconfigure();
         }
         // The 'folio_row' search this bundle's own search.html.twig already assumes exists
         // (hardcodes name: 'folio_row' + hitTemplate: 'search/hits/folio_row.html.twig') --
@@ -313,20 +364,20 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // provide its own templates/search/hits/folio_row.html.twig (the hit card's links/chrome
         // are legitimately app-specific, unlike the facet/sort logic this class owns).
         if (class_exists(\Survos\SearchBundle\Search\AbstractSearch::class) && interface_exists(\Survos\SearchBundle\Search\HitTemplateSearchInterface::class)) {
-            $services->set(\Survos\FolioBundle\Search\FolioRowSearch::class)->autowire()->autoconfigure()->public()->args([
+            $services->set(Search\FolioRowSearch::class)->autowire()->autoconfigure()->public()->args([
                 '$titleSortEnabled' => $config['search_title_sort_enabled'],
                 '$defaultSort' => $config['search_default_sort'],
                 '$hitFields' => $config['search_hit_fields'],
                 '$liveFacetMaxRows' => $config['live_facet_max_rows'],
             ]);
         }
-        $services->set(\Survos\FolioBundle\Service\PeriodicalCoverageService::class)->autowire()->autoconfigure();
+        $services->set(Service\PeriodicalCoverageService::class)->autowire()->autoconfigure();
         $services->set(FolioService::class)->autowire()->autoconfigure()->public()->args([
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
             '$extension' => $config['extension'],
             '$readOnly' => $config['read_only'],
         ]);
-        $services->set(\Survos\FolioBundle\Service\FolioBuilder::class)->autowire()->autoconfigure()->public();
+        $services->set(Service\FolioBuilder::class)->autowire()->autoconfigure()->public();
         foreach ([FolioMigrateCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
@@ -347,22 +398,22 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // routes keep working unchanged.
         $services->set(FolioRouteAttributeListener::class)->autowire()->autoconfigure()->public()
             ->arg('$slugResolver', service(FolioSlugResolverInterface::class)->ignoreOnInvalid());
-        $services->set(\Survos\FolioBundle\Twig\FolioReaderCatalog::class)->autowire()->autoconfigure()
+        $services->set(Twig\FolioReaderCatalog::class)->autowire()->autoconfigure()
             ->arg('$server', $config['reader_server'])
             ->arg('$proxy', $config['reader_proxy'])
             ->arg('$datasets', $config['dataset_api']['enabled'] ? service(DatasetPublicationClient::class) : null);
-        $services->set(\Survos\FolioBundle\Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public()
+        $services->set(Twig\FolioCoreTwig::class)->autowire()->autoconfigure()->public()
             ->arg('$searchRoute', $config['search_route'])
             ->arg('$searchProviderParam', $config['search_provider_param'])
-            ->arg('$bookmarksEnabled', $config['bookmark_class'] !== null && $config['folder_class'] !== null)
+            ->arg('$bookmarksEnabled', null !== $config['bookmark_class'] && null !== $config['folder_class'])
             ->arg('$baseTemplate', $config['base_template'])
             ->arg('$folioServer', $config['folio_server'])
             ->arg('$folioRoutePrefix', $config['folio_server_route_prefix'] ?? $config['route_prefix'])
             ->arg('$folioLocalePrefix', $config['folio_server_locale_prefix']);
-        $services->set(\Survos\FolioBundle\Service\FolioTimelineStats::class)->autowire()->autoconfigure()->public();
-        $services->set(\Survos\FolioBundle\Twig\FolioTimelineTwig::class)->autowire()->autoconfigure()->public();
+        $services->set(Service\FolioTimelineStats::class)->autowire()->autoconfigure()->public();
+        $services->set(Twig\FolioTimelineTwig::class)->autowire()->autoconfigure()->public();
         // |folio_image: imgproxy when installed, the plain URL when not (see FolioImageTwig).
-        $services->set(\Survos\FolioBundle\Twig\FolioImageTwig::class)->autoconfigure()->args([
+        $services->set(Twig\FolioImageTwig::class)->autoconfigure()->args([
             '$imgproxy' => service('Survos\\ImgproxyBundle\\Service\\ImgproxyUrlBuilder')->ignoreOnInvalid(),
         ]);
         // JSON-LD for the row detail page. schema-org-bundle is optional: survos/data-contracts
@@ -401,12 +452,12 @@ final class SurvosFolioBundle extends AbstractUxBundle
         }
         if (interface_exists(\ApiPlatform\State\ProviderInterface::class)) {
             $services->set(FolioRowProvider::class)->autowire()->autoconfigure()->public();
-            $services->set(\Survos\FolioBundle\State\WallCardProvider::class)->autowire()->autoconfigure()->public();
-            $services->set(\Survos\FolioBundle\Service\WallCardMapper::class)->autowire()->autoconfigure();
-            $services->set(\Survos\FolioBundle\Service\WallCardQuery::class)->autowire()->autoconfigure();
-            $services->set(\Survos\FolioBundle\Serializer\WallCardCollectionNormalizer::class)->autowire()->autoconfigure()
+            $services->set(State\WallCardProvider::class)->autowire()->autoconfigure()->public();
+            $services->set(Service\WallCardMapper::class)->autowire()->autoconfigure();
+            $services->set(Service\WallCardQuery::class)->autowire()->autoconfigure();
+            $services->set(Serializer\WallCardCollectionNormalizer::class)->autowire()->autoconfigure()
                 ->tag('serializer.normalizer', ['priority' => 100]);
-            $services->set(\Survos\FolioBundle\EventListener\WallCardResponseListener::class)->autowire()->autoconfigure();
+            $services->set(EventListener\WallCardResponseListener::class)->autowire()->autoconfigure();
         }
         if ($config['admin_navbar_menu'] && class_exists(\Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber::class)) {
             $services->set(FolioMenu::class)->autowire()->autoconfigure()->public()->args([
@@ -426,7 +477,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // Same "null if the optional collaborator isn't configured" optional service pattern
         // above — a host app that hasn't set bookmark_class/folder_class simply doesn't get
         // this service, rather than a container compile failure.
-        if ($config['bookmark_class'] !== null && $config['folder_class'] !== null) {
+        if (null !== $config['bookmark_class'] && null !== $config['folder_class']) {
             if (!class_exists(BookmarkManager::class)) {
                 throw new \LogicException('Install survos/bookmark-bundle before configuring survos_folio.bookmark_class and folder_class.');
             }
@@ -434,7 +485,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 '$bookmarkClass' => $config['bookmark_class'],
                 '$folderClass' => $config['folder_class'],
             ]);
-            $services->set(\Survos\FolioBundle\Bookmark\Service\BookmarkManager::class)->autowire()->autoconfigure()->public()->args([
+            $services->set(Bookmark\Service\BookmarkManager::class)->autowire()->autoconfigure()->public()->args([
                 '$bookmarkClass' => $config['bookmark_class'],
                 '$folderClass' => $config['folder_class'],
             ]);
@@ -451,7 +502,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
     {
         parent::prependExtension($container, $builder);
 
-        $entityDir = dirname(__DIR__) . '/src/Entity';
+        $entityDir = dirname(__DIR__).'/src/Entity';
         if ($builder->hasExtension('api_platform')) {
             $builder->prependExtensionConfig('api_platform', ['mapping' => ['paths' => [$entityDir, dirname(__DIR__).'/src/Api']]]);
         }
@@ -467,5 +518,4 @@ final class SurvosFolioBundle extends AbstractUxBundle
             $builder->prependExtensionConfig('ux_icons', ['aliases' => \Survos\DataContracts\Vocabulary\MuseumVocab::ICONS]);
         }
     }
-
 }

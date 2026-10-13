@@ -4,21 +4,27 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
-use Survos\DataContracts\Vocabulary\ItemField;
-
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Survos\DataContracts\Metadata\ContentType;
-use Survos\FolioBundle\Dto\FolioBuildInput;
-use Survos\JsonlBundle\Sqlite\SidecarDb;
+use Survos\DataContracts\Vocabulary\ItemField;
 use Survos\FieldBundle\Attribute\Map;
-use Survos\FolioBundle\Configuration\FolioSearchConfiguration;
-use Survos\FolioBundle\Entity\{Core,Folio,LinkType,Page,Row,Str,StrTranslation,Term,TermSet};
-use Survos\FolioBundle\Dto\PageDto;
 use Survos\Folio\Enum\PageType;
+use Survos\FolioBundle\Configuration\FolioSearchConfiguration;
+use Survos\FolioBundle\Dto\FolioBuildInput;
+use Survos\FolioBundle\Entity\Core;
+use Survos\FolioBundle\Entity\Folio;
+use Survos\FolioBundle\Entity\LinkType;
+use Survos\FolioBundle\Entity\Page;
+use Survos\FolioBundle\Entity\Row;
+use Survos\FolioBundle\Entity\Str;
+use Survos\FolioBundle\Entity\StrTranslation;
+use Survos\FolioBundle\Entity\Term;
+use Survos\FolioBundle\Entity\TermSet;
 use Survos\FolioBundle\Event\FolioIngestFinishedEvent;
 use Survos\JsonlBundle\IO\JsonlReader;
 use Survos\JsonlBundle\Service\JsonlCountService;
+use Survos\JsonlBundle\Sqlite\SidecarDb;
 use Survos\Lingua\Contracts\Util\TranslatableReflector;
 use Survos\Lingua\Core\Identity\HashUtil;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -58,7 +64,8 @@ final class FolioIngestService
         private readonly FolioSummaryService $summaryService,
         private readonly JsonlCountService $counter,
         private readonly ?EventDispatcherInterface $dispatcher = null,
-    ) {}
+    ) {
+    }
 
     /**
      * @return array{rows:int,skipped:int,terms:int,links:int,pages:int,pagesSkipped:int,cores:array<string,array{count:int,file:string}>}
@@ -78,8 +85,8 @@ final class FolioIngestService
         // build the plain (untranslated) folio, same as $locale === null.
         $sourceLocale = $input->sourceLocale;
         $locale = $input->locale;
-        $buildLocale = ($locale !== null && $locale !== '' && $locale !== $sourceLocale) ? $locale : null;
-        $translations = $buildLocale !== null ? $this->loadTranslationMap($input, $buildLocale) : [];
+        $buildLocale = (null !== $locale && '' !== $locale && $locale !== $sourceLocale) ? $locale : null;
+        $translations = null !== $buildLocale ? $this->loadTranslationMap($input, $buildLocale) : [];
 
         // Restore once per dataset, then ingest every selected core into the same folio.
         $this->folios->reset($input->code, $buildLocale);
@@ -98,10 +105,16 @@ final class FolioIngestService
         $properties = \Survos\DataContracts\Metadata\DatasetMetadata::properties($metadata);
         $owners = [];
         foreach ($folio->properties() as $property) {
-            if ($property->source === 'meta') { $owners[$property->owner] = []; }
+            if ('meta' === $property->source) {
+                $owners[$property->owner] = [];
+            }
         }
-        foreach ($properties as $key => $property) { $owners[$property->owner][$key] = $property; }
-        foreach ($owners as $owner => $snapshot) { $folio->replaceProperties($owner, $snapshot); }
+        foreach ($properties as $key => $property) {
+            $owners[$property->owner][$key] = $property;
+        }
+        foreach ($owners as $owner => $snapshot) {
+            $folio->replaceProperties($owner, $snapshot);
+        }
         $folio->datasetKey = $input->code;
         $extras = is_array($input->metadata['extras'] ?? null) ? $input->metadata['extras'] : [];
 
@@ -125,7 +138,7 @@ final class FolioIngestService
         // Seed the bar from sidecar row counts (no full scan) when an $io is supplied. It spans every
         // row-bearing phase — cores, terms, links — so one bar covers the whole ingest. (claims and
         // translations will join this list; the per-phase ingest calls below all advance the same bar.)
-        if ($io !== null) {
+        if (null !== $io) {
             $this->startIngestProgress($io, $this->expectedRows($input));
         }
 
@@ -145,7 +158,7 @@ final class FolioIngestService
             $count = 0;
             foreach (JsonlReader::open($file) as $data) {
                 $localId = (string) ($data[$idField] ?? $data['@id'] ?? $data['_id'] ?? '');
-                if ($localId === '') {
+                if ('' === $localId) {
                     throw new \RuntimeException(sprintf('Missing id near row %d in %s.', $count + 1, $file));
                 }
 
@@ -159,7 +172,7 @@ final class FolioIngestService
                 // matching translation (not yet translated, or MT never asked for it) is left as-is —
                 // silent fallback to the source-language text, never a placeholder/bracket in a
                 // published folio. See dataset:intl:push/pull for how $translations is populated.
-                if ($translations !== []) {
+                if ([] !== $translations) {
                     $data = $this->applyTranslations($data, $dtoType, $sourceLocale, $translations);
                 }
 
@@ -185,7 +198,7 @@ final class FolioIngestService
                     null,
                 ]);
 
-                if (++$count % $batch === 0) {
+                if (0 === ++$count % $batch) {
                     $sinceCommit = $this->maybeCheckpoint($conn, $sinceCommit + $batch, $items);
                     $this->advanceIngestProgress($io, $batch);
                 }
@@ -274,7 +287,7 @@ final class FolioIngestService
     {
         $datasetKey = $input->code;
         $pageFile = $input->file('page');
-        if ($pageFile === null) {
+        if (null === $pageFile) {
             return ['count' => 0, 'skipped' => 0];
         }
 
@@ -296,16 +309,16 @@ final class FolioIngestService
 
         foreach (JsonlReader::open($pageFile) as $data) {
             $coreCode = $this->requiredString($data, 'coreCode', $pageFile);
-            $localId  = $this->requiredString($data, 'localId', $pageFile);
-            $rowId    = Row::id($datasetKey . ':' . $coreCode, $localId);
+            $localId = $this->requiredString($data, 'localId', $pageFile);
+            $rowId = Row::id($datasetKey.':'.$coreCode, $localId);
 
             if (!isset($validRowIds[$rowId])) {
                 ++$skipped;
                 continue;
             }
 
-            $url      = $this->requiredString($data, 'url', $pageFile);
-            $seq      = (int) ($data['seq'] ?? ($count + 1));
+            $url = $this->requiredString($data, 'url', $pageFile);
+            $seq = (int) ($data['seq'] ?? ($count + 1));
 
             // Validate the wire value before bulk SQL bypasses Doctrine's enum conversion.
             // A corrupt page must fail this build, not crash the reader after publication.
@@ -329,11 +342,11 @@ final class FolioIngestService
                 $this->encodeJson(is_array($data['dialogue'] ?? null) ? $data['dialogue'] : null),
                 isset($data['width']) ? (int) $data['width'] : null,
                 isset($data['height']) ? (int) $data['height'] : null,
-                is_string($data['thumbHash'] ?? null) && $data['thumbHash'] !== '' ? $data['thumbHash'] : null,
-                is_string($data['color'] ?? null) && $data['color'] !== '' ? $data['color'] : null,
+                is_string($data['thumbHash'] ?? null) && '' !== $data['thumbHash'] ? $data['thumbHash'] : null,
+                is_string($data['color'] ?? null) && '' !== $data['color'] ? $data['color'] : null,
             ]);
 
-            if (++$count % $batch === 0) {
+            if (0 === ++$count % $batch) {
                 $sinceCommit = $this->maybeCheckpoint($conn, $sinceCommit + $batch, $pages);
                 $this->advanceIngestProgress($io, $batch);
             }
@@ -346,8 +359,8 @@ final class FolioIngestService
         if ($count > 0) {
             $conn->executeStatement(
                 "UPDATE item SET dto_data = json_set(dto_data, '$.pageCount', pc.cnt) "
-                . 'FROM (SELECT row_id, COUNT(*) AS cnt FROM page GROUP BY row_id) pc '
-                . "WHERE item.id = pc.row_id AND pc.cnt <> COALESCE(json_extract(dto_data, '$.pageCount'), 0)"
+                .'FROM (SELECT row_id, COUNT(*) AS cnt FROM page GROUP BY row_id) pc '
+                ."WHERE item.id = pc.row_id AND pc.cnt <> COALESCE(json_extract(dto_data, '$.pageCount'), 0)"
             );
 
             // Search cards, map, and gallery all read the thumbnail from dto_data (iiifBase ??
@@ -379,15 +392,15 @@ final class FolioIngestService
             $conn->executeStatement(
                 'INSERT INTO temp.first_page (row_id, url) '
                 // SQLite returns the bare column from the row holding MIN(seq): the first image-like page.
-                . "SELECT row_id, url FROM (SELECT row_id, url, MIN(seq) FROM page WHERE type IS NULL OR type NOT IN (?, ?) GROUP BY row_id)",
+                .'SELECT row_id, url FROM (SELECT row_id, url, MIN(seq) FROM page WHERE type IS NULL OR type NOT IN (?, ?) GROUP BY row_id)',
                 [PageType::Audio->value, PageType::Video->value]
             );
             $conn->executeStatement(
                 "UPDATE item SET dto_data = json_set(dto_data, '$.thumbnailUrl', (SELECT url FROM temp.first_page f WHERE f.row_id = item.id)) "
-                . 'WHERE item.id IN (SELECT row_id FROM temp.first_page) '
-                . "AND json_extract(dto_data, '$.iiifBase') IS NULL "
-                . "AND json_extract(dto_data, '$.largeImageUrl') IS NULL "
-                . "AND json_extract(dto_data, '$.thumbnailUrl') IS NULL"
+                .'WHERE item.id IN (SELECT row_id FROM temp.first_page) '
+                ."AND json_extract(dto_data, '$.iiifBase') IS NULL "
+                ."AND json_extract(dto_data, '$.largeImageUrl') IS NULL "
+                ."AND json_extract(dto_data, '$.thumbnailUrl') IS NULL"
             );
             $conn->executeStatement('DROP TABLE temp.first_page');
         }
@@ -405,13 +418,13 @@ final class FolioIngestService
     private function ingestClaims(EntityManagerInterface $em, FolioBuildInput $input, int $batch, int $sinceCommit, ?SymfonyStyle $io = null): array
     {
         $claimsFile = $input->file('claims');
-        if ($claimsFile === null) {
+        if (null === $claimsFile) {
             return ['count' => 0];
         }
 
         $conn = $em->getConnection();
         $itemBySubject = $this->claimSubjects($conn, $claimsFile);
-        if ($itemBySubject === []) {
+        if ([] === $itemBySubject) {
             return ['count' => 0];
         }
 
@@ -421,7 +434,7 @@ final class FolioIngestService
             $predicate = is_scalar($data['predicate'] ?? null) ? (string) $data['predicate'] : '';
             $subjectId = (string) ($data['subjectId'] ?? '');
             $itemId = $itemBySubject[$subjectId] ?? null;
-            if ($itemId === null || $predicate === '') {
+            if (null === $itemId || '' === $predicate) {
                 continue;
             }
 
@@ -429,7 +442,7 @@ final class FolioIngestService
             $value = $this->claimValue($data['value'] ?? null);
             $conf = $data['confidence'] ?? null;
             $confidence = is_numeric($conf) ? min(1.0, max(0.0, (float) $conf / 100)) : null;
-            $basis = is_string($data['basis'] ?? null) && trim($data['basis']) !== '' && $data['basis'] !== 'None'
+            $basis = is_string($data['basis'] ?? null) && '' !== trim($data['basis']) && 'None' !== $data['basis']
                 ? trim($data['basis']) : null;
 
             // Order must match self::CLAIM_COLUMNS. Id mirrors the Claim entity's xxh128 hash.
@@ -442,11 +455,11 @@ final class FolioIngestService
                 $confidence,
                 null,
                 is_string($data['createdAt'] ?? null) ? $data['createdAt'] : null,
-                $basis !== null ? $this->encodeJson(['basis' => $basis]) : null,
+                null !== $basis ? $this->encodeJson(['basis' => $basis]) : null,
                 is_string($data['runId'] ?? null) ? $data['runId'] : null,
             ]);
 
-            if (++$count % $batch === 0) {
+            if (0 === ++$count % $batch) {
                 $sinceCommit = $this->maybeCheckpoint($conn, $sinceCommit + $batch, $claims);
             }
         }
@@ -458,11 +471,11 @@ final class FolioIngestService
         // claims are excluded. Only items that actually have AI claims are touched.
         $conn->executeStatement(
             "UPDATE item SET dto_data = json_set(dto_data, '$.aiTasks', "
-            . '(SELECT json_group_array(s) FROM '
-            . "(SELECT DISTINCT REPLACE(source, 'ai:', '') AS s FROM claim "
-            . "WHERE claim.item_id = item.id AND claim.source NOT IN ('human','import','source','provider','manual')))) "
-            . "WHERE EXISTS (SELECT 1 FROM claim "
-            . "WHERE claim.item_id = item.id AND claim.source NOT IN ('human','import','source','provider','manual'))"
+            .'(SELECT json_group_array(s) FROM '
+            ."(SELECT DISTINCT REPLACE(source, 'ai:', '') AS s FROM claim "
+            ."WHERE claim.item_id = item.id AND claim.source NOT IN ('human','import','source','provider','manual')))) "
+            .'WHERE EXISTS (SELECT 1 FROM claim '
+            ."WHERE claim.item_id = item.id AND claim.source NOT IN ('human','import','source','provider','manual'))"
         );
 
         return ['count' => $count];
@@ -483,16 +496,16 @@ final class FolioIngestService
      *
      * @return array<string,string> subjectId => item id
      */
-    private function claimSubjects(\Doctrine\DBAL\Connection $conn, string $claimsFile): array
+    private function claimSubjects(Connection $conn, string $claimsFile): array
     {
         $subjects = [];
         foreach (JsonlReader::open($claimsFile) as $data) {
             $subjectId = (string) ($data['subjectId'] ?? '');
-            if ($subjectId !== '') {
+            if ('' !== $subjectId) {
                 $subjects[$subjectId] = true;
             }
         }
-        if ($subjects === []) {
+        if ([] === $subjects) {
             return [];
         }
 
@@ -510,13 +523,13 @@ final class FolioIngestService
         foreach ($conn->fetchFirstColumn('SELECT DISTINCT core_id FROM item ORDER BY core_id') as $core) {
             $conn->executeStatement(
                 'UPDATE temp.claim_subject SET item_id = (SELECT i.id FROM item i WHERE i.core_id = ? AND i.local_id = claim_subject.subject_id) '
-                . 'WHERE item_id IS NULL',
+                .'WHERE item_id IS NULL',
                 [(string) $core],
             );
         }
         $conn->executeStatement(
             'UPDATE temp.claim_subject SET item_id = (SELECT p.row_id FROM page p WHERE p.media_id = claim_subject.subject_id LIMIT 1) '
-            . 'WHERE item_id IS NULL'
+            .'WHERE item_id IS NULL'
         );
         $resolved = [];
         foreach ($conn->fetchAllKeyValue('SELECT subject_id, item_id FROM temp.claim_subject WHERE item_id IS NOT NULL') as $subjectId => $itemId) {
@@ -530,7 +543,7 @@ final class FolioIngestService
     /** Claim value as the TEXT column expects: scalar → string, list/object → JSON. */
     private function claimValue(mixed $value): ?string
     {
-        if ($value === null) {
+        if (null === $value) {
             return null;
         }
 
@@ -555,7 +568,7 @@ final class FolioIngestService
         );
 
         $runsFile = $input->file('claimRuns');
-        if ($runsFile === null) {
+        if (null === $runsFile) {
             return;
         }
 
@@ -565,7 +578,7 @@ final class FolioIngestService
         ]);
         foreach (JsonlReader::open($runsFile) as $r) {
             $id = (string) ($r['id'] ?? '');
-            if ($id === '') {
+            if ('' === $id) {
                 continue;
             }
             $response = $r['response'] ?? null;
@@ -578,7 +591,7 @@ final class FolioIngestService
                 is_scalar($r['source'] ?? null) ? (string) $r['source'] : null,
                 is_scalar($r['model'] ?? null) ? (string) $r['model'] : null,
                 is_scalar($r['prompt'] ?? null) ? (string) $r['prompt'] : null,
-                $response === null ? null : (is_scalar($response) ? (string) $response : json_encode($response, JSON_UNESCAPED_UNICODE)),
+                null === $response ? null : (is_scalar($response) ? (string) $response : json_encode($response, JSON_UNESCAPED_UNICODE)),
                 is_numeric($r['inputTokens'] ?? null) ? (int) $r['inputTokens'] : null,
                 is_numeric($r['outputTokens'] ?? null) ? (int) $r['outputTokens'] : null,
                 is_numeric($r['imageTokens'] ?? null) ? (int) $r['imageTokens'] : null,
@@ -625,7 +638,7 @@ final class FolioIngestService
     private function ingestPageClaims(EntityManagerInterface $em, FolioBuildInput $input): int
     {
         $claimsFile = $input->file('claims');
-        if ($claimsFile === null) {
+        if (null === $claimsFile) {
             return 0;
         }
 
@@ -634,7 +647,7 @@ final class FolioIngestService
             array_filter($conn->fetchFirstColumn('SELECT DISTINCT media_id FROM page WHERE media_id IS NOT NULL')),
             true,
         );
-        if ($pageMedia === []) {
+        if ([] === $pageMedia) {
             return 0;
         }
 
@@ -659,16 +672,16 @@ final class FolioIngestService
         foreach (JsonlReader::open($claimsFile) as $data) {
             $predicate = is_scalar($data['predicate'] ?? null) ? (string) $data['predicate'] : '';
             $mediaId = is_scalar($data['subjectId'] ?? null) ? (string) $data['subjectId'] : '';
-            if ($mediaId === '' || !isset($pageMedia[$mediaId])) {
+            if ('' === $mediaId || !isset($pageMedia[$mediaId])) {
                 continue;
             }
 
-            if ($predicate === 'ai:ocrPage') {
+            if ('ai:ocrPage' === $predicate) {
                 $raw = $data['value'] ?? null;
                 $page = is_array($raw) ? $raw : (is_string($raw) ? json_decode($raw, true) : null);
                 if (!is_array($page) || !isset($page['index'], $page['markdown'])
                     || !is_int($page['index']) || $page['index'] < 0 || !is_string($page['markdown'])) {
-                    throw new \UnexpectedValueException('Invalid indexed PDF OCR claim for ' . $mediaId);
+                    throw new \UnexpectedValueException('Invalid indexed PDF OCR claim for '.$mediaId);
                 }
                 $count += $conn->executeStatement(
                     'UPDATE page SET text = ? WHERE media_id = ? AND page_index = ?',
@@ -676,10 +689,10 @@ final class FolioIngestService
                 );
                 continue;
             }
-            if ($predicate === 'ai:ocrText' && isset($pdfMedia[$mediaId])) {
+            if ('ai:ocrText' === $predicate && isset($pdfMedia[$mediaId])) {
                 $text = $data['value'] ?? null;
                 if (!is_string($text)) {
-                    throw new \UnexpectedValueException('Invalid PDF transcript for ' . $mediaId);
+                    throw new \UnexpectedValueException('Invalid PDF transcript for '.$mediaId);
                 }
                 // Row transcript is a search/chat projection of the same OCR run.
                 // The indexed page claims above remain the reader's page text.
@@ -690,10 +703,10 @@ final class FolioIngestService
                 continue;
             }
 
-            if ($predicate === 'ai:layoutBlock') {
+            if ('ai:layoutBlock' === $predicate) {
                 $raw = $data['value'] ?? null;
                 $block = is_array($raw) ? $raw : (is_string($raw) ? json_decode($raw, true) : null);
-                if (is_array($block) && $block !== []) {
+                if (is_array($block) && [] !== $block) {
                     $layoutByMedia[$mediaId][] = $block;
                 }
                 continue;
@@ -703,7 +716,7 @@ final class FolioIngestService
                 continue;
             }
             $value = $this->claimValue($data['value'] ?? null);
-            if ($value === null || $value === '') {
+            if (null === $value || '' === $value) {
                 continue;
             }
             $count += $conn->executeStatement(
@@ -747,10 +760,11 @@ final class FolioIngestService
     private function loadTranslationMap(FolioBuildInput $input, string $locale): array
     {
         $file = $input->translations[$locale] ?? null;
-        $map = $file !== null ? $this->readTranslationJsonl($file) : [];
-        if ($input->reviewedTranslationFile !== null) {
+        $map = null !== $file ? $this->readTranslationJsonl($file) : [];
+        if (null !== $input->reviewedTranslationFile) {
             $map = [...$map, ...$this->readTranslationJsonl($input->reviewedTranslationFile)];
         }
+
         return $map;
     }
 
@@ -765,7 +779,7 @@ final class FolioIngestService
         foreach (JsonlReader::open($file) as $row) {
             $code = $row['code'] ?? null;
             $text = $row['text'] ?? null;
-            if (is_string($code) && $code !== '' && is_string($text) && $text !== '') {
+            if (is_string($code) && '' !== $code && is_string($text) && '' !== $text) {
                 $map[$code] = $text;
             }
         }
@@ -779,8 +793,9 @@ final class FolioIngestService
      * Fields with no entry in $translations (untranslated, or not yet pulled) are left
      * untouched — the source-language text is a valid, intentional fallback.
      *
-     * @param array<string,mixed> $data
+     * @param array<string,mixed>  $data
      * @param array<string,string> $translations
+     *
      * @return array<string,mixed>
      */
     private function applyTranslations(array $data, string $dtoType, string $sourceLocale, array $translations): array
@@ -797,7 +812,7 @@ final class FolioIngestService
             // Resolve to whichever key is actually present, write the translation back to
             // that SAME key (splitDtoData() downstream resolves the DTO the same way).
             $key = $this->resolveMappedKey($data, $dtoClass, $field);
-            if ($key === null) {
+            if (null === $key) {
                 continue;
             }
             $value = $data[$key];
@@ -810,10 +825,11 @@ final class FolioIngestService
             if (is_array($value)) {
                 $data[$key] = array_map(
                     static function ($item) use ($sourceLocale, $translations) {
-                        if (!is_string($item) || $item === '') {
+                        if (!is_string($item) || '' === $item) {
                             return $item;
                         }
                         $code = HashUtil::calcSourceKey($item, $sourceLocale);
+
                         return $translations[$code] ?? $item;
                     },
                     $value,
@@ -821,7 +837,7 @@ final class FolioIngestService
                 continue;
             }
 
-            if (!is_string($value) || $value === '') {
+            if (!is_string($value) || '' === $value) {
                 continue;
             }
             $code = HashUtil::calcSourceKey($value, $sourceLocale);
@@ -880,7 +896,7 @@ final class FolioIngestService
     /** Encode a JSON column value the way the read path expects: null stays null, arrays become text. */
     private function encodeJson(?array $value): ?string
     {
-        return $value === null ? null : json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+        return null === $value ? null : json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
     }
 
     /**
@@ -908,7 +924,7 @@ final class FolioIngestService
     /** @param list<string> $ddl CREATE INDEX statements captured by {@see deferSecondaryIndexes()} */
     private function rebuildIndexes(Connection $conn, array $ddl, ?SymfonyStyle $io): void
     {
-        if ($ddl === []) {
+        if ([] === $ddl) {
             return;
         }
 
@@ -925,7 +941,9 @@ final class FolioIngestService
      * bulk-insert loop above; everything after it was previously silent.
      *
      * @template T
+     *
      * @param callable(): T $fn
+     *
      * @return T
      */
     private function timedPhase(?SymfonyStyle $io, string $label, callable $fn): mixed
@@ -938,9 +956,6 @@ final class FolioIngestService
         return $result;
     }
 
-    /**
-     * @param array<string,string> $sources
-     */
     private function expectedRows(FolioBuildInput $input): int
     {
         $expected = 0;
@@ -956,7 +971,7 @@ final class FolioIngestService
         }
         foreach (['term', 'link'] as $phaseFile) {
             $path = $input->file($phaseFile);
-            if ($path !== null && is_file($path)) {
+            if (null !== $path && is_file($path)) {
                 try {
                     $expected += $this->counter->rows($path);
                 } catch (\Throwable) {
@@ -979,7 +994,7 @@ final class FolioIngestService
 
     private function advanceIngestProgress(?SymfonyStyle $io, int $steps): void
     {
-        if ($io === null || $steps <= 0) {
+        if (null === $io || $steps <= 0) {
             return;
         }
 
@@ -988,7 +1003,7 @@ final class FolioIngestService
 
     private function finishIngestProgress(?SymfonyStyle $io): void
     {
-        if ($io === null) {
+        if (null === $io) {
             return;
         }
 
@@ -1015,7 +1030,7 @@ final class FolioIngestService
     private function ingestTermTranslations(EntityManagerInterface $em, FolioBuildInput $input, string $sourceLocale, int $batch = 500): void
     {
         $phrasesFile = $input->file('phrases');
-        if ($phrasesFile === null) {
+        if (null === $phrasesFile) {
             return;
         }
 
@@ -1037,12 +1052,12 @@ final class FolioIngestService
             }
             $code = (string) ($row['code'] ?? '');
             $text = $row['text'] ?? null;
-            if ($code === '' || !is_string($text) || $text === '') {
+            if ('' === $code || !is_string($text) || '' === $text) {
                 continue;
             }
             $phrases[$code] = $text;
         }
-        if ($phrases === []) {
+        if ([] === $phrases) {
             return;
         }
 
@@ -1061,7 +1076,7 @@ final class FolioIngestService
             $str->context = 'term';
             $em->persist($str);
 
-            if (++$i % $batch === 0) {
+            if (0 === ++$i % $batch) {
                 $em->flush();
             }
         }
@@ -1077,12 +1092,12 @@ final class FolioIngestService
             foreach (JsonlReader::open($trFile) as $row) {
                 $code = (string) ($row['code'] ?? '');
                 $text = $row['text'] ?? null;
-                if ($code === '' || !isset($phrases[$code]) || !is_string($text) || $text === '') {
+                if ('' === $code || !isset($phrases[$code]) || !is_string($text) || '' === $text) {
                     continue;
                 }
                 $translations[$code] = $text;
             }
-            if ($translations === []) {
+            if ([] === $translations) {
                 continue;
             }
 
@@ -1101,7 +1116,7 @@ final class FolioIngestService
                 $tr->text = $text;
                 $em->persist($tr);
 
-                if (++$i % $batch === 0) {
+                if (0 === ++$i % $batch) {
                     $em->flush();
                 }
             }
@@ -1111,6 +1126,7 @@ final class FolioIngestService
 
     /**
      * @param list<string> $values
+     *
      * @return array<string, object> keyed by the field's value
      */
     private function indexByField(object $repo, string $field, array $values): array
@@ -1119,6 +1135,7 @@ final class FolioIngestService
         foreach ($repo->findBy([$field => $values]) as $entity) {
             $out[$entity->{$field}] = $entity;
         }
+
         return $out;
     }
 
@@ -1127,7 +1144,7 @@ final class FolioIngestService
         $termSetFile = $input->file('termSet');
         $termFile = $input->file('term');
 
-        if ($termSetFile === null || $termFile === null) {
+        if (null === $termSetFile || null === $termFile) {
             return 0;
         }
 
@@ -1161,7 +1178,7 @@ final class FolioIngestService
 
             $code = $this->requiredString($data, 'code', $termFile);
             $term = new Term($set, $code);
-            $term->path = is_scalar($data['path'] ?? null) && trim((string) $data['path']) !== '' ? trim((string) $data['path']) : $code;
+            $term->path = is_scalar($data['path'] ?? null) && '' !== trim((string) $data['path']) ? trim((string) $data['path']) : $code;
             $term->label = is_scalar($data['label'] ?? null) ? (string) $data['label'] : $code;
             $term->description = is_scalar($data['description'] ?? null) ? (string) $data['description'] : null;
             $term->rules = is_array($data['rules'] ?? null) ? $data['rules'] : null;
@@ -1182,13 +1199,13 @@ final class FolioIngestService
             $term->enabled = !array_key_exists('enabled', $data) || (bool) $data['enabled'];
             $term->sort = is_numeric($data['sort'] ?? null) ? (int) $data['sort'] : null;
             $parentCode = is_scalar($data['parent'] ?? $data['parentCode'] ?? null) ? trim((string) ($data['parent'] ?? $data['parentCode'])) : '';
-            if ($parentCode !== '') {
-                $pendingParents[$term->id] = $set->id . ':' . $parentCode;
+            if ('' !== $parentCode) {
+                $pendingParents[$term->id] = $set->id.':'.$parentCode;
             }
 
             $em->persist($term);
 
-            if (++$count % $batch === 0) {
+            if (0 === ++$count % $batch) {
                 $em->flush();
                 // Don't retain every Term in the UnitOfWork; parents are resolved by find() below.
                 $em->clear();
@@ -1223,7 +1240,7 @@ final class FolioIngestService
         $linkTypeFile = $input->file('linkType');
         $linkFile = $input->file('link');
 
-        if ($linkTypeFile === null || $linkFile === null) {
+        if (null === $linkTypeFile || null === $linkFile) {
             return ['count' => 0, 'skipped' => 0];
         }
 
@@ -1264,15 +1281,7 @@ final class FolioIngestService
             $subjectCore = $this->requiredString($data, 'subjectCore', $linkFile);
             $objectCore = $this->requiredString($data, 'objectCore', $linkFile);
             if ($subjectCore !== $type->leftCore || $objectCore !== $type->rightCore) {
-                throw new \RuntimeException(sprintf(
-                    'Link predicate "%s" expects %s→%s, got %s→%s in %s.',
-                    $predicate,
-                    $type->leftCore,
-                    $type->rightCore,
-                    $subjectCore,
-                    $objectCore,
-                    $linkFile,
-                ));
+                throw new \RuntimeException(sprintf('Link predicate "%s" expects %s→%s, got %s→%s in %s.', $predicate, $type->leftCore, $type->rightCore, $subjectCore, $objectCore, $linkFile));
             }
 
             $subjectId = $this->requiredString($data, 'subjectId', $linkFile);
@@ -1296,7 +1305,7 @@ final class FolioIngestService
                 $this->encodeJson($extras),
             ]);
 
-            if (++$count % $batch === 0) {
+            if (0 === ++$count % $batch) {
                 $sinceCommit = $this->maybeCheckpoint($conn, $sinceCommit + $batch, $links);
                 $this->advanceIngestProgress($io, $batch);
             }
@@ -1311,7 +1320,7 @@ final class FolioIngestService
     private function requiredString(array $data, string $field, string $file): string
     {
         $value = $data[$field] ?? null;
-        if (!is_scalar($value) || trim((string) $value) === '') {
+        if (!is_scalar($value) || '' === trim((string) $value)) {
             throw new \RuntimeException(sprintf('Missing required field "%s" in %s.', $field, $file));
         }
 
@@ -1320,19 +1329,20 @@ final class FolioIngestService
 
     /**
      * @param array<string,mixed> $data
+     *
      * @return array{0:array<string,mixed>,1:array<string,mixed>}
      */
     private function splitDtoData(string $dtoType, array $data): array
     {
         $class = $this->dtoTypeResolver->classForType($dtoType);
-        if ($class === null || !class_exists($class)) {
+        if (null === $class || !class_exists($class)) {
             return [$data, []];
         }
 
         $dto = method_exists($class, 'fromNormalized') ? $class::fromNormalized($data) : new $class();
         $dtoData = method_exists($dto, 'toMeili')
             ? $dto->toMeili()
-            : array_filter(get_object_vars($dto), static fn (mixed $value): bool => $value !== null && $value !== [] && $value !== '');
+            : array_filter(get_object_vars($dto), static fn (mixed $value): bool => null !== $value && [] !== $value && '' !== $value);
         unset($dtoData['unmapped']);
 
         // The DTO curates its own leftovers: fromNormalized() collects unmatched keys in
@@ -1368,7 +1378,7 @@ final class FolioIngestService
 
     private function populatedFields(string $source): ?array
     {
-        $dbPath = $source . '.db';
+        $dbPath = $source.'.db';
         if (!is_file($dbPath)) {
             return null;
         }
@@ -1377,7 +1387,7 @@ final class FolioIngestService
             $populated = [];
             foreach ((new SidecarDb($dbPath))->loadFieldStats() as $stats) {
                 $name = $stats['path'] ?? null;
-                if (is_string($name) && $name !== '' && (int) ($stats['non_null'] ?? 0) > 0) {
+                if (is_string($name) && '' !== $name && (int) ($stats['non_null'] ?? 0) > 0) {
                     $populated[] = $name;
                 }
             }
@@ -1387,5 +1397,4 @@ final class FolioIngestService
             return null;
         }
     }
-
 }

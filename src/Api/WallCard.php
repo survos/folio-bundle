@@ -25,5 +25,6 @@ final readonly class WallCard
         public array $tags = [],
         /** @var list<string> subjects, including AI keywords */
         public array $subjects = [],
-    ) {}
+    ) {
+    }
 }

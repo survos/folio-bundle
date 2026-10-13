@@ -6,10 +6,25 @@ namespace Survos\FolioBundle\Controller;
 
 use Doctrine\DBAL\Connection;
 use Survos\DataContracts\Dto\Item\BaseItemDto;
-use Survos\FolioBundle\Entity\{Core,Doc,Folio,Link,Page,Row,Term,TermSet};
-use Survos\FolioBundle\Service\{FolioChatPromptSuggester,FolioChatService,FolioDtoTypeResolver,FolioService,FolioTermCloudService,FolioWordCloudService,RowClaimsResolver,RowSchemaOrgBuilder,RowTermsResolver};
 use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
+use Survos\FolioBundle\Entity\Core;
+use Survos\FolioBundle\Entity\Doc;
+use Survos\FolioBundle\Entity\Folio;
+use Survos\FolioBundle\Entity\Link;
+use Survos\FolioBundle\Entity\Page;
+use Survos\FolioBundle\Entity\Row;
+use Survos\FolioBundle\Entity\Term;
+use Survos\FolioBundle\Entity\TermSet;
+use Survos\FolioBundle\Service\FolioChatPromptSuggester;
+use Survos\FolioBundle\Service\FolioChatService;
+use Survos\FolioBundle\Service\FolioDtoTypeResolver;
+use Survos\FolioBundle\Service\FolioService;
+use Survos\FolioBundle\Service\FolioTermCloudService;
+use Survos\FolioBundle\Service\FolioWordCloudService;
+use Survos\FolioBundle\Service\RowClaimsResolver;
+use Survos\FolioBundle\Service\RowSchemaOrgBuilder;
+use Survos\FolioBundle\Service\RowTermsResolver;
 use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
 use Survos\SearchBundle\Adapter\SqliteFts5\Fts5MatchQuery;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -67,8 +82,8 @@ final class FolioController extends AbstractController
         // Null unless the host app also requires survos/schema-org-bundle — see this
         // bundle's own registration, which only defines the builder when it is installed.
         private readonly ?RowSchemaOrgBuilder $rowSchemaOrg = null,
-    ) {}
-
+    ) {
+    }
 
     // The bare-slug form (survos-sites/scanseum#12) travels through the same {folioCode}
     // param as a real "provider/dataset" code — FolioRouteAttributeListener resolves it to
@@ -96,7 +111,7 @@ final class FolioController extends AbstractController
         }
 
         $schemaTables = $conn->executeQuery(
-            "SELECT name, kind, core_code, dto_type, label, row_count FROM schema_table ORDER BY kind, name"
+            'SELECT name, kind, core_code, dto_type, label, row_count FROM schema_table ORDER BY kind, name'
         )->fetchAllAssociative();
         $views = $conn->executeQuery(
             "SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'dto_%' ORDER BY name"
@@ -107,25 +122,25 @@ final class FolioController extends AbstractController
         // away via "View all" (survos_folio_slideshow), which has no such cap. Counts/min/max
         // still reflect the true full range so the ruler itself isn't misleading.
         $timeline = null;
-        if ($cores !== []) {
+        if ([] !== $cores) {
             $primaryCore = $cores[0];
             $timelineData = $this->yearTimelineData($conn, $primaryCore->id, limit: 300);
-            if ($timelineData !== null) {
+            if (null !== $timelineData) {
                 $timeline = $timelineData + ['core' => $primaryCore];
             }
         }
 
         return $this->render('@SurvosFolioBundle/folio/show.html.twig', [
-            'ctx'           => $ctx,
-            'folio'         => $folio,
-            'cores'         => $cores,
+            'ctx' => $ctx,
+            'folio' => $folio,
+            'cores' => $cores,
             'coreSummaries' => $coreSummaries,
-            'totalRows'     => array_reduce($cores, static fn (int $sum, Core $core): int => $sum + $core->rowCount, 0),
-            'docs'          => $ctx->em->getRepository(Doc::class)->findBy([], ['position' => 'ASC']),
-            'schemaTables'  => $schemaTables,
-            'views'         => $views,
-            'linkTypes'     => $folio->linkTypes,
-            'timeline'      => $timeline,
+            'totalRows' => array_reduce($cores, static fn (int $sum, Core $core): int => $sum + $core->rowCount, 0),
+            'docs' => $ctx->em->getRepository(Doc::class)->findBy([], ['position' => 'ASC']),
+            'schemaTables' => $schemaTables,
+            'views' => $views,
+            'linkTypes' => $folio->linkTypes,
+            'timeline' => $timeline,
         ]);
     }
 
@@ -140,7 +155,7 @@ final class FolioController extends AbstractController
     private function yearTimelineData(Connection $conn, string $coreId, int $limit = 0): ?array
     {
         $sort = $this->slideshowSortColumn('year:asc');
-        \assert($sort !== null);
+        \assert(null !== $sort);
 
         $where = 'd.core_id = :core';
         $params = ['core' => $coreId];
@@ -153,7 +168,7 @@ final class FolioController extends AbstractController
             $params,
         )->fetchAssociative();
 
-        if ($ends === false || $ends['lo'] === null || $ends['hi'] === null || $ends['lo'] == $ends['hi']) {
+        if (false === $ends || null === $ends['lo'] || null === $ends['hi'] || $ends['lo'] == $ends['hi']) {
             return null;
         }
 
@@ -187,7 +202,7 @@ final class FolioController extends AbstractController
                 'numeric' => true,
                 'min' => (int) $ends['lo'],
                 'max' => (int) $ends['hi'],
-                'value' => $slides === [] ? (int) $ends['lo'] : (int) $slides[0]['v'],
+                'value' => [] === $slides ? (int) $ends['lo'] : (int) $slides[0]['v'],
             ],
             'counts' => $counts,
         ];
@@ -211,7 +226,6 @@ final class FolioController extends AbstractController
         return $response;
     }
 
-
     #[Route('/slideshow/{coreCode}/{filter}', name: 'survos_folio_slideshow_filtered', requirements: ['filter' => '[A-Za-z0-9_-]+'], options: ['expose' => true])]
     #[Route('/slideshow/{coreCode}', name: 'survos_folio_slideshow', options: ['expose' => true])]
     public function slideshow(Folio $folio, string $coreCode, Request $request, ?string $filter = null): Response
@@ -231,7 +245,7 @@ final class FolioController extends AbstractController
         // Column/table rules mirror the SqliteFts5 adapter + App\Search\FolioRowSearch.
         $filterParams = $this->slideshowFilterParams($request, $filter);
         // A pinned dtoType now travels inside the token (applied as a facet); pull it out for display.
-        $dtoType = isset($filterParams['dtoType']) && is_string($filterParams['dtoType']) && $filterParams['dtoType'] !== ''
+        $dtoType = isset($filterParams['dtoType']) && is_string($filterParams['dtoType']) && '' !== $filterParams['dtoType']
             ? $filterParams['dtoType'] : null;
         $orderBy = $this->slideshowSortAndFilters($filterParams, $conn, $where, $params);
         $sortBy = is_string($filterParams['sortBy'] ?? null) ? $filterParams['sortBy'] : '';
@@ -241,7 +255,7 @@ final class FolioController extends AbstractController
         // the lightweight {id, thumb} list the viewer needs (per-row detail is deferred). For a numeric
         // sort we also carry each slide's sort value `v`, so the slider can run over the real value range
         // (its position IS the year) instead of a 1…N index.
-        $valueSelect = ($sort !== null && $sort['numeric']) ? sprintf(', %s AS v', $sort['expr']) : '';
+        $valueSelect = (null !== $sort && $sort['numeric']) ? sprintf(', %s AS v', $sort['expr']) : '';
         $slides = $conn->executeQuery(
             sprintf(
                 "SELECT d.local_id AS id,
@@ -262,13 +276,13 @@ final class FolioController extends AbstractController
         // above the red timeline marker" -- fortepan.us's own slider has no equivalent, so this is
         // net-new rather than ported). Only meaningful in numeric (year) mode.
         $counts = [];
-        if ($sort !== null && $sort['numeric'] && $slides !== []) {
+        if (null !== $sort && $sort['numeric'] && [] !== $slides) {
             $ends = $conn->executeQuery(
                 // Separate subqueries so each can use the index -- see yearTimelineData().
                 sprintf('SELECT (SELECT MIN(%1$s) FROM item d WHERE %2$s) AS lo, (SELECT MAX(%1$s) FROM item d WHERE %2$s) AS hi', $sort['expr'], implode(' AND ', $where)),
                 $params,
             )->fetchAssociative();
-            if ($ends !== false && $ends['lo'] !== null && $ends['hi'] !== null && $ends['lo'] != $ends['hi']) {
+            if (false !== $ends && null !== $ends['lo'] && null !== $ends['hi'] && $ends['lo'] != $ends['hi']) {
                 $slider = [
                     'numeric' => true,
                     'min' => (int) $ends['lo'],
@@ -326,7 +340,7 @@ final class FolioController extends AbstractController
                 'folioCode' => $folio->code,
                 'localId' => '__LOCAL_ID__',
             ]),
-            'slideshowBaseUrl' => $defaultCore === null ? null : $this->generateUrl('survos_folio_slideshow', [
+            'slideshowBaseUrl' => null === $defaultCore ? null : $this->generateUrl('survos_folio_slideshow', [
                 'folioCode' => $folio->code,
                 'coreCode' => $defaultCore->code,
             ]),
@@ -353,7 +367,7 @@ final class FolioController extends AbstractController
     {
         $em = $this->folios->context($folio->code)->em;
 
-        $core = $coreCode !== null
+        $core = null !== $coreCode
             ? ($em->find(Core::class, Core::id($folio->code, $coreCode)) ?? throw $this->createNotFoundException($coreCode))
             : ($em->find(Core::class, Core::id($folio->code, 'obj'))
                 ?? ($em->getRepository(Core::class)->findBy([], ['rowCount' => 'DESC'])[0] ?? null)
@@ -484,7 +498,7 @@ final class FolioController extends AbstractController
         $this->slideshowSortAndFilters($this->slideshowFilterParams($request, $filter), $conn, $where, $params);
 
         $bbox = $this->parseBbox($request->query->getString('bbox', ''));
-        if ($bbox !== null) {
+        if (null !== $bbox) {
             $where[] = "CAST(json_extract(d.dto_data, '$.latitude') AS REAL) BETWEEN :bboxS AND :bboxN";
             $where[] = "CAST(json_extract(d.dto_data, '$.longitude') AS REAL) BETWEEN :bboxW AND :bboxE";
             $params += ['bboxW' => $bbox[0], 'bboxS' => $bbox[1], 'bboxE' => $bbox[2], 'bboxN' => $bbox[3]];
@@ -504,7 +518,7 @@ final class FolioController extends AbstractController
      */
     private function mapThumbnailUrl(?string $url): ?string
     {
-        if ($url === null || $this->imgproxy === null) {
+        if (null === $url || null === $this->imgproxy) {
             return $url;
         }
 
@@ -516,11 +530,11 @@ final class FolioController extends AbstractController
      */
     private function parseBbox(string $bbox): ?array
     {
-        if ($bbox === '') {
+        if ('' === $bbox) {
             return null;
         }
         $parts = array_map('trim', explode(',', $bbox));
-        if (count($parts) !== 4 || !array_reduce($parts, static fn (bool $ok, string $p): bool => $ok && is_numeric($p), true)) {
+        if (4 !== count($parts) || !array_reduce($parts, static fn (bool $ok, string $p): bool => $ok && is_numeric($p), true)) {
             return null;
         }
 
@@ -537,10 +551,10 @@ final class FolioController extends AbstractController
      */
     private function slideshowFilterParams(Request $request, ?string $filter = null): array
     {
-        $token = ($filter !== null && $filter !== '') ? $filter : $request->query->getString('f');
-        if ($token !== '') {
+        $token = (null !== $filter && '' !== $filter) ? $filter : $request->query->getString('f');
+        if ('' !== $token) {
             $decoded = base64_decode(strtr($token, '-_', '+/'), true);
-            if ($decoded !== false && $decoded !== '') {
+            if (false !== $decoded && '' !== $decoded) {
                 parse_str($decoded, $parsed);
 
                 return $parsed;
@@ -589,14 +603,14 @@ final class FolioController extends AbstractController
         $reserved = ['query', 'page', 'sortBy', 'core', 'ux_search_placeholder', 'hitsPerPage', 'bbox'];
         $i = 0;
         foreach ($source as $key => $value) {
-            if (!is_string($value) || $value === '' || in_array($key, $reserved, true)) {
+            if (!is_string($value) || '' === $value || in_array($key, $reserved, true)) {
                 continue;
             }
 
             $isRange = str_ends_with($key, 'Min') || str_ends_with($key, 'Max');
             $property = $isRange ? substr($key, 0, -3) : $key;
             // `core` is pinned by the path; reject anything that isn't a plain property name.
-            if ($property === 'core' || !preg_match('/^[A-Za-z0-9_:]+$/', $property)) {
+            if ('core' === $property || !preg_match('/^[A-Za-z0-9_:]+$/', $property)) {
                 continue;
             }
             $column = sprintf("json_extract(d.dto_data, '$.%s')", $property);
@@ -607,7 +621,7 @@ final class FolioController extends AbstractController
                 }
                 // CAST both sides to REAL: json_extract values store as int/real while URL bounds are
                 // strings, and SQLite orders int < text across storage classes (mirrors the adapter).
-                $name = 'r' . $i++;
+                $name = 'r'.$i++;
                 $where[] = sprintf('CAST(%s AS REAL) %s CAST(:%s AS REAL)', $column, str_ends_with($key, 'Min') ? '>=' : '<=', $name);
                 $params[$name] = $value;
                 continue;
@@ -615,21 +629,21 @@ final class FolioController extends AbstractController
 
             $values = array_values(array_filter(
                 explode('~~', $value),
-                static fn (string $v): bool => trim($v) !== '',
+                static fn (string $v): bool => '' !== trim($v),
             ));
-            if ($values === []) {
+            if ([] === $values) {
                 continue;
             }
 
             $names = [];
             foreach (array_slice($values, 0, 100) as $v) {
-                $name = 't' . $i++;
-                $names[] = ':' . $name;
+                $name = 't'.$i++;
+                $names[] = ':'.$name;
                 $params[$name] = $v;
             }
 
             if ($hasFacetTable) {
-                $field = 'field' . $i++;
+                $field = 'field'.$i++;
                 $params[$field] = $property;
                 $where[] = sprintf(
                     'EXISTS (SELECT 1 FROM item_facet fv WHERE fv.item_rowid = d.rowid AND fv.field = :%s AND fv.value IN (%s))',
@@ -650,7 +664,7 @@ final class FolioController extends AbstractController
     {
         $sort = $this->slideshowSortColumn($sortBy);
 
-        return $sort !== null ? sprintf('ORDER BY %s %s', $sort['expr'], $sort['dir']) : 'ORDER BY d.rowid';
+        return null !== $sort ? sprintf('ORDER BY %s %s', $sort['expr'], $sort['dir']) : 'ORDER BY d.rowid';
     }
 
     /**
@@ -669,7 +683,7 @@ final class FolioController extends AbstractController
             'year' => ['expr' => 'd.sort_key', 'numeric' => true],
         ];
 
-        if ($sortBy === '' || !str_contains($sortBy, ':')) {
+        if ('' === $sortBy || !str_contains($sortBy, ':')) {
             return null;
         }
         [$property, $direction] = explode(':', $sortBy, 2);
@@ -679,7 +693,7 @@ final class FolioController extends AbstractController
 
         return [
             'expr' => $columns[$property]['expr'],
-            'dir' => strtoupper($direction) === 'DESC' ? 'DESC' : 'ASC',
+            'dir' => 'DESC' === strtoupper($direction) ? 'DESC' : 'ASC',
             'numeric' => $columns[$property]['numeric'],
         ];
     }
@@ -753,13 +767,13 @@ final class FolioController extends AbstractController
         $dtoType = $request->request->getString('dtoType', $request->query->getString('dtoType')) ?: null;
         $limit = max(1, min(50, $request->request->getInt('limit', $request->query->getInt('limit', 24))));
         $conversationId = trim($request->request->getString('conversation', $request->query->getString('conversation')));
-        if ($conversationId === '') {
+        if ('' === $conversationId) {
             $conversationId = bin2hex(random_bytes(16));
         }
         $result = null;
         $error = null;
 
-        if ($question !== '') {
+        if ('' !== $question) {
             try {
                 $result = $this->chat->ask($ctx, $question, $coreCode, $dtoType, $limit, $conversationId);
             } catch (\RuntimeException $e) {
@@ -800,7 +814,7 @@ final class FolioController extends AbstractController
         $facetClouds = $this->termCloud->cloud($ctx);
 
         $activeField = $request->query->getString('field') ?: null;
-        if ($activeField === null || !isset($facetClouds[$activeField])) {
+        if (null === $activeField || !isset($facetClouds[$activeField])) {
             $activeField = array_key_first($facetClouds);
         }
 
@@ -837,7 +851,6 @@ final class FolioController extends AbstractController
             'localId' => $row->localId,
         ]);
     }
-
 
     /**
      * "Results of an AI task" — the claim_run (prompt/model/tokens/response) plus the claims it
@@ -893,17 +906,17 @@ final class FolioController extends AbstractController
         $pages = array_values($row->pages->toArray());
         $question = trim($request->request->getString('q', $request->query->getString('q')));
         $conversationId = trim($request->request->getString('conversation', $request->query->getString('conversation')));
-        if ($conversationId === '') {
+        if ('' === $conversationId) {
             $conversationId = bin2hex(random_bytes(16));
         }
         $chatScope = sprintf('item:%s:%s:%s', $ctx->folioCode, $core->code, $row->localId);
         $chatHistory = $this->chatHistory($request, $chatScope, $conversationId);
         $contextSections = $this->itemScholarContext($core, $row, $pages);
         $chatContextSections = $this->contextWithChatHistory($contextSections, $chatHistory);
-        $result = $question !== ''
-            ? $this->chat->askScoped($ctx, $question, 'Document: ' . ($row->label ?: $row->localId), $chatContextSections, $conversationId)
+        $result = '' !== $question
+            ? $this->chat->askScoped($ctx, $question, 'Document: '.($row->label ?: $row->localId), $chatContextSections, $conversationId)
             : null;
-        if ($result !== null) {
+        if (null !== $result) {
             $chatHistory = $this->appendChatTurn($request, $chatScope, $conversationId, $result);
         }
 
@@ -950,23 +963,23 @@ final class FolioController extends AbstractController
             }
         }
 
-        if ($page === null) {
+        if (null === $page) {
             throw $this->createNotFoundException(sprintf('Page %d was not found for %s.', $seq, $localId));
         }
 
         $question = trim($request->request->getString('q', $request->query->getString('q')));
         $conversationId = trim($request->request->getString('conversation', $request->query->getString('conversation')));
-        if ($conversationId === '') {
+        if ('' === $conversationId) {
             $conversationId = bin2hex(random_bytes(16));
         }
         $chatScope = sprintf('page:%s:%s:%s:%d', $ctx->folioCode, $core->code, $row->localId, $page->seq);
         $chatHistory = $this->chatHistory($request, $chatScope, $conversationId);
         $contextSections = $this->pageScholarContext($core, $row, $page);
         $chatContextSections = $this->contextWithChatHistory($contextSections, $chatHistory);
-        $result = $question !== ''
+        $result = '' !== $question
             ? $this->chat->askScoped($ctx, $question, sprintf('Page %d of document %s', $page->seq, $row->label ?: $row->localId), $chatContextSections, $conversationId)
             : null;
-        if ($result !== null) {
+        if (null !== $result) {
             $chatHistory = $this->appendChatTurn($request, $chatScope, $conversationId, $result);
         }
 
@@ -1007,7 +1020,7 @@ final class FolioController extends AbstractController
                 break;
             }
         }
-        if ($page === null) {
+        if (null === $page) {
             throw $this->createNotFoundException(sprintf('Page %d was not found for %s.', $seq, $localId));
         }
 
@@ -1035,7 +1048,7 @@ final class FolioController extends AbstractController
         $pages = array_values($row->pages->toArray());
         $question = trim($request->request->getString('q'));
         $conversationId = trim($request->request->getString('conversation'));
-        if ($conversationId === '') {
+        if ('' === $conversationId) {
             $conversationId = bin2hex(random_bytes(16));
         }
 
@@ -1049,7 +1062,7 @@ final class FolioController extends AbstractController
             $chatScope,
             $conversationId,
             $question,
-            'Document: ' . ($row->label ?: $row->localId),
+            'Document: '.($row->label ?: $row->localId),
             $contextSections,
         );
     }
@@ -1077,13 +1090,13 @@ final class FolioController extends AbstractController
             }
         }
 
-        if ($page === null) {
+        if (null === $page) {
             throw $this->createNotFoundException(sprintf('Page %d was not found for %s.', $seq, $localId));
         }
 
         $question = trim($request->request->getString('q'));
         $conversationId = trim($request->request->getString('conversation'));
-        if ($conversationId === '') {
+        if ('' === $conversationId) {
             $conversationId = bin2hex(random_bytes(16));
         }
 
@@ -1151,7 +1164,7 @@ final class FolioController extends AbstractController
     private function sendSse(string $event, array $data): void
     {
         echo "event: {$event}\n";
-        echo 'data: ' . json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . "\n\n";
+        echo 'data: '.json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n\n";
 
         if (\function_exists('ob_flush')) {
             @ob_flush();
@@ -1205,13 +1218,14 @@ final class FolioController extends AbstractController
     }
 
     /**
-     * @param array<string, mixed> $contextSections
+     * @param array<string, mixed>                                               $contextSections
      * @param list<array{question: string, answer: string, error?: string|null}> $chatHistory
+     *
      * @return array<string, mixed>
      */
     private function contextWithChatHistory(array $contextSections, array $chatHistory): array
     {
-        if ($chatHistory === []) {
+        if ([] === $chatHistory) {
             return $contextSections;
         }
 
@@ -1220,11 +1234,12 @@ final class FolioController extends AbstractController
 
     private function chatHistoryKey(string $scope, string $conversationId): string
     {
-        return 'survos_folio.chat.' . hash('sha256', $scope . ':' . $conversationId);
+        return 'survos_folio.chat.'.hash('sha256', $scope.':'.$conversationId);
     }
 
     /**
      * @param list<object> $pages
+     *
      * @return array<string, mixed>
      */
     private function itemScholarContext(Core $core, Row $row, array $pages): array
@@ -1242,16 +1257,16 @@ final class FolioController extends AbstractController
             'Source extras' => $row->extras ?? [],
         ];
 
-        if (count($pages) === 1) {
+        if (1 === count($pages)) {
             $sections['Single page context'] = $this->pageContextData($pages[0]);
-        } elseif ($pages !== []) {
+        } elseif ([] !== $pages) {
             $sections['Page inventory'] = array_map(
                 fn (object $page): array => $this->cleanContext([
                     'seq' => $page->seq ?? null,
                     'type' => isset($page->type) && $page->type instanceof \BackedEnum ? $page->type->value : ($page->type ?? null),
                     'mediaId' => $page->mediaId ?? null,
-                    'hasOcr' => isset($page->text) && is_string($page->text) && trim($page->text) !== '',
-                    'hasDescription' => isset($page->denseSummary) && is_string($page->denseSummary) && trim($page->denseSummary) !== '',
+                    'hasOcr' => isset($page->text) && is_string($page->text) && '' !== trim($page->text),
+                    'hasDescription' => isset($page->denseSummary) && is_string($page->denseSummary) && '' !== trim($page->denseSummary),
                 ]),
                 array_slice($pages, 0, 100),
             );
@@ -1300,13 +1315,14 @@ final class FolioController extends AbstractController
 
     /**
      * @param array<string, mixed> $data
+     *
      * @return array<string, mixed>
      */
     private function cleanContext(array $data): array
     {
         $clean = [];
         foreach ($data as $key => $value) {
-            if ($value === null || $value === '' || $value === []) {
+            if (null === $value || '' === $value || [] === $value) {
                 continue;
             }
             $clean[$key] = $value;
@@ -1321,7 +1337,7 @@ final class FolioController extends AbstractController
         $ctx = $this->folios->context($folio->code);
         $termSet = $ctx->em->find(TermSet::class, "$folio->code:$setCode")
             ?? throw $this->createNotFoundException($setCode);
-        $term = $ctx->em->find(Term::class, $termSet->id . ':' . $termCode)
+        $term = $ctx->em->find(Term::class, $termSet->id.':'.$termCode)
             ?? throw $this->createNotFoundException($termCode);
 
         // A term page with no browsable content of its own was a dead end (2026-08-04 feedback)
@@ -1341,7 +1357,7 @@ final class FolioController extends AbstractController
 
         return $this->redirectToRoute('survos_folio_search', array_filter([
             'folioCode' => $folio->code,
-            $filterProperty => $filterProperty !== null ? $termCode : null,
+            $filterProperty => null !== $filterProperty ? $termCode : null,
         ]));
     }
 
@@ -1377,14 +1393,14 @@ final class FolioController extends AbstractController
         // alias-resolved field names, NOT raw source data. Re-hydrating it here gives the template a
         // typed object (dto.title, dto.creators, …) instead of attribute(row.dtoData, 'x')|default(...)
         // soup, and is the seam for per-content-type rendering later.
-        $dto = $dtoClass !== null && is_a($dtoClass, BaseItemDto::class, true)
+        $dto = null !== $dtoClass && is_a($dtoClass, BaseItemDto::class, true)
             ? $dtoClass::fromNormalized($row->dtoData ?? [])
             : null;
 
         // AI crawlers/bots hammering item pages: an explicit `Accept: text/markdown` skips the
         // claims/links/terms/adjacent-row queries and full HTML render below entirely, returning
         // just the narrative text that's the actual content they're after.
-        if ($dto !== null && $this->wantsMarkdown($request)) {
+        if (null !== $dto && $this->wantsMarkdown($request)) {
             return $this->markdownResponse($dto);
         }
 
@@ -1398,9 +1414,9 @@ final class FolioController extends AbstractController
         $claims = $this->rowClaimsResolver->resolve($ctx->em->getConnection(), $row->id);
         // A summary imported as a claim (folio:ai:import-claims) fills the DTO's empty field, so the
         // narrative can show it; claims come ordered by source, so the newest prompt version wins.
-        if ($dto !== null && ($dto->denseSummary ?? '') === '') {
+        if (null !== $dto && ($dto->denseSummary ?? '') === '') {
             foreach ($claims as $claim) {
-                if ($claim['predicate'] === 'ai:denseSummary' && is_string($claim['value']) && trim($claim['value']) !== '') {
+                if ('ai:denseSummary' === $claim['predicate'] && is_string($claim['value']) && '' !== trim($claim['value'])) {
                     $dto->denseSummary = trim($claim['value']);
                 }
             }
@@ -1469,7 +1485,7 @@ final class FolioController extends AbstractController
      */
     private function markdownResponse(BaseItemDto $dto): Response
     {
-        $body = $dto->title !== null ? "# {$dto->title}\n\n" : '';
+        $body = null !== $dto->title ? "# {$dto->title}\n\n" : '';
         $body .= $dto->mainText() ?? '';
 
         return new Response($body, Response::HTTP_OK, ['Content-Type' => 'text/markdown; charset=UTF-8']);
@@ -1514,11 +1530,11 @@ final class FolioController extends AbstractController
                 ];
             }
         }
-        if ($images === []) {
+        if ([] === $images) {
             // No pages: fall back to the row's own image.
             $data = $row->dtoData ?? [];
             $url = $data['largeImageUrl'] ?? $data['thumbnailUrl'] ?? null;
-            if (is_string($url) && $url !== '') {
+            if (is_string($url) && '' !== $url) {
                 $images = [['url' => $this->imgproxy?->resizePreset($url, 'archive') ?? $url, 'width' => (int) ($data['width'] ?? 1000), 'height' => (int) ($data['height'] ?? 1000), 'format' => $format, 'summary' => null]];
             }
         }
@@ -1586,15 +1602,15 @@ final class FolioController extends AbstractController
         $rows = [];
         foreach ($this->rowLinks($em, $folioCode, $coreCode, $localId) as $link) {
             $target = $link['row'];
-            if ($link['core'] !== 'image' || !$target instanceof Row) {
+            if ('image' !== $link['core'] || !$target instanceof Row) {
                 continue;
             }
             $data = $target->dtoData ?? [];
             $url = $data['largeImageUrl'] ?? $data['url'] ?? $data['thumbnailUrl'] ?? null;
-            if (!is_string($url) || $url === '') {
+            if (!is_string($url) || '' === $url) {
                 continue;
             }
-            $isPdf = stripos((string) ($data['objectType'] ?? ''), 'pdf') !== false;
+            $isPdf = false !== stripos((string) ($data['objectType'] ?? ''), 'pdf');
             $rows[] = [
                 'url' => $url,
                 'width' => (int) ($data['width'] ?? 1000),
@@ -1650,8 +1666,8 @@ final class FolioController extends AbstractController
     #[Route('/{coreCode}/{dtoType}', name: 'survos_folio_core_dto', options: ['expose' => true])]
     public function core(Folio $folio, string $coreCode, Request $request, ?string $dtoType = null): Response
     {
-        $ctx       = $this->folios->context($folio->code);
-        $core      = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
+        $ctx = $this->folios->context($folio->code);
+        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
             ?? throw $this->createNotFoundException($coreCode);
 
         $dtoChoices = $this->dtoChoices($ctx->em->getConnection()->executeQuery(
@@ -1660,27 +1676,27 @@ final class FolioController extends AbstractController
         )->fetchAllAssociative());
 
         $selectedDto = $dtoType ?? '';
-        $schemaTable = $selectedDto !== '' ? $this->schemaTable($ctx->em->getConnection(), $coreCode, $selectedDto) : null;
+        $schemaTable = '' !== $selectedDto ? $this->schemaTable($ctx->em->getConnection(), $coreCode, $selectedDto) : null;
         $selectedDtoClass = is_array($schemaTable) && is_string($schemaTable['dto_class'] ?? null) ? $schemaTable['dto_class'] : $this->dtoTypeResolver->classForType($selectedDto);
-        $populated   = array_flip($core->fieldSummary ?? []);
-        $columns     = $schemaTable
+        $populated = array_flip($core->fieldSummary ?? []);
+        $columns = $schemaTable
             ? $this->schemaColumns($ctx->em->getConnection(), (string) $schemaTable['id'])
             : ($selectedDtoClass
                 ? array_values(array_filter(
                     $this->dtoColumns($selectedDtoClass),
-                    fn (string $col) => isset($populated[$col]) || $col === 'id',
+                    fn (string $col) => isset($populated[$col]) || 'id' === $col,
                 ))
                 : []);
 
         return $this->render('@SurvosFolioBundle/folio/core.html.twig', [
-            'ctx'         => $ctx,
-            'folio'       => $folio,
-            'core'        => $core,
-            'dtoStats'    => $dtoChoices,
-            'dtoChoices'   => $dtoChoices,
+            'ctx' => $ctx,
+            'folio' => $folio,
+            'core' => $core,
+            'dtoStats' => $dtoChoices,
+            'dtoChoices' => $dtoChoices,
             'selectedDto' => $selectedDto,
-            'rowClass'     => Row::class,
-            'columns'     => $columns,
+            'rowClass' => Row::class,
+            'columns' => $columns,
             'schemaTable' => $schemaTable,
         ]);
     }
@@ -1710,7 +1726,7 @@ final class FolioController extends AbstractController
             'SELECT rowid FROM item WHERE core_id = :core AND local_id = :current',
             ['core' => $coreId, 'current' => $localId],
         );
-        if ($currentRowid === false) {
+        if (false === $currentRowid) {
             return ['prev' => null, 'next' => null];
         }
 
@@ -1723,7 +1739,7 @@ final class FolioController extends AbstractController
             ['core' => $coreId, 'rowid' => $currentRowid],
         ) ?: null;
 
-        $mk = static fn (?array $row): ?array => $row === null
+        $mk = static fn (?array $row): ?array => null === $row
             ? null
             : ['localId' => $row['local_id'], 'dtoType' => $row['dto_type'] ?: 'row'];
 
@@ -1741,13 +1757,14 @@ final class FolioController extends AbstractController
 
     /**
      * @param array<int,array<string,mixed>> $stats
+     *
      * @return list<array{type: string|null, label: string, count: int}>
      */
     private function dtoChoices(array $stats): array
     {
         $choices = [];
         foreach ($stats as $stat) {
-            $type = is_string($stat['dto_type'] ?? null) && $stat['dto_type'] !== '' ? $stat['dto_type'] : null;
+            $type = is_string($stat['dto_type'] ?? null) && '' !== $stat['dto_type'] ? $stat['dto_type'] : null;
             $choices[] = [
                 'type' => $type,
                 'label' => $this->dtoTypeResolver->labelForType($type),
@@ -1758,9 +1775,9 @@ final class FolioController extends AbstractController
         return $choices;
     }
 
-    private function schemaTable(\Doctrine\DBAL\Connection $connection, string $coreCode, ?string $dtoType): ?array
+    private function schemaTable(Connection $connection, string $coreCode, ?string $dtoType): ?array
     {
-        if ($dtoType === null || $dtoType === '') {
+        if (null === $dtoType || '' === $dtoType) {
             return null;
         }
 
@@ -1773,14 +1790,14 @@ final class FolioController extends AbstractController
     }
 
     /** @return list<string> */
-    private function schemaColumns(\Doctrine\DBAL\Connection $connection, string $tableId): array
+    private function schemaColumns(Connection $connection, string $tableId): array
     {
         return array_values(array_filter(
             $connection->executeQuery(
                 'SELECT name FROM schema_property WHERE table_id = ? AND visible = 1 ORDER BY position, name',
                 [$tableId],
             )->fetchFirstColumn(),
-            static fn (mixed $value): bool => is_string($value) && $value !== '',
+            static fn (mixed $value): bool => is_string($value) && '' !== $value,
         ));
     }
 
@@ -1795,13 +1812,14 @@ final class FolioController extends AbstractController
                 $props[] = $p->getName();
             }
         }
+
         return $props;
     }
 
     private function formatDdl(string $sql): string
     {
         $open = strpos($sql, '(');
-        if ($open === false) {
+        if (false === $open) {
             return $sql;
         }
 
@@ -1811,23 +1829,23 @@ final class FolioController extends AbstractController
         $depth = 0;
         $current = '';
 
-        for ($i = 0, $len = strlen($body); $i < $len; $i++) {
+        for ($i = 0, $len = strlen($body); $i < $len; ++$i) {
             $ch = $body[$i];
-            if ($ch === '(') {
-                $depth++;
-            } elseif ($ch === ')') {
-                $depth--;
-            } elseif ($ch === ',' && $depth === 0) {
+            if ('(' === $ch) {
+                ++$depth;
+            } elseif (')' === $ch) {
+                --$depth;
+            } elseif (',' === $ch && 0 === $depth) {
                 $parts[] = trim($current);
                 $current = '';
                 continue;
             }
             $current .= $ch;
         }
-        if (trim($current) !== '') {
+        if ('' !== trim($current)) {
             $parts[] = trim($current);
         }
 
-        return $head . "\n    " . implode(",\n    ", $parts) . "\n)";
+        return $head."\n    ".implode(",\n    ", $parts)."\n)";
     }
 }

@@ -17,7 +17,7 @@ final readonly class FolioSearchConfiguration
         if (!in_array($backend, [self::SQLITE, self::ELASTICSEARCH], true)) {
             throw new \InvalidArgumentException(sprintf('Unsupported folio search backend "%s".', $backend));
         }
-        if ($allowFtsSkip && $backend !== self::ELASTICSEARCH) {
+        if ($allowFtsSkip && self::ELASTICSEARCH !== $backend) {
             throw new \InvalidArgumentException('Skipping FTS5 requires an Elasticsearch search backend.');
         }
     }
@@ -27,7 +27,7 @@ final readonly class FolioSearchConfiguration
     {
         $search = $extras['search'] ?? [];
         if (!is_array($search)
-            || array_diff(array_keys($search), ['backend', 'allowFtsSkip']) !== []
+            || [] !== array_diff(array_keys($search), ['backend', 'allowFtsSkip'])
             || (array_key_exists('backend', $search) && !is_string($search['backend']))
             || (array_key_exists('allowFtsSkip', $search) && !is_bool($search['allowFtsSkip']))
         ) {

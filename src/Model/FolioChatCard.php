@@ -15,5 +15,6 @@ final readonly class FolioChatCard
     public function __construct(
         public FolioChatHit $hit,
         public ?string $caption = null,
-    ) {}
+    ) {
+    }
 }

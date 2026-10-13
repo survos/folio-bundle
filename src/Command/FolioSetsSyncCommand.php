@@ -7,7 +7,9 @@ namespace Survos\FolioBundle\Command;
 use Survos\FolioBundle\Event\FolioSetSyncedEvent;
 use Survos\FolioBundle\Set\FolioSetResolver;
 use Survos\FolioBundle\Set\FolioSiteRegistry;
-use Symfony\Component\Console\Attribute\{Argument, AsCommand, Option};
+use Symfony\Component\Console\Attribute\Argument;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -39,7 +41,8 @@ final class FolioSetsSyncCommand
         private readonly Filesystem $fs,
         #[Autowire('%survos_folio.local_passthrough%')]
         private readonly bool $localPassthrough = false,
-    ) {}
+    ) {
+    }
 
     public function __invoke(
         SymfonyStyle $io,
@@ -49,29 +52,29 @@ final class FolioSetsSyncCommand
         #[Option('Resolve and report; record nothing, pull nothing, notify nothing')] bool $dryRun = false,
     ): int {
         $sets = $this->resolver->sets();
-        if ($sets === []) {
+        if ([] === $sets) {
             $io->note('No folio sets are configured (survos_folio.folio_sets).');
 
             return Command::SUCCESS;
         }
-        if ($code !== null && !$this->resolver->has($code)) {
+        if (null !== $code && !$this->resolver->has($code)) {
             $io->error(sprintf('No folio set "%s". Defined: %s.', $code, implode(', ', array_keys($sets))));
 
             return Command::FAILURE;
         }
         $pull = $pull || $force;
-        $io->text(sprintf('Resolving against the %s.', $this->resolver->source() === 'catalog' ? 'hub catalog' : 'local dataset registry'));
+        $io->text(sprintf('Resolving against the %s.', 'catalog' === $this->resolver->source() ? 'hub catalog' : 'local dataset registry'));
 
         $rows = [];
         $settled = []; // datasetKey → true once pulled (or refused) this run; a folio in two sets is handled once
-        foreach ($code !== null ? [$code => $sets[$code]] : $sets as $setCode => $set) {
+        foreach (null !== $code ? [$code => $sets[$code]] : $sets as $setCode => $set) {
             $previous = $this->resolver->recorded($setCode);
             $before = array_column($previous['members'] ?? [], 'datasetKey');
             try {
                 $members = $this->resolver->resolve($setCode);
             } catch (\Throwable $e) {
                 $io->warning(sprintf('%s: could not resolve (%s). %s', $setCode, $e->getMessage(),
-                    $previous !== null ? 'Keeping the last recorded membership.' : 'Nothing recorded yet.'));
+                    null !== $previous ? 'Keeping the last recorded membership.' : 'Nothing recorded yet.'));
                 $rows[] = [$setCode, count($before), '—', '—', '—'];
                 continue;
             }
@@ -100,7 +103,7 @@ final class FolioSetsSyncCommand
                 $this->dispatcher->dispatch(new FolioSetSyncedEvent($setCode, $set, $members));
             }
             $rows[] = [
-                $setCode.(count($members) === 1 ? ' (single)' : ''),
+                $setCode.(1 === count($members) ? ' (single)' : ''),
                 sprintf('%d (%d on disk)', count($members), count($members) - count($missing)),
                 implode(', ', array_diff($after, $before)) ?: '—',
                 implode(', ', array_diff($before, $after)) ?: '—',
@@ -109,7 +112,7 @@ final class FolioSetsSyncCommand
         }
 
         $io->table(['set', 'members', 'joined', 'left', 'not on disk'], $rows);
-        if ($this->sites->all() !== []) {
+        if ([] !== $this->sites->all()) {
             $io->table(['site', 'hosts', 'sets', 'folios'], array_map(
                 fn (string $site): array => [
                     $site.($this->sites->isSingle($site) ? ' (single)' : ''),
@@ -122,7 +125,7 @@ final class FolioSetsSyncCommand
         }
         if ($dryRun) {
             $io->note('Dry run: nothing recorded, pulled or dispatched.');
-        } elseif (!$pull && array_filter($rows, static fn (array $r): bool => $r[4] !== '—') !== []) {
+        } elseif (!$pull && [] !== array_filter($rows, static fn (array $r): bool => '—' !== $r[4])) {
             $io->note('Members not on disk are listed but not fetched. Run with --pull to fetch them.');
         }
 
@@ -147,7 +150,7 @@ final class FolioSetsSyncCommand
 
         try {
             $exit = $this->pull->__invoke($io, dataset: $key, force: $force);
-            if ($exit !== Command::SUCCESS) {
+            if (Command::SUCCESS !== $exit) {
                 $io->warning(sprintf('%s: folio:pull exited with %d.', $key, $exit));
             }
         } catch (\Throwable $e) {
@@ -156,7 +159,7 @@ final class FolioSetsSyncCommand
             $io->warning(sprintf('%s: pull failed (%s).', $key, $e->getMessage()));
         }
         $member['local'] = $this->resolver->localPath($key);
-        $member['available'] = $member['local'] !== null;
+        $member['available'] = null !== $member['local'];
 
         return $member;
     }

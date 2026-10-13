@@ -6,15 +6,12 @@ namespace Survos\FolioBundle\Tests\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\TestCase;
-use Survos\DataContracts\Path\DataPaths;
 use Survos\FolioBundle\Catalog\DatasetPublicationClient;
 use Survos\FolioBundle\Catalog\FolioCatalogClient;
-use Survos\FolioBundle\Command\FolioMigrateCommand;
 use Survos\FolioBundle\Command\FolioPullCommand;
 use Survos\FolioBundle\Command\FolioValidateCommand;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\FolioBundle\Set\FolioSetResolver;
-use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\HttpClient\MockHttpClient;
 

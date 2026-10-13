@@ -52,7 +52,7 @@ final class FolioAiClaimImporter
         $failed = 0;
 
         $handle = fopen($input, 'rb');
-        if ($handle === false) {
+        if (false === $handle) {
             throw new \RuntimeException(sprintf('Unable to read "%s".', $input));
         }
 
@@ -63,31 +63,31 @@ final class FolioAiClaimImporter
         try {
             while (($line = fgets($handle)) !== false) {
                 $line = trim($line);
-                if ($line === '') {
+                if ('' === $line) {
                     continue;
                 }
 
                 $record = json_decode($line, true);
                 if (!is_array($record)) {
-                    $failed++;
+                    ++$failed;
                     continue;
                 }
 
                 $itemId = (string) ($record['custom_id'] ?? '');
                 $content = $this->responseContent($record);
-                if ($itemId === '' || $content === null) {
-                    $failed++;
+                if ('' === $itemId || null === $content) {
+                    ++$failed;
                     continue;
                 }
 
                 $payload = json_decode($content, true);
                 if (!is_array($payload)) {
-                    $failed++;
+                    ++$failed;
                     continue;
                 }
 
                 $claimRows = $this->claimRows($itemId, $payload, $source, $record);
-                if ($claimRows === []) {
+                if ([] === $claimRows) {
                     continue;
                 }
 
@@ -99,9 +99,9 @@ final class FolioAiClaimImporter
                     if (!$dryRun) {
                         $this->insertClaim($connection, $claimRow);
                     }
-                    $claims++;
+                    ++$claims;
                 }
-                $rows++;
+                ++$rows;
             }
 
             if (!$dryRun) {
@@ -123,12 +123,14 @@ final class FolioAiClaimImporter
     private function responseContent(array $record): ?string
     {
         $content = $record['response']['body']['choices'][0]['message']['content'] ?? null;
-        return is_string($content) && trim($content) !== '' ? $content : null;
+
+        return is_string($content) && '' !== trim($content) ? $content : null;
     }
 
     /**
      * @param array<string,mixed> $payload
      * @param array<string,mixed> $record
+     *
      * @return list<array<string,mixed>>
      */
     private function claimRows(string $itemId, array $payload, string $source, array $record): array
@@ -153,7 +155,7 @@ final class FolioAiClaimImporter
                     continue;
                 }
                 $predicate = $claim['predicate'] ?? null;
-                if (!is_string($predicate) || $predicate === '') {
+                if (!is_string($predicate) || '' === $predicate) {
                     continue;
                 }
                 foreach ($this->values($claim['value'] ?? null) as $value) {
@@ -190,7 +192,7 @@ final class FolioAiClaimImporter
     /** @return list<string> */
     private function values(mixed $value): array
     {
-        if ($value === null || $value === '') {
+        if (null === $value || '' === $value) {
             return [];
         }
         if (!is_array($value)) {
@@ -199,20 +201,20 @@ final class FolioAiClaimImporter
 
         $out = [];
         foreach ($value as $item) {
-            if ($item === null || $item === '') {
+            if (null === $item || '' === $item) {
                 continue;
             }
             $out[] = is_scalar($item) ? (string) $item : json_encode($item, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         }
 
-        return array_values(array_filter($out, static fn (?string $item): bool => $item !== null && $item !== ''));
+        return array_values(array_filter($out, static fn (?string $item): bool => null !== $item && '' !== $item));
     }
 
     /** @param array<string,mixed> $meta */
     private function claimRow(string $itemId, string $predicate, string $value, string $source, mixed $confidence, ?string $agent, array $meta): array
     {
         $confidence = is_numeric($confidence) ? (float) $confidence : null;
-        if ($confidence !== null && $confidence > 1) {
+        if (null !== $confidence && $confidence > 1) {
             $confidence /= 100;
         }
 
