@@ -23,6 +23,7 @@ final class DatasetField
     public const CHECKSUM = 'checksum';
     public const UPDATED_AT = 'updatedAt';
     public const DTO_COUNTS = 'dtoCounts';
+    public const CORE_COUNTS = 'coreCounts';
     public const REVISION = 'revision';
     public const AVAILABLE = 'available';
     public const DOWNLOAD_URL = 'downloadUrl';
