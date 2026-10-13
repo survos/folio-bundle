@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Search;
 
 use Doctrine\DBAL\Connection;
-use Survos\FolioBundle\Service\FolioElasticRowIndex;
 use Survos\FolioBundle\Service\FolioFacetFieldResolver;
+use Survos\FolioBundle\Service\FolioSearchIndex;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\SearchBundle\Attribute\AsSearch;
 use Survos\SearchBundle\Search\AbstractSearch;
@@ -37,8 +37,8 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
         /** survos_folio.yaml's live_facet_max_rows — the row count past which a text query stops
          *  aggregating facets over its own matches. 0 = always live. */
         private readonly int $liveFacetMaxRows = 500_000,
-        /** Where a folio without item_fts is text-searched; see docs/search-policy.md. */
-        private readonly ?FolioElasticRowIndex $elastic = null,
+        /** Where a folio without item_fts is text-searched; see docs/search-indexes.md. */
+        private readonly ?FolioSearchIndex $elastic = null,
     ) {
         foreach ($this->hitFields as $field) {
             if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $field)) {
@@ -80,10 +80,6 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             throw new \InvalidArgumentException('Folio row search requires a folioCode option like "dc/05747667f".');
         }
 
-        // Routes resolve the base Folio ID separately from its selected content locale.
-        // ES is scoped to the physical artifact, while returned row IDs remain base IDs.
-        $contentLocale = $this->folios->requestContentLocale;
-        $searchFolioCode = $folioCode.(null !== $contentLocale ? '.'.$contentLocale : '');
         $ctx = $this->folios->context($folioCode);
         [$provider, $dataset] = explode('/', $folioCode, 2);
         $connection = $ctx->em->getConnection();
@@ -202,11 +198,12 @@ final class FolioRowSearch extends AbstractSearch implements HitTemplateSearchIn
             'table' => 'item',
             'ftsTable' => $hasFts ? 'item_fts' : null,
             'textFallbackColumns' => ['d.label'],
-            // No item_fts: ask the shared Elasticsearch row index for the matching rows. It answers
-            // null when it can't (node down, folio not indexed yet), and the label search above
-            // applies — a narrower search, never an unfiltered one.
+            // No item_fts: ask the shared Elasticsearch search indexes for the matching rows. They
+            // answer null when they can't (node down, folio not indexed yet), and the label search
+            // above applies — a narrower search, never an unfiltered one. Only source folios are
+            // indexed; a translation shares their row ids, so it is matched in the source text.
             'textMatcher' => !$hasFts && $this->elastic?->isConfigured()
-                ? fn (string $text): ?array => $this->elastic->match($searchFolioCode, $text, $selectedCore)
+                ? fn (string $text): ?array => $this->elastic->match($folioCode, $text, $selectedCore)
                 : null,
             'joinExpression' => 'f.rowid = d.rowid',
             'selectColumns' => [

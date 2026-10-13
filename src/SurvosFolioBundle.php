@@ -138,15 +138,24 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('Rows past which a text (FTS) search skips live facet counts, which are aggregated over the matching rows and cannot use the precomputed table. Measured on news/rappnews4909 (966,590 rows): ~5s per first-seen query, essentially all of it facets, against ~1s for hits and counts. Filter-only queries keep their facets either way. 0 = always live.')
             ->end()
             ->booleanNode('elastic_auto_index')->defaultFalse()
-                ->info('Producer only: queue shared ES row indexing after complete Folio publication. Enable in Harvest, leave disabled in reader apps.')
+                ->info('Producer only: queue indexing + verification of every published Folio into the shared search indexes. Enable in Harvest, leave disabled in reader apps.')
             ->end()
-            ->scalarNode('elastic_row_index')
-                ->defaultValue('folio_row')
-                ->info('Shared Elasticsearch row projection across Folios and cores (docs/search-policy.md). Shared by every folio and every app that reads them, so not app-prefixed. Needs ELASTICSEARCH_DSN.')
-            ->end()
-            ->integerNode('elastic_match_limit')
-                ->defaultValue(1000)
-                ->info('Row ids a text query on such a folio brings back from Elasticsearch; paging, filters and facets then run over these in SQLite.')
+            ->arrayNode('search')
+                ->info('The shared Elasticsearch search indexes every Folio row lands in once (docs/search-indexes.md). Not app-prefixed: Harvest writes them, every app reads them. Needs ELASTICSEARCH_DSN.')
+                ->addDefaultsIfNotSet()
+                ->children()
+                    ->scalarNode('item_index')->defaultValue('folio_item')->end()
+                    ->scalarNode('text_index')->defaultValue('folio_text')->end()
+                    ->scalarNode('meta_index')->defaultValue('folio_meta')->end()
+                    ->arrayNode('text_cores')->scalarPrototype()->end()->defaultValue(['article'])
+                        ->info('Cores whose rows are text units (go to text_index, with parentRowId); every other core goes to item_index.')
+                    ->end()
+                    ->integerNode('shards')->defaultValue(1)->info('Primary shards of item_index and text_index, set when they are created.')->end()
+                    ->integerNode('replicas')->defaultValue(0)->end()
+                    ->integerNode('match_limit')->defaultValue(1000)
+                        ->info('Row ids a text query brings back for a folio without item_fts; SQLite then pages and facets over them.')
+                    ->end()
+                ->end()
             ->end()
             ->scalarNode('entity_manager')->defaultValue('folio')->end()
             ->scalarNode('folio_server')
@@ -343,11 +352,17 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // ELASTICSEARCH_DSN is unset, which is the right failure for an app that has no cluster.
         $services->set(Service\FolioElasticClient::class)->autowire()->autoconfigure();
         $services->set(FolioElasticBuildSetCommand::class)->autowire()->autoconfigure()->public();
-        // Text search for folios built without FTS (fts_content = off): the shared row index, the
-        // command that fills it, and — where Messenger exists — the message a finished build queues.
-        $services->set(Service\FolioElasticRowIndex::class)->autowire()->autoconfigure()->public()->args([
-            '$index' => $config['elastic_row_index'],
-            '$matchLimit' => $config['elastic_match_limit'],
+        // The shared search indexes every published folio lands in (docs/search-indexes.md), the
+        // command that fills and verifies them, and — where Messenger exists — the message a publication queues.
+        $services->set(Service\FolioSearchProjector::class)->autowire()->autoconfigure()->public()
+            ->arg('$textCores', $config['search']['text_cores']);
+        $services->set(Service\FolioSearchIndex::class)->autowire()->autoconfigure()->public()->args([
+            '$itemIndex' => $config['search']['item_index'],
+            '$textIndex' => $config['search']['text_index'],
+            '$metaIndex' => $config['search']['meta_index'],
+            '$shards' => $config['search']['shards'],
+            '$replicas' => $config['search']['replicas'],
+            '$matchLimit' => $config['search']['match_limit'],
         ]);
         $services->set(Service\FolioElasticIndexCommand::class)->autowire()->autoconfigure()->public();
         $services->set(EventListener\FolioElasticIndexListener::class)->autowire()->autoconfigure()

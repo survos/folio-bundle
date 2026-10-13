@@ -342,9 +342,12 @@ final class FolioFtsIndexer
     }
 
     /**
+     * Facet fields a folio declares (schema_property facet/filterable) plus the built-in ones.
+     * Public because the Elasticsearch projection ({@see FolioSearchProjector}) facets the same fields.
+     *
      * @return list<string>
      */
-    private function facetFields(\PDO $pdo): array
+    public function facetFields(\PDO $pdo): array
     {
         $fields = ['core', 'dtoType', 'creator', 'date', 'contentType', 'language'];
 
@@ -369,7 +372,7 @@ final class FolioFtsIndexer
      *
      * @return list<string>
      */
-    private function rowFacetValues(string $field, array $row, array $data): array
+    public function rowFacetValues(string $field, array $row, array $data): array
     {
         if ('core' === $field) {
             $coreId = is_string($row['core_id'] ?? null) ? $row['core_id'] : '';
@@ -521,7 +524,7 @@ final class FolioFtsIndexer
 
     /**
      * The words a row is found by. Public because a folio searched in Elasticsearch instead
-     * ({@see FolioElasticRowIndex}) indexes this same text, so both backends match the same rows.
+     * ({@see FolioSearchProjector}) indexes this same text, so both backends match the same rows.
      *
      * @param array<string, mixed> $row                  local_id, label, dto_type, dto_data, extras
      * @param array<string,true>   $searchableProperties from {@see searchableProperties()}
