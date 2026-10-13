@@ -264,6 +264,7 @@ final class FolioSearchIndex
                 'hasImage' => ['type' => 'boolean'],
                 'pageCount' => ['type' => 'integer'],
                 'mediaKinds' => $keyword,
+                'thumbnailUrl' => ['type' => 'keyword', 'index' => false, 'doc_values' => false],
                 'links' => $keyword,
                 'parentRowId' => $keyword, 'issueId' => $keyword, 'articleTier' => $keyword, 'recordKind' => $keyword,
                 'pageSeq' => ['type' => 'integer'],
@@ -370,6 +371,9 @@ final class FolioSearchIndex
                     throw new \RuntimeException(sprintf('Index %s has another Folio search schema version; create the new version under a new name, reindex, then switch readers.', $index));
                 }
             }
+            // Within a version fields are only ever added: ES accepts new ones on a live index (and
+            // rejects a changed one, which would be a new version). Rows get them when reindexed.
+            $this->elastic->request('PUT', $index.'/_mapping', ['properties' => $mappings['properties']]);
 
             return;
         }

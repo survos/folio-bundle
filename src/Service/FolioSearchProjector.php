@@ -59,7 +59,8 @@ final class FolioSearchProjector
         $facetFields = array_values(array_diff($this->fts->facetFields($pdo), self::TYPED_FACETS));
         // Pages and links are merge-joined in row-id order, never loaded into memory: a newspaper
         // folio has a page and an issue link for each of its million articles.
-        $pages = $this->sortedCursor($pdo, 'page', 'SELECT row_id, COUNT(*), GROUP_CONCAT(DISTINCT type) FROM page GROUP BY row_id ORDER BY row_id');
+        // SQLite's bare-column rule: with MIN(seq), url comes from the row's first page.
+        $pages = $this->sortedCursor($pdo, 'page', 'SELECT row_id, COUNT(*), GROUP_CONCAT(DISTINCT type), url, MIN(seq) FROM page GROUP BY row_id ORDER BY row_id');
         // Link ends are local ids; item ids carry the folio code the file was built under.
         $first = (string) $pdo->query('SELECT id FROM item LIMIT 1')->fetchColumn();
         $prefix = false !== ($colon = strpos($first, ':')) ? substr($first, 0, $colon) : $folioCode;
@@ -111,6 +112,9 @@ final class FolioSearchProjector
                 'hasImage' => $pageCount > 0 || [] !== array_filter(array_map(static fn (string $f) => $data[$f] ?? null, self::IMAGE_FIELDS)),
                 'pageCount' => $pageCount,
                 'mediaKinds' => $mediaKinds,
+                // The first page's URL (often our s3:// mirror): what a hit card shows. Readers decide
+                // whether it is renderable; dto image fields are provenance and stay in SQLite.
+                'thumbnailUrl' => null === $page ? null : self::str($page[3]),
                 'links' => null === $link ? [] : array_values(array_unique(explode("\x1F", (string) $link[1]))),
                 'attrs' => $attrs,
             ];

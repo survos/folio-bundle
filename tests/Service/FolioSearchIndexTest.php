@@ -58,6 +58,8 @@ final class FolioSearchIndexTest extends TestCase
         self::assertSame('1953-01-01', $article['dateStart']);
         self::assertSame(1953, $article['year']);
         self::assertSame(['scan'], $article['mediaKinds']);
+        self::assertSame(2, $article['pageCount']);
+        self::assertSame('s3://bucket/i1-a1-1.jpg', $article['thumbnailUrl'], 'the first page by seq, not by insertion');
         self::assertSame('advertisement', $article['recordKind']);
         self::assertSame('Virginia', $article['attrs']['state']);
         self::assertStringContainsString('tractor', $article['body']);
@@ -129,7 +131,7 @@ final class FolioSearchIndexTest extends TestCase
     {
         $db = new \PDO('sqlite:'.$this->folios->path($code, createDirectory: true));
         $db->exec('CREATE TABLE item (id TEXT PRIMARY KEY, local_id TEXT, label TEXT, dto_type TEXT, dto_data TEXT, extras TEXT, core_id TEXT)');
-        $db->exec('CREATE TABLE page (id TEXT, row_id TEXT, seq INT, type TEXT)');
+        $db->exec('CREATE TABLE page (id TEXT, row_id TEXT, seq INT, type TEXT, url TEXT)');
         $db->exec('CREATE TABLE link (left_core TEXT, left_id TEXT, right_core TEXT, right_id TEXT)');
         $db->exec('CREATE TABLE schema_property (name TEXT, label TEXT, type TEXT, visible INT, facet INT, filterable INT, searchable INT, position INT, table_id TEXT)');
         $db->exec("INSERT INTO schema_property VALUES ('state', 'State', '?string', 1, 1, 1, 0, 1, 'x')");
@@ -139,7 +141,8 @@ final class FolioSearchIndexTest extends TestCase
             $insert->execute([$code.':article:'.$localId, $localId, $title, 'document',
                 json_encode(['date' => '1953-01-01', 'state' => 'Virginia', 'ocrText' => strtolower($title).' tractor']),
                 json_encode(['issueId' => 'i1', 'articleTier' => 'block', 'recordKind' => 'advertisement', 'pdfPage' => 1]), $code.':article']);
-            $db->prepare('INSERT INTO page VALUES (?, ?, 1, ?)')->execute([$code.':article:'.$localId.'#1', $code.':article:'.$localId, 'scan']);
+            $db->prepare('INSERT INTO page VALUES (?, ?, 2, ?, ?)')->execute([$code.':article:'.$localId.'#2', $code.':article:'.$localId, 'scan', 's3://bucket/'.$localId.'-2.jpg']);
+            $db->prepare('INSERT INTO page VALUES (?, ?, 1, ?, ?)')->execute([$code.':article:'.$localId.'#1', $code.':article:'.$localId, 'scan', 's3://bucket/'.$localId.'-1.jpg']);
             $db->prepare('INSERT INTO link VALUES (?, ?, ?, ?)')->execute(['article', $localId, 'doc', 'i1']);
         }
     }
@@ -157,6 +160,11 @@ final class FolioSearchIndexTest extends TestCase
             if ('PUT' === $method && 1 === count($parts)) {
                 $this->mappings[$index] = $body['mappings'];
                 $this->docs[$index] = [];
+
+                return new MockResponse('{}');
+            }
+            if ('PUT' === $method && str_ends_with($path, '/_mapping')) {
+                $this->mappings[$index]['properties'] += $body['properties'];
 
                 return new MockResponse('{}');
             }
