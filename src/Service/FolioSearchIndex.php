@@ -129,6 +129,8 @@ final class FolioSearchIndex
 
         $result['status'] = match (true) {
             null === $result['indexed']['item'] || null === $result['indexed']['text'] => 'unreachable',
+            // An empty folio is fully indexed once its meta document is current.
+            0 === $result['expected']['item'] + $result['expected']['text'] => 0 < (int) $result['stale'] ? 'stale' : (($meta['build'] ?? null) === $build ? 'ok' : 'missing'),
             0 === $result['indexed']['item'] + $result['indexed']['text'] && 0 === (int) $result['stale'] => 'missing',
             $result['indexed'] !== $result['expected'] => 0 < (int) $result['stale'] ? 'stale' : 'partial',
             0 < (int) $result['stale'] => 'stale',

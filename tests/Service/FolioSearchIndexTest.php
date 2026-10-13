@@ -103,6 +103,15 @@ final class FolioSearchIndexTest extends TestCase
         self::assertSame('partial', $this->index()->verify('test/paper')['status']);
     }
 
+    public function testAnEmptyFolioVerifiesOnceIndexed(): void
+    {
+        $this->newspaper('test/empty');
+        (new \PDO('sqlite:'.$this->folios->path('test/empty')))->exec('DELETE FROM item');
+        $index = $this->index();
+        self::assertSame('missing', $index->verify('test/empty')['status']);
+        self::assertSame('ok', $index->index('test/empty')['verify']['status']);
+    }
+
     public function testVerifyNamesAFolioThatWasNeverIndexed(): void
     {
         $this->newspaper('test/paper');
