@@ -10,11 +10,12 @@ use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Entity\Page;
 use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Twig\FolioCoreTwig;
-use Survos\TablerBundle\Event\MenuEvent;
+use Survos\MenuBundle\Attribute\AsMenuListener;
+use Survos\MenuBundle\Event\MenuEvent;
+use Survos\MenuBundle\MenuSlot;
 use Survos\TablerBundle\Menu\MenuBuilderTrait;
 use Survos\TablerBundle\Service\IconService;
 use Survos\TablerBundle\Service\RouteAliasService;
-use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Routing\RouterInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
@@ -55,7 +56,7 @@ final class RowMenu
      * layout's own BREADCRUMB slot rather than a hand-drawn <nav> inside each page's hero. A
      * folio-level page names itself with the `crumb` menu option (e.g. 'Search').
      */
-    #[AsEventListener(event: MenuEvent::BREADCRUMB, priority: 50)]
+    #[AsMenuListener(MenuSlot::BREADCRUMB, priority: 50)]
     public function breadcrumb(MenuEvent $event): void
     {
         $row = $event->getOption('row');
@@ -100,7 +101,7 @@ final class RowMenu
         return $label === $key ? $coreCode : $label;
     }
 
-    #[AsEventListener(event: MenuEvent::PAGE_ACTIONS, priority: 50)]
+    #[AsMenuListener(MenuSlot::PAGE_ACTIONS, priority: 50)]
     public function pageActions(MenuEvent $event): void
     {
         $row = $event->getOption('row');

@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Menu;
 
 use Survos\FolioBundle\Service\FolioService;
-use Survos\TablerBundle\Event\MenuEvent;
+use Survos\MenuBundle\Attribute\AsMenuListener;
+use Survos\MenuBundle\Event\MenuEvent;
+use Survos\MenuBundle\MenuSlot;
 use Survos\TablerBundle\Menu\AbstractAdminMenuSubscriber;
-use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Component\Routing\RouterInterface;
 
 class FolioMenu extends AbstractAdminMenuSubscriber
@@ -41,7 +42,7 @@ class FolioMenu extends AbstractAdminMenuSubscriber
         return null;
     }
 
-    #[AsEventListener(event: MenuEvent::ADMIN_NAVBAR_MENU)]
+    #[AsMenuListener(MenuSlot::ADMIN_NAVBAR_MENU)]
     public function onAdminNavbarMenu(MenuEvent $event): void
     {
         $menu = $event->getMenu();
