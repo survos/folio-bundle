@@ -62,6 +62,7 @@ final class FolioSearchIndexTest extends TestCase
         self::assertSame('s3://bucket/i1-a1-1.jpg', $article['thumbnailUrl'], 'the first page by seq, not by insertion');
         self::assertSame('advertisement', $article['recordKind']);
         self::assertSame('Virginia', $article['attrs']['state']);
+        self::assertSame('CC0', $article['license']);
         self::assertStringContainsString('tractor', $article['body']);
 
         $issue = $this->docs['folio_item']['test/paper:doc:i1'];
@@ -112,6 +113,17 @@ final class FolioSearchIndexTest extends TestCase
         self::assertSame('ok', $index->index('test/empty')['verify']['status']);
     }
 
+    public function testAFolioIndexedByAnOlderProjectionIsOutdated(): void
+    {
+        $this->newspaper('test/paper');
+        $index = $this->index();
+        $index->index('test/paper');
+        $this->docs['folio_meta']['test/paper']['documentVersion'] = FolioSearchProjector::DOCUMENT_VERSION - 1;
+
+        self::assertSame('outdated', $index->verify('test/paper')['status'], 'the file did not change, but its documents would');
+        self::assertSame('ok', $index->index('test/paper')['verify']['status']);
+    }
+
     public function testVerifyNamesAFolioThatWasNeverIndexed(): void
     {
         $this->newspaper('test/paper');
@@ -148,7 +160,7 @@ final class FolioSearchIndexTest extends TestCase
         $insert->execute([$code.':doc:i1', 'i1', 'January 1, 1953', 'newspaper', json_encode(['date' => '1953-01-01']), null, $code.':doc']);
         foreach (['i1-a1' => 'Tractor for sale', 'i1-a2' => 'Church supper'] as $localId => $title) {
             $insert->execute([$code.':article:'.$localId, $localId, $title, 'document',
-                json_encode(['date' => '1953-01-01', 'state' => 'Virginia', 'ocrText' => strtolower($title).' tractor']),
+                json_encode(['date' => '1953-01-01', 'state' => 'Virginia', 'rights' => 'CC 0', 'ocrText' => strtolower($title).' tractor']),
                 json_encode(['issueId' => 'i1', 'articleTier' => 'block', 'recordKind' => 'advertisement', 'pdfPage' => 1]), $code.':article']);
             $db->prepare('INSERT INTO page VALUES (?, ?, 2, ?, ?)')->execute([$code.':article:'.$localId.'#2', $code.':article:'.$localId, 'scan', 's3://bucket/'.$localId.'-2.jpg']);
             $db->prepare('INSERT INTO page VALUES (?, ?, 1, ?, ?)')->execute([$code.':article:'.$localId.'#1', $code.':article:'.$localId, 'scan', 's3://bucket/'.$localId.'-1.jpg']);

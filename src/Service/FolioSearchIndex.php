@@ -134,6 +134,9 @@ final class FolioSearchIndex
             0 === $result['indexed']['item'] + $result['indexed']['text'] && 0 === (int) $result['stale'] => 'missing',
             $result['indexed'] !== $result['expected'] => 0 < (int) $result['stale'] ? 'stale' : 'partial',
             0 < (int) $result['stale'] => 'stale',
+            // Every row is there, but written by code that projected it differently. Meta written
+            // before documentVersion existed is version 1.
+            ($meta['documentVersion'] ?? 1) !== FolioSearchProjector::DOCUMENT_VERSION => 'outdated',
             default => 'ok',
         };
 
@@ -266,6 +269,7 @@ final class FolioSearchIndex
                 'hasImage' => ['type' => 'boolean'],
                 'pageCount' => ['type' => 'integer'],
                 'mediaKinds' => $keyword,
+                'license' => $keyword,
                 'thumbnailUrl' => ['type' => 'keyword', 'index' => false, 'doc_values' => false],
                 'links' => $keyword,
                 'parentRowId' => $keyword, 'issueId' => $keyword, 'articleTier' => $keyword, 'recordKind' => $keyword,
@@ -285,7 +289,7 @@ final class FolioSearchIndex
             '_meta' => ['folioSearchVersion' => self::SCHEMA_VERSION],
             'properties' => [
                 'folioCode' => ['type' => 'keyword'], 'build' => ['type' => 'keyword'],
-                'complete' => ['type' => 'boolean'], 'indexedAt' => ['type' => 'date'],
+                'complete' => ['type' => 'boolean'], 'documentVersion' => ['type' => 'integer'], 'indexedAt' => ['type' => 'date'],
                 'rows' => ['type' => 'integer'], 'item' => ['type' => 'integer'], 'text' => ['type' => 'integer'],
                 'cores' => ['type' => 'object', 'enabled' => false],
                 'facets' => ['type' => 'object', 'enabled' => false],
@@ -352,6 +356,7 @@ final class FolioSearchIndex
             'folioCode' => $folioCode,
             'build' => $build,
             'complete' => $complete,
+            'documentVersion' => FolioSearchProjector::DOCUMENT_VERSION,
             'indexedAt' => gmdate('c'),
             'rows' => $expected['item'] + $expected['text'],
             'item' => $expected['item'],

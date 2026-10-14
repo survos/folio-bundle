@@ -19,6 +19,11 @@ namespace Survos\FolioBundle\Service;
  */
 final class FolioSearchProjector
 {
+    /**
+     * Bump whenever what a row projects to changes. The build stamp only covers the folio file, so
+     * without this a folio indexed by older code verifies `ok` forever; with it, it is `outdated`.
+     */
+    public const int DOCUMENT_VERSION = 2; // 2: license
     public const string FAMILY_ITEM = 'item';
     public const string FAMILY_TEXT = 'text';
 
@@ -112,6 +117,8 @@ final class FolioSearchProjector
                 'hasImage' => $pageCount > 0 || [] !== array_filter(array_map(static fn (string $f) => $data[$f] ?? null, self::IMAGE_FIELDS)),
                 'pageCount' => $pageCount,
                 'mediaKinds' => $mediaKinds,
+                // One facetable licence from the row's free-text rights; the raw text stays in attrs.
+                'license' => RightsClassifier::classify($data['license'] ?? null, $data['rightsUri'] ?? null, $data['rights'] ?? null),
                 // The first page's URL (often our s3:// mirror): what a hit card shows. Readers decide
                 // whether it is renderable; dto image fields are provenance and stay in SQLite.
                 'thumbnailUrl' => null === $page ? null : self::str($page[3]),

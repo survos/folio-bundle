@@ -34,6 +34,7 @@ fields are absent on items. Built by `FolioSearchProjector` from the folio's SQL
 | `year` | integer | `dto.year`, else from the date |
 | `dateStart`, `dateEnd` | date | `dto.date` as an inclusive interval: `1953` → whole year, `1941-12` → month, `1940-1945` → both |
 | `hasImage`, `pageCount`, `mediaKinds` | boolean, integer, keyword | the `page` table (photo, scan, audio, video) |
+| `license` | keyword | `RightsClassifier` over `license`, `rightsUri`, `rights`: CC0, CC BY…, Public domain, No known restrictions, In copyright, Not evaluated, Other |
 | `links` | keyword | row ids this row links to: its series, collection, issue, creator |
 | `attrs` | **flattened** | the folio's facets, exactly the values of its SQLite `item_facet` table |
 | `parentRowId`, `issueId`, `articleTier`, `recordKind`, `pageSeq` | keyword / integer | text family only, from `extras` |
@@ -83,7 +84,8 @@ or an audit can tell from the file alone whether ES is current. Indexing a folio
    retries it and it ends up in the failure transport rather than silently half-indexed.
 
 `folio:elastic:index --verify [--all | codes…]` reports `ok`, `missing`, `partial`, `stale`,
-`unreachable` or `no-folio` per folio and exits 1 on any gap. `--stale-only` reindexes only what
+`outdated` (every row is there, written by an older `FolioSearchProjector::DOCUMENT_VERSION` — bump
+it whenever a document's content changes), `unreachable` or `no-folio` per folio and exits 1 on any gap. `--stale-only` reindexes only what
 does not verify; `--queue` hands each to the worker instead.
 
 ## Producing
