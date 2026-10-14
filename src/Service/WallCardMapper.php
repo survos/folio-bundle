@@ -10,11 +10,11 @@ use Survos\DataContracts\Vocabulary\MediaPreset;
 use Survos\DataContracts\Vocabulary\MuseumVocab;
 use Survos\FolioBundle\Api\WallCard;
 use Survos\FolioBundle\Api\WallCardField as Field;
-use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
+use Survos\ImageContracts\ImageUrlBuilderInterface;
 
 final class WallCardMapper
 {
-    public function __construct(private readonly ?ImgproxyUrlBuilder $imgproxy = null)
+    public function __construct(private readonly ?ImageUrlBuilderInterface $imageUrls = null)
     {
     }
 
@@ -104,13 +104,14 @@ final class WallCardMapper
         $license = $text(ItemField::LICENSE) ?? $text(Field::RIGHTS_URI) ?? $text(ItemField::RIGHTS);
         $image = null;
         if (self::renderable($row['page_url'])) {
-            if (null === $this->imgproxy) {
-                throw new \LogicException('WallCard imagery requires a configured signed imgproxy service.');
+            if (null === $this->imageUrls || !$this->imageUrls->isConfigured()) {
+                throw new \LogicException('WallCard imagery requires a configured image backend (imgproxy-bundle or imagor-bundle).');
             }
             // Small presets read the provider's display rendition when it has one; 'full' stays the original.
             $display = DisplayImageSource::pick($row['page_url'], $dto);
-            $thumb = $this->imgproxy->resizePreset($display, 'tiny');
-            $medium = $this->imgproxy->resizePreset($display, MediaPreset::THUMB);
+            $thumb = $this->imageUrls->preset($display, 'tiny');
+            $medium = $this->imageUrls->preset($display, MediaPreset::THUMB);
+            // imgproxy without a key/salt emits unsigned '/insecure/' URLs; the public API never serves those.
             if (str_contains($thumb, '/insecure/') || str_contains($medium, '/insecure/')) {
                 throw new \LogicException('WallCard imagery requires imgproxy signing key and salt.');
             }

@@ -12,6 +12,7 @@
         "league/commonmark": "^2.4",
         "survos/babel-bundle": "^2.10",
         "survos/data-contracts": "^2.5",
+        "survos/image-contracts": "^2.5",
         "survos/dimensions-bundle": "^2.10",
         "survos/field-bundle": "^2.5",
         "survos/jsonl-bundle": "^2.5",
@@ -37,6 +38,8 @@
         "survos/folio": "^2.35.13"
     },
     "suggest": {
+        "survos/imgproxy-bundle": "Image backend for |folio_image and the API thumbnails (or imagor-bundle); without one, source URLs are used as-is.",
+        "survos/imagor-bundle": "Image backend for |folio_image and the API thumbnails (or imgproxy-bundle).",
         "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",
         "survos/import-bundle": "Produces normalized JSONL files before ingesting them into folios.",
         "survos/settings-bundle": "Lets RowMenu gate OCR/Handwriting behind a per-user beta_features setting instead of only the dev environment.",

@@ -4,19 +4,18 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Twig;
 
+use Survos\ImageContracts\ImageUrlBuilderInterface;
 use Twig\Attribute\AsTwigFilter;
 
 /**
- * `folio_image`: every image URL in this bundle's templates goes through here, so imgproxy is an
- * enhancement and not a hidden requirement. With survos/imgproxy-bundle installed it is exactly
- * `|imgproxy(preset)`; without it the source URL is returned as-is, and the page still renders.
- *
- * The builder is typed `?object` on purpose: naming ImgproxyUrlBuilder in the signature would make
- * this class unloadable in an app without the imgproxy bundle.
+ * `folio_image`: every image URL in this bundle's templates goes through here, so an image backend
+ * is an enhancement and not a hidden requirement. With survos/imgproxy-bundle or
+ * survos/imagor-bundle installed it is that backend's preset URL (`|imgproxy(preset)` /
+ * `|imagor(preset)`); without either the source URL is returned as-is, and the page still renders.
  */
 final readonly class FolioImageTwig
 {
-    public function __construct(private ?object $imgproxy = null)
+    public function __construct(private ?ImageUrlBuilderInterface $imageUrls = null)
     {
     }
 
@@ -27,6 +26,8 @@ final readonly class FolioImageTwig
             return '';
         }
 
-        return $this->imgproxy?->resizePreset($url, $preset, $format) ?? $url;
+        // A source the backend can't fetch (imagor outside its buckets, a relative path) renders
+        // as-is rather than as a URL that is certain to fail.
+        return null !== $this->imageUrls && $this->imageUrls->supports($url) ? $this->imageUrls->preset($url, $preset, $format) : $url;
     }
 }

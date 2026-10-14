@@ -25,7 +25,7 @@ use Survos\FolioBundle\Service\FolioWordCloudService;
 use Survos\FolioBundle\Service\RowClaimsResolver;
 use Survos\FolioBundle\Service\RowSchemaOrgBuilder;
 use Survos\FolioBundle\Service\RowTermsResolver;
-use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
+use Survos\ImageContracts\ImageUrlBuilderInterface;
 use Survos\SearchBundle\Adapter\SqliteFts5\Fts5MatchQuery;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -78,7 +78,7 @@ final class FolioController extends AbstractController
         private readonly HttpClientInterface $httpClient,
         private readonly RowTermsResolver $rowTermsResolver,
         private readonly RowClaimsResolver $rowClaimsResolver,
-        private readonly ?ImgproxyUrlBuilder $imgproxy = null,
+        private readonly ?ImageUrlBuilderInterface $imageUrls = null,
         // Null unless the host app also requires survos/schema-org-bundle — see this
         // bundle's own registration, which only defines the builder when it is installed.
         private readonly ?RowSchemaOrgBuilder $rowSchemaOrg = null,
@@ -518,11 +518,11 @@ final class FolioController extends AbstractController
      */
     private function mapThumbnailUrl(?string $url): ?string
     {
-        if (null === $url || null === $this->imgproxy) {
+        if (null === $url || null === $this->imageUrls) {
             return $url;
         }
 
-        return $this->imgproxy->resizePreset($url, 'thumb');
+        return $this->imageUrls->preset($url, 'thumb');
     }
 
     /**
@@ -1515,14 +1515,14 @@ final class FolioController extends AbstractController
         // image hosts) send no Access-Control-Allow-Origin header, which breaks IIIF
         // viewers like diva.js/OpenSeadragon that load canvas images in CORS mode.
         // imgproxy re-serves same-origin, sidestepping the third-party CORS gap entirely.
-        $format = $this->imgproxy ? 'image/webp' : 'image/jpeg';
+        $format = $this->imageUrls ? 'image/webp' : 'image/jpeg';
 
         $images = [];
         if ($this->tableExists($ctx->em->getConnection(), 'page')) {
             // Pages are the canonical imagery — one canvas per page, in seq order.
             foreach ($row->pages as $page) {
                 $images[] = [
-                    'url' => $this->imgproxy?->resizePreset($page->url, 'archive') ?? $page->url,
+                    'url' => $this->imageUrls?->preset($page->url, 'archive') ?? $page->url,
                     'width' => $page->width ?? 1000,
                     'height' => $page->height ?? 1000,
                     'format' => $format,
@@ -1535,7 +1535,7 @@ final class FolioController extends AbstractController
             $data = $row->dtoData ?? [];
             $url = $data['largeImageUrl'] ?? $data['thumbnailUrl'] ?? null;
             if (is_string($url) && '' !== $url) {
-                $images = [['url' => $this->imgproxy?->resizePreset($url, 'archive') ?? $url, 'width' => (int) ($data['width'] ?? 1000), 'height' => (int) ($data['height'] ?? 1000), 'format' => $format, 'summary' => null]];
+                $images = [['url' => $this->imageUrls?->preset($url, 'archive') ?? $url, 'width' => (int) ($data['width'] ?? 1000), 'height' => (int) ($data['height'] ?? 1000), 'format' => $format, 'summary' => null]];
             }
         }
 

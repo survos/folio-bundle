@@ -9,7 +9,7 @@ use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\FolioBundle\Service\RowClaimsResolver;
-use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
+use Survos\ImageContracts\ImageUrlBuilderInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
@@ -40,7 +40,7 @@ final class FolioAiController extends AbstractController
         #[Autowire('%env(MEDIARY_AI_URL)%')]
         private readonly string $endpoint,
         // imgproxy-bundle is optional (RequiredBundle ignoreOnInvalid); null → skip url unwrapping.
-        private readonly ?ImgproxyUrlBuilder $imgproxy = null,
+        private readonly ?ImageUrlBuilderInterface $imageUrls = null,
         // dev: the apps share a proxy keyed by Host; resolve mediary that way.
         #[Autowire('%env(default::MEDIARY_HOST)%')]
         private readonly ?string $host = null,
@@ -76,8 +76,8 @@ final class FolioAiController extends AbstractController
         // mediary fetches + imgproxies the source itself; hand it the RAW page url (unwrap any
         // imgproxy-wrapped value, or it double-processes and 403s).
         $imageUrl = $page?->url;
-        if (null !== $imageUrl && null !== $this->imgproxy) {
-            $imageUrl = $this->imgproxy->sourceUrl($imageUrl);
+        if (null !== $imageUrl && null !== $this->imageUrls) {
+            $imageUrl = $this->imageUrls->sourceUrl($imageUrl);
         }
 
         $result = null;

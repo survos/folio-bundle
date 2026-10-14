@@ -10,7 +10,7 @@ use ApiPlatform\State\ProviderInterface;
 use Survos\FolioBundle\Entity\Core;
 use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Service\FolioService;
-use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
+use Survos\ImageContracts\ImageUrlBuilderInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
 
 final class FolioRowProvider implements ProviderInterface
@@ -18,7 +18,7 @@ final class FolioRowProvider implements ProviderInterface
     public function __construct(
         private readonly FolioService $folioService,
         private readonly RequestStack $requestStack,
-        private readonly ?ImgproxyUrlBuilder $imgproxyUrlBuilder = null,
+        private readonly ?ImageUrlBuilderInterface $imageUrls = null,
     ) {
     }
 
@@ -161,14 +161,14 @@ final class FolioRowProvider implements ProviderInterface
      */
     private function resolveThumbnails(array $rows): void
     {
-        if (null === $this->imgproxyUrlBuilder) {
+        if (null === $this->imageUrls) {
             return;
         }
 
         foreach ($rows as $row) {
             $source = $row->getDisplaySource();
             if ($source) {
-                $row->setResolvedThumbnailUrl($this->imgproxyUrlBuilder->resizePreset($source, 'thumb'));
+                $row->setResolvedThumbnailUrl($this->imageUrls->preset($source, 'thumb'));
             }
         }
     }

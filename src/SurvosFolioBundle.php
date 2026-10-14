@@ -70,7 +70,8 @@ use Survos\FolioBundle\Sitemap\FolioSitemapPopulator;
 use Survos\FolioBundle\Sitemap\FolioSitemapRegistry;
 use Survos\FolioBundle\State\FolioRowProvider;
 use Survos\IiifBundle\SurvosIiifBundle;
-use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
+use Survos\ImageContracts\ImageUrlBuilderInterface;
+use Survos\ImagorBundle\SurvosImagorBundle;
 use Survos\ImgproxyBundle\SurvosImgproxyBundle;
 use Survos\Kit\AbstractUxBundle;
 use Survos\Kit\SurvosKitBundle;
@@ -88,6 +89,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 #[RequiredBundle(SurvosKitBundle::class)]
 #[RequiredBundle(SurvosIiifBundle::class, ignoreOnInvalid: true)]
 #[RequiredBundle(SurvosImgproxyBundle::class, ignoreOnInvalid: true)]
+#[RequiredBundle(SurvosImagorBundle::class, ignoreOnInvalid: true)]
 // Symfony\Component\HttpKernel\Bundle\Bundle <-- Flex auto-registration marker (see Survos\Kit\AbstractSurvosBundle)
 final class SurvosFolioBundle extends AbstractUxBundle
 {
@@ -427,9 +429,9 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->arg('$folioLocalePrefix', $config['folio_server_locale_prefix']);
         $services->set(Service\FolioTimelineStats::class)->autowire()->autoconfigure()->public();
         $services->set(Twig\FolioTimelineTwig::class)->autowire()->autoconfigure()->public();
-        // |folio_image: imgproxy when installed, the plain URL when not (see FolioImageTwig).
+        // |folio_image: imgproxy or imagor when installed, the plain URL when not (see FolioImageTwig).
         $services->set(Twig\FolioImageTwig::class)->autoconfigure()->args([
-            '$imgproxy' => service('Survos\\ImgproxyBundle\\Service\\ImgproxyUrlBuilder')->ignoreOnInvalid(),
+            '$imageUrls' => service(ImageUrlBuilderInterface::class)->ignoreOnInvalid(),
         ]);
         // JSON-LD for the row detail page. schema-org-bundle is optional: survos/data-contracts
         // already annotates its item DTOs with #[SchemaOrg]/#[SchemaProperty], but declares the
@@ -461,9 +463,9 @@ final class SurvosFolioBundle extends AbstractUxBundle
             // then never defined) — rowShow() skips the JSON-LD rather than failing to compile.
             $services->set(FolioController::class)->autowire()->autoconfigure()->public()
                 ->arg('$rowSchemaOrg', service(RowSchemaOrgBuilder::class)->ignoreOnInvalid());
-            // imgproxy-bundle is optional → pass null when absent (controller skips url unwrapping).
+            // An image backend is optional → pass null when absent (controller skips url unwrapping).
             $services->set(FolioAiController::class)->autowire()->autoconfigure()->public()
-                ->arg('$imgproxy', new Reference(ImgproxyUrlBuilder::class, ContainerInterface::NULL_ON_INVALID_REFERENCE));
+                ->arg('$imageUrls', new Reference(ImageUrlBuilderInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE));
         }
         if (interface_exists(\ApiPlatform\State\ProviderInterface::class)) {
             $services->set(FolioRowProvider::class)->autowire()->autoconfigure()->public();

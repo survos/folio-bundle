@@ -4,23 +4,21 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\DBAL;
 
-use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\Driver;
 
 final class FolioConnectionWrapper extends Connection
 {
-    public string $currentPath;
+    /**
+     * Resolved on first read from the connection parameters, and overwritten by
+     * {@see selectDatabase()}. Deliberately not set in a constructor: DBAL marks
+     * Connection::__construct() internal, and overriding it is deprecated.
+     */
+    public string $currentPath {
+        get => $this->currentPath ??= (string) ($this->params()['path'] ?? $this->params()['dbname'] ?? '');
+    }
     private bool $readOnly = false;
     /** This connection switched the file to WAL for a write; put it back to DELETE on close. */
     private bool $walApplied = false;
-
-    public function __construct(array $params, Driver $driver, ?Configuration $config = null)
-    {
-        /* @phpstan-ignore method.internal */
-        parent::__construct($params, $driver, $config);
-        $this->currentPath = (string) ($params['path'] ?? $params['dbname'] ?? '');
-    }
 
     public function selectDatabase(string $path, bool $readOnly = false): void
     {
@@ -30,9 +28,7 @@ final class FolioConnectionWrapper extends Connection
         if ($this->isConnected()) {
             $this->close();
         }
-        /** @var array<string, mixed> $params */
-        /** @phpstan-ignore method.internal */
-        $params = $this->getParams();
+        $params = $this->params();
         unset($params['url'], $params['dbname']);
         $params['driver'] ??= 'pdo_sqlite';
         $this->currentPath = $path;
@@ -131,5 +127,14 @@ final class FolioConnectionWrapper extends Connection
         $this->executeStatement('PRAGMA busy_timeout = 30000');
         $this->executeStatement('PRAGMA synchronous = NORMAL');
         $this->executeStatement('PRAGMA foreign_keys = ON');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function params(): array
+    {
+        /* @phpstan-ignore method.internal */
+        return $this->getParams();
     }
 }

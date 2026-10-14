@@ -8,7 +8,7 @@ use Survos\DataContracts\Util\ImageUrl;
 use Survos\FolioBundle\Entity\Claim;
 use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Service\FolioService;
-use Survos\ImgproxyBundle\Service\ImgproxyUrlBuilder;
+use Survos\ImageContracts\ImageUrlBuilderInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -31,7 +31,7 @@ final class FolioImageDebugController extends AbstractController
         private readonly FolioService $folios,
         // Both optional for the same reason FolioController takes them optionally: imgproxy-bundle
         // and http-client are not hard requirements of folio-bundle.
-        private readonly ?ImgproxyUrlBuilder $imgproxy = null,
+        private readonly ?ImageUrlBuilderInterface $imageUrls = null,
         private readonly ?HttpClientInterface $http = null,
     ) {
     }
@@ -59,8 +59,8 @@ final class FolioImageDebugController extends AbstractController
             'verdict' => $verdict,
             // Only sign a URL we'd actually request; signing a known-bad one would imply the
             // gallery still emits it, which after the Row::getThumbnailSource() gate it does not.
-            'imgproxyUrl' => $verdict->isRenderable() && null !== $raw && null !== $this->imgproxy
-                ? $this->imgproxy->resizePreset($raw, 'thumb')
+            'imgproxyUrl' => $verdict->isRenderable() && null !== $raw && null !== $this->imageUrls
+                ? $this->imageUrls->preset($raw, 'thumb')
                 : null,
             'folioPath' => $this->folioPath($folioCode),
             'builtAt' => $this->builtAt($folioCode),
