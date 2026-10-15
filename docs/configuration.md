@@ -5,18 +5,17 @@
 
 # Folio Bundle Configuration
 
-The application must explicitly register `Survos\DataContracts\Path\DataPaths`.
-FolioBundle does not create or override it. Harvest already supplies this service;
-a standalone reader can configure it in `config/services.yaml`:
+Folios live under `survos_folio.data_dir` (default `%env(APP_DATA_DIR)%`), in its `folio/` directory.
+A reader needs only `APP_DATA_DIR`; set `data_dir` when its tree differs:
 
 ```yaml
-services:
-    Survos\DataContracts\Path\DataPaths:
-        arguments:
-            $dataDir: '%env(APP_DATA_DIR)%'
+survos_folio:
+    data_dir: '%env(APP_DATA_DIR)%'
 ```
 
-The former `survos_folio.data_dir` option is removed; configure the service directly.
+The bundle registers `Survos\DataContracts\Path\DataPaths` from it in a compiler pass, after every
+extension is merged, and only when the application has none. An application that registers its own
+`DataPaths` (Harvest does, from dataset-bundle, with its capture root) keeps it, and `data_dir` is ignored.
 
 Folio needs a dedicated SQLite DBAL connection and ORM entity manager. The wrapper is required because `FolioService::context($folioCode)` switches the same entity manager to the selected folio file before reads.
 

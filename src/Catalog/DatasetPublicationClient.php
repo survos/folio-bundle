@@ -30,15 +30,16 @@ final readonly class DatasetPublicationClient
 
     private function request(string $path, array $query = []): ResponseInterface
     {
-        if ('' === $this->token || !preg_match('#^https?://[^/]+#', $this->server)) {
-            throw new \LogicException('Configure the dataset API server and read token.');
+        if (!preg_match('#^https?://[^/]+#', $this->server)) {
+            throw new \LogicException('Configure the dataset API server.');
         }
 
         // Catalog reads are idempotent: ride out a stalled or restarting server instead of
         // aborting a whole sync on one idle timeout. Downloads stream and keep their own client.
+        // The token is optional: public folios need none, it only unlocks private ones.
         return new RetryableHttpClient($this->http, maxRetries: 3)->request('GET', $this->source().$path, [
-            'auth_bearer' => $this->token, 'query' => $query, 'timeout' => 10, 'max_duration' => 30,
-            'headers' => ['Accept' => 'application/json'], 'max_redirects' => 0,
+            'query' => $query, 'timeout' => 10, 'max_duration' => 30, 'max_redirects' => 0,
+            'headers' => ['Accept' => 'application/json'] + $this->authorization(),
         ]);
     }
 
@@ -206,6 +207,12 @@ final readonly class DatasetPublicationClient
             throw new \UnexpectedValueException('Artifact URL is outside the configured dataset API.');
         }
 
-        return ['Authorization' => 'Bearer '.$this->token];
+        return $this->authorization();
+    }
+
+    /** @return array<string, string> */
+    private function authorization(): array
+    {
+        return '' === $this->token ? [] : ['Authorization' => 'Bearer '.$this->token];
     }
 }

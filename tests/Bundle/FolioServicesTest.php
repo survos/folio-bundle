@@ -14,6 +14,7 @@ use Survos\FolioBundle\Command\FolioValidateCommand;
 use Survos\FolioBundle\Controller\FolioCollectionController;
 use Survos\FolioBundle\Controller\FolioController;
 use Survos\FolioBundle\Controller\FolioSearchController;
+use Survos\FolioBundle\DependencyInjection\DefaultDataPathsPass;
 use Survos\FolioBundle\EventListener\BuildFolioRequestedListener;
 use Survos\FolioBundle\Service\FolioService;
 use Survos\FolioBundle\SurvosFolioBundle;
@@ -64,6 +65,26 @@ final class FolioServicesTest extends TestCase
 
         self::assertSame('app.paths', (string) $application->getAlias(DataPaths::class));
         self::assertFalse($application->hasDefinition(DataPaths::class));
+    }
+
+    public function testDefaultPathsComeFromDataDirWhenTheApplicationHasNone(): void
+    {
+        $application = new ContainerBuilder();
+        $application->merge($this->build());
+        (new DefaultDataPathsPass())->process($application);
+
+        self::assertSame('%survos_folio.data_dir%', $application->getDefinition(DataPaths::class)->getArgument('$dataDir'));
+        self::assertSame('%env(APP_DATA_DIR)%', $application->getParameter('survos_folio.data_dir'));
+    }
+
+    public function testDefaultPathsNeverReplaceTheApplications(): void
+    {
+        $application = new ContainerBuilder();
+        $paths = $application->register(DataPaths::class)->setArgument('$dataDir', '/harvest');
+        $application->merge($this->build());
+        (new DefaultDataPathsPass())->process($application);
+
+        self::assertSame($paths, $application->getDefinition(DataPaths::class));
     }
 
     /**

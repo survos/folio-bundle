@@ -18,6 +18,7 @@ use Survos\FolioBundle\Command\FolioSitemapCommand;
 use Survos\FolioBundle\Controller\FolioAiController;
 use Survos\FolioBundle\Controller\FolioController;
 use Survos\FolioBundle\Controller\FolioSearchController;
+use Survos\FolioBundle\DependencyInjection\DefaultDataPathsPass;
 use Survos\FolioBundle\EventListener\FolioFtsIndexListener;
 use Survos\FolioBundle\EventListener\FolioRouteAttributeListener;
 use Survos\FolioBundle\Menu\FolioMenu;
@@ -77,6 +78,7 @@ use Survos\Kit\AbstractUxBundle;
 use Survos\Kit\SurvosKitBundle;
 use Survos\Kit\Traits\HasConfigurableRoutes;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Kernel\RequiredBundle;
@@ -209,6 +211,11 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->scalarPrototype()->end()
                 ->defaultValue([])
             ->end()
+            ->scalarNode('data_dir')
+                ->info('Root of the data tree; folios live in its folio/ directory. Used only when the application registers no DataPaths of its own (Harvest does, from dataset-bundle).')
+                ->defaultValue('%env(APP_DATA_DIR)%')
+                ->cannotBeEmpty()
+            ->end()
             ->booleanNode('local_passthrough')
                 ->info('folio:pull (and tenants:load, which delegates to it): when the target .folio already exists at the local Artifact path, skip the HTTP/storage fetch entirely — even under --force/--refresh. Opt-in: only correct when this app and the folio-building app share APP_DATA_DIR on the same filesystem (e.g. fotostory + md both mounting the same /platform volume); on a genuinely separate deployment a stale/wrong local file would silently never refresh.')
                 ->defaultFalse()
@@ -258,6 +265,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
     {
         parent::build($container);
         $this->addRouteLoaderCompilerPass($container);
+        // Before autowiring resolves FolioService's DataPaths argument.
+        $container->addCompilerPass(new DefaultDataPathsPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 100);
     }
 
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
@@ -269,6 +278,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $builder->setParameter('survos_folio.route_prefix', $config['route_prefix']);
         $builder->setParameter('survos_folio.archive_api_prefix', $config['archive_api_prefix']);
         $builder->setParameter('survos_folio.local_passthrough', $config['local_passthrough']);
+        $builder->setParameter('survos_folio.data_dir', $config['data_dir']);
         $services = $container->services();
 
         // The one hub-catalog reader (src/Catalog). Registered unconditionally: it is HTTP only,

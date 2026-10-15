@@ -31,6 +31,21 @@ final class DatasetPublicationClientTest extends TestCase
         rmdir($this->dir);
     }
 
+    public function testPublicCatalogNeedsNoToken(): void
+    {
+        $headers = [];
+        $http = new MockHttpClient(function (string $method, string $url, array $options) use (&$headers): MockResponse {
+            $headers = $options['normalized_headers'];
+
+            return self::json(['datasetKey' => 'mus/a']);
+        });
+        $client = new DatasetPublicationClient($http, self::SERVER, '');
+
+        self::assertSame(['datasetKey' => 'mus/a'], $client->dataset('mus/a'));
+        self::assertArrayNotHasKey('authorization', $headers);
+        self::assertSame([], $client->downloadHeaders(self::SERVER.'/api/datasets/mus/a/artifacts/1'));
+    }
+
     public function testExpiredCursorFallsBackToAFullSyncInsteadOfFailingEveryRun(): void
     {
         $requests = [];
