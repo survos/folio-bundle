@@ -157,11 +157,11 @@ final class FolioPullCommand
             $this->writeSyncMetadata($result['target'], $repo, $remote);
 
             $io->text(sprintf(
-                'Restored: %s (%d indexes, %d views, %d FTS rows)',
+                'Restored: %s (%d indexes, %d views%s)',
                 $result['target'],
                 $inflated['indexes'],
                 $inflated['views'],
-                $inflated['ftsRows'],
+                $inflated['ftsRows'] > 0 ? sprintf(', %d FTS rows', $inflated['ftsRows']) : '',
             ));
             ++$pulled;
         }
@@ -241,10 +241,10 @@ final class FolioPullCommand
             // restore() gunzips → working folio AND inflates (indexes + FTS + views).
             $result = $this->archiveService->restore($localGz, $code, $force, locale: $locale, fts: $fts);
             $io->text(sprintf(
-                'Inflated: %s (%s, %s FTS rows)',
+                'Inflated: %s (%s%s)',
                 $result['target'],
                 Bytes::parse($result['targetBytes'])->humanize(),
-                number_format($result['indexedRows']),
+                $result['indexedRows'] > 0 ? sprintf(', %s FTS rows', number_format($result['indexedRows'])) : '',
             ));
             ++$pulled;
         }
@@ -417,10 +417,10 @@ final class FolioPullCommand
             // restore() gunzips → working folio AND inflates (indexes + FTS + views).
             $result = $this->archiveService->restore($localGz, $code, $force, locale: $locale, fts: $fts);
             $io->text(sprintf(
-                'Inflated: %s (%s, %s FTS rows)',
+                'Inflated: %s (%s%s)',
                 $result['target'],
                 Bytes::parse($result['targetBytes'])->humanize(),
-                number_format($result['indexedRows']),
+                $result['indexedRows'] > 0 ? sprintf(', %s FTS rows', number_format($result['indexedRows'])) : '',
             ));
             ++$pulled;
         }

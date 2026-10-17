@@ -331,8 +331,11 @@ final class FolioService
         try {
             $pdo = new \PDO('sqlite:'.$path);
 
+            // item_fts exists only when FTS is enabled (survos_folio.fts_enabled, off by default), so
+            // it cannot be the sole marker. idx_item_label is created by every inflate, with or
+            // without FTS, so either one means the build finished.
             return false !== $pdo
-                ->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='item_fts' LIMIT 1")
+                ->query("SELECT 1 FROM sqlite_master WHERE (type='table' AND name='item_fts') OR (type='index' AND name='idx_item_label') LIMIT 1")
                 ->fetchColumn();
         } catch (\Throwable) {
             return false;
