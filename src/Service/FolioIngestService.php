@@ -1262,7 +1262,10 @@ final class FolioIngestService
             $type->reverseCode = is_scalar($data['reverseCode'] ?? null) ? (string) $data['reverseCode'] : null;
             $type->reverseLabel = is_scalar($data['reverseLabel'] ?? null) ? (string) $data['reverseLabel'] : null;
             $em->persist($type);
-            $types[$code] = $type;
+            // Keyed by the whole (subject, code, object) triple, as LinkType::$id is: two types
+            // may share a code between different cores, and keying by code alone let the second
+            // silently replace the first.
+            $types[$subjectCore.':'.$code.':'.$objectCore] = $type;
         }
         $em->flush();
 
@@ -1273,15 +1276,11 @@ final class FolioIngestService
         $count = 0;
         foreach (JsonlReader::open($linkFile) as $data) {
             $predicate = $this->requiredString($data, 'predicate', $linkFile);
-            $type = $types[$predicate] ?? null;
-            if (!$type instanceof LinkType) {
-                throw new \RuntimeException(sprintf('Unknown link predicate "%s" in %s.', $predicate, $linkFile));
-            }
-
             $subjectCore = $this->requiredString($data, 'subjectCore', $linkFile);
             $objectCore = $this->requiredString($data, 'objectCore', $linkFile);
-            if ($subjectCore !== $type->leftCore || $objectCore !== $type->rightCore) {
-                throw new \RuntimeException(sprintf('Link predicate "%s" expects %s→%s, got %s→%s in %s.', $predicate, $type->leftCore, $type->rightCore, $subjectCore, $objectCore, $linkFile));
+            $type = $types[$subjectCore.':'.$predicate.':'.$objectCore] ?? null;
+            if (!$type instanceof LinkType) {
+                throw new \RuntimeException(sprintf('Unknown link type %s:%s:%s in %s.', $subjectCore, $predicate, $objectCore, $linkFile));
             }
 
             $subjectId = $this->requiredString($data, 'subjectId', $linkFile);

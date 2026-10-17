@@ -1656,8 +1656,13 @@ final class FolioController extends AbstractController
                 'core' => $targetCore,
                 'localId' => $targetId,
                 'row' => $target instanceof Row ? $target : null,
+                'ordinal' => is_numeric($link->extras['ordinal'] ?? null) ? (int) $link->extras['ordinal'] : null,
             ];
         }
+
+        // Within one link type, ordered edges (tour stops, issue articles) read in their ordinal
+        // order; unordered ones keep the query's order (usort is stable).
+        usort($links, static fn (array $a, array $b): int => [$a['code'], $a['ordinal'] ?? \PHP_INT_MAX] <=> [$b['code'], $b['ordinal'] ?? \PHP_INT_MAX]);
 
         return $links;
     }

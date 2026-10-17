@@ -101,7 +101,7 @@ extends PhotographDto` is a `Photograph` and `InterviewDto extends AudioDto` is 
 ## Known gaps
 
 - **DTOs with no `#[SchemaOrg]` anywhere in their ancestry** publish the `WebPage` only, and
-  no node for the object. Currently: `StoryDto`, `StopDto`, and everything under
+  no node for the object. Currently: `TourDto`, and everything under
   `PhysicalObjectDto` (`ArtifactDto`, `EphemeraDto`, `CoinDto`, `CurrencyDto`). This is
   deliberate — defaulting them to `CreativeWork` would publish a type nobody chose and would
   hide the gap. The fix is one `#[SchemaOrg]` per DTO in data-contracts, which is a

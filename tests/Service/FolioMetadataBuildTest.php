@@ -97,6 +97,44 @@ final class FolioMetadataBuildTest extends TestCase
         $state->closeAll();
     }
 
+    public function testLinkTypesSharingACodeStayApart(): void
+    {
+        $code = 'test/tours';
+        $dir = $this->paths->stageDir($code, 'normalized');
+        (new Filesystem())->mkdir($dir);
+        $jsonl = static fn (array $rows): string => implode('', array_map(static fn (array $r): string => json_encode($r, JSON_THROW_ON_ERROR)."\n", $rows));
+        file_put_contents($dir.'/obj.jsonl', $jsonl([['id' => 'o1', 'label' => 'Statue', 'contentType' => 'object'], ['id' => 'o2', 'label' => 'Mine', 'contentType' => 'object']]));
+        file_put_contents($dir.'/tour.jsonl', $jsonl([['id' => 't1', 'label' => 'Walk', 'contentType' => 'tour']]));
+        file_put_contents($dir.'/per.jsonl', $jsonl([['id' => 'p1', 'label' => 'Ann', 'contentType' => 'person']]));
+        file_put_contents($dir.'/linkType.jsonl', $jsonl([
+            ['code' => 'has_stop', 'subjectCore' => 'tour', 'objectCore' => 'obj', 'forwardLabel' => 'Stops', 'reverseCode' => 'stop_of', 'reverseLabel' => 'On tour'],
+            ['code' => 'has_stop', 'subjectCore' => 'per', 'objectCore' => 'obj'],
+        ]));
+        file_put_contents($dir.'/link.jsonl', $jsonl([
+            ['predicate' => 'has_stop', 'subjectCore' => 'tour', 'subjectId' => 't1', 'objectCore' => 'obj', 'objectId' => 'o2', 'ordinal' => 2],
+            ['predicate' => 'has_stop', 'subjectCore' => 'tour', 'subjectId' => 't1', 'objectCore' => 'obj', 'objectId' => 'o1', 'ordinal' => 1],
+            ['predicate' => 'has_stop', 'subjectCore' => 'per', 'subjectId' => 'p1', 'objectCore' => 'obj', 'objectId' => 'o1'],
+        ]));
+
+        $state = new JsonlStateService();
+        $resolver = new FolioDtoTypeResolver();
+        $ingest = new FolioIngestService($this->folios, $resolver, new FolioSummaryService(), new JsonlCountService($state));
+        $views = new \Survos\FolioBundle\Service\FolioViewBuilder();
+        $preparer = new \Survos\FolioBundle\Service\FolioArchivePreparer(new \Survos\FolioBundle\Service\FolioSchemaSnapshotter($resolver), $views, new \Survos\FolioBundle\Service\FolioDocsBuilder());
+        $archive = new \Survos\FolioBundle\Service\FolioArchiveService($this->folios, new \Survos\FolioBundle\Service\FolioFtsIndexer(), $preparer, $views);
+        $builder = new \Survos\FolioBundle\Service\FolioBuilder($ingest, $this->folios, $archive, $preparer, $state);
+        $sources = ['obj' => $dir.'/obj.jsonl', 'tour' => $dir.'/tour.jsonl', 'per' => $dir.'/per.jsonl'];
+        $builder->build(new FolioBuildInput($code, $sources, ['label' => 'Tours'], 'en', files: ['linkType' => $dir.'/linkType.jsonl', 'link' => $dir.'/link.jsonl']));
+        $views->rebuild($this->folios->path($code));
+
+        $pdo = new \PDO('sqlite:file:'.$this->folios->path($code).'?mode=ro');
+        self::assertSame(['per:has_stop:obj' => 1, 'tour:has_stop:obj' => 2], array_map('intval', $pdo->query("SELECT t.left_core || ':' || t.code || ':' || t.right_core AS k, count(*) FROM link l JOIN link_type t ON t.id = l.link_type_id GROUP BY t.id ORDER BY k")->fetchAll(\PDO::FETCH_KEY_PAIR)));
+        self::assertSame(['o1', 'o2'], $pdo->query('SELECT right_local_id FROM link_tour_has_stop_obj ORDER BY ordinal')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertSame(['p1'], $pdo->query('SELECT left_local_id FROM link_per_has_stop_obj')->fetchAll(\PDO::FETCH_COLUMN));
+        unset($pdo);
+        $state->closeAll();
+    }
+
     public function testBuildRebuildAndFailurePreserveHumanMetadata(): void
     {
         $code = 'test/paper';

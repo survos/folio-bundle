@@ -68,11 +68,17 @@ at runtime.
 
 ## The import test: Baltimore's 31 tours — and the trap they exposed
 
-Curatescape is the test data, and it already round-trips: harvest's `CuratescapeProvider` writes
-`story.jsonl` (story-contract v1), `stop.jsonl` (one `ContentType::STOP` row per narrative unit) and
-a real `has_stop` link per stop, **with the ordinal on the link, not the stop** — ordering is a
-property of the relationship. `~/sites/rut/docs/PLAN-folio-data-layer.md` has the design and a
-`link_has_stop` view per link type.
+Curatescape is the test data. The tour model (harvest `docs/tour-model-proposal.md`) is one shape
+for every provider: a `tour` core row per tour (`ContentType::TOUR`, `TourDto`) and one link per
+stop, `tour —has_stop {ordinal}→ obj` (reverse `stop_of`), straight to the object it visits. There
+is no stop core: a *tour stop* is the link, so the ordinal — and any per-stop extras such as AIC's
+`soundId` — live on the link, and one object can sit on several tours. The terms, the link codes
+and the canonical link type (`Narrative::hasStop()`) are defined once in data-contracts'
+`Vocabulary\Narrative`; producers write them with `Link\LinkFile::merge()`. Read a tour in order
+with the `link_has_stop` view (`… WHERE left_local_id = ? ORDER BY ordinal`).
+
+The earlier `story —has_stop→ stop —presents→ obj` shape is gone, not dual-read: folios built with
+it are rebuilt.
 
 It was broken from 2026-09-07 to 2026-09-23 (fixed in harvest 05b7b84), and the cause is worth
 knowing before adding a second producer of relations:
@@ -90,7 +96,7 @@ knowing before adding a second producer of relations:
   about; it now listens on `ImportConvertFinishedEvent` at priority -100 (after
   `RelationExtractorListener`), the same hook `WikibaseProvider::writeLinks()` uses.
 
-So the story/stop/link layer exists and works. What this document proposes sits *above* it:
+So the tour/link layer exists and works. What this document proposes sits *above* it:
 user-authored stories, where the cards are written by a person rather than derived from someone
 else's tour.
 

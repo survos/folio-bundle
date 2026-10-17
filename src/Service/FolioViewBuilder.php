@@ -68,10 +68,11 @@ final readonly class FolioViewBuilder
     }
 
     /**
-     * One view per LinkType (e.g. `link_has_stop`), pre-joining both sides of the relationship --
+     * One view per LinkType (e.g. `link_has_stop`; `link_{left}_{code}_{right}` when two types
+     * share a code), filtered by link_type_id and pre-joining both sides of the relationship --
      * the same "a view exists so consumers never hand-write the join" convention as the dto_*
      * views above, applied to relationships instead of single rows. Without this, "all stops for
-     * story X, in order" needs a 4-table join with json_extract() on both the row and the link's
+     * tour X, in order" needs a 4-table join with json_extract() on both the row and the link's
      * own extras; with it, it's `SELECT * FROM link_has_stop WHERE left_local_id = ? ORDER BY
      * ordinal`. Column names are generic ("left_" / "right_" prefixes, matching LinkType's own
      * left/right naming) since this runs for every LinkType, not just has_stop.
@@ -84,15 +85,19 @@ final readonly class FolioViewBuilder
             }
         }
 
-        $linkTypes = $pdo->query('SELECT code, left_core, right_core FROM link_type')->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        $linkTypes = $pdo->query('SELECT id, code, left_core, right_core FROM link_type')->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+        // A code shared by two link types (between different cores) gets one view per type,
+        // named link_{left}_{code}_{right}; a code that is unique keeps the short link_{code}.
+        $codeUses = array_count_values(array_map(static fn (array $lt): string => (string) $lt['code'], $linkTypes));
         $count = 0;
         foreach ($linkTypes as $lt) {
             $code = (string) ($lt['code'] ?? '');
             $leftCore = (string) ($lt['left_core'] ?? '');
             $rightCore = (string) ($lt['right_core'] ?? '');
-            if (!preg_match('/^[A-Za-z0-9_]+$/', $code) || '' === $leftCore || '' === $rightCore) {
+            if (!preg_match('/^[A-Za-z0-9_]+$/', $code) || !preg_match('/^[A-Za-z0-9_]+$/', $leftCore) || !preg_match('/^[A-Za-z0-9_]+$/', $rightCore)) {
                 continue;
             }
+            $viewName = 1 === $codeUses[$code] ? 'link_'.$code : 'link_'.$leftCore.'_'.$code.'_'.$rightCore;
 
             $columns = array_merge(
                 ['l.left_id AS left_local_id', 'left_item.label AS left_label'],
@@ -106,11 +111,10 @@ final readonly class FolioViewBuilder
             );
 
             $sql = sprintf(
-                "CREATE VIEW %s AS\nSELECT\n    %s\nFROM link l\nJOIN core left_core ON left_core.code = l.left_core\nJOIN item left_item ON left_item.core_id = left_core.id AND left_item.local_id = l.left_id\nJOIN core right_core ON right_core.code = l.right_core\nJOIN item right_item ON right_item.core_id = right_core.id AND right_item.local_id = l.right_id\nWHERE l.left_core = %s AND l.right_core = %s",
-                $this->identifier('link_'.$code),
+                "CREATE VIEW %s AS\nSELECT\n    %s\nFROM link l\nJOIN core left_core ON left_core.code = l.left_core\nJOIN item left_item ON left_item.core_id = left_core.id AND left_item.local_id = l.left_id\nJOIN core right_core ON right_core.code = l.right_core\nJOIN item right_item ON right_item.core_id = right_core.id AND right_item.local_id = l.right_id\nWHERE l.link_type_id = %s",
+                $this->identifier($viewName),
                 implode(",\n    ", $columns),
-                $this->literal($leftCore),
-                $this->literal($rightCore),
+                $this->literal((string) $lt['id']),
             );
             $pdo->exec($sql);
             ++$count;

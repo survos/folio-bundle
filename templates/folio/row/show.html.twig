@@ -704,7 +704,7 @@
                                     {% set target = link.row %}
 
                                     <div class="list-group-item bg-transparent">
-                                        <div class="text-muted small font-monospace">{{ link.code }}</div>
+                                        <div class="text-muted small font-monospace">{{ link.code }}{% if link.ordinal is not null %} · #{{ link.ordinal }}{% endif %}</div>
 
                                         <div>
                                             {{ ux_icon(link.core, {class: 'icon me-1'}) }}{# predicate shown once above; here show the linked record #}
