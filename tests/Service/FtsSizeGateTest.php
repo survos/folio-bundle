@@ -20,7 +20,7 @@ final class FtsSizeGateTest extends TestCase
     public function testAnOptedOutFolioOverTheLimitGetsNoIndex(): void
     {
         $file = $this->folio(rows: 3, ftsContent: Folio::FTS_CONTENT_OFF);
-        $result = (new FolioFtsIndexer(maxRows: 2))->rebuild($file);
+        $result = (new FolioFtsIndexer(maxRows: 2, enabled: true))->rebuild($file);
 
         self::assertSame('policy', $result['skipped']);
         self::assertSame(3, $result['items']);
@@ -35,7 +35,7 @@ final class FtsSizeGateTest extends TestCase
         // No search anywhere is worse than a slow build: only a dataset with an Elasticsearch
         // backend may be published unindexed, and this one has not said so.
         $file = $this->folio(rows: 3);
-        $result = (new FolioFtsIndexer(maxRows: 2))->rebuild($file);
+        $result = (new FolioFtsIndexer(maxRows: 2, enabled: true))->rebuild($file);
 
         self::assertNull($result['skipped']);
         self::assertTrue($this->hasTable($file, 'item_fts'));
@@ -45,7 +45,7 @@ final class FtsSizeGateTest extends TestCase
     {
         $file = $this->folio(rows: 3, ftsContent: Folio::FTS_CONTENT_OFF);
 
-        self::assertNull((new FolioFtsIndexer(maxRows: 10))->rebuild($file)['skipped']);
+        self::assertNull((new FolioFtsIndexer(maxRows: 10, enabled: true))->rebuild($file)['skipped']);
         self::assertTrue($this->hasTable($file, 'item_fts'));
     }
 
@@ -53,20 +53,33 @@ final class FtsSizeGateTest extends TestCase
     {
         // A rebuild reassigns item rowids, so yesterday's index points at the wrong rows.
         $file = $this->folio(rows: 3, ftsContent: Folio::FTS_CONTENT_OFF);
-        (new FolioFtsIndexer(maxRows: 10))->rebuild($file);
+        (new FolioFtsIndexer(maxRows: 10, enabled: true))->rebuild($file);
         self::assertTrue($this->hasTable($file, 'item_fts'));
 
-        (new FolioFtsIndexer(maxRows: 2))->rebuild($file);
+        (new FolioFtsIndexer(maxRows: 2, enabled: true))->rebuild($file);
         self::assertFalse($this->hasTable($file, 'item_fts'));
     }
 
     public function testForceIndexesAGatedFolioAnyway(): void
     {
         $file = $this->folio(rows: 3, ftsContent: Folio::FTS_CONTENT_OFF);
-        $forced = (new FolioFtsIndexer(maxRows: 2))->rebuild($file, force: true);
+        $forced = (new FolioFtsIndexer(maxRows: 2, enabled: true))->rebuild($file, force: true);
 
         self::assertNull($forced['skipped']);
         self::assertSame(3, $forced['rows']);
+    }
+
+    public function testNoFtsIndexIsBuiltByDefaultButForceStillBuildsOne(): void
+    {
+        $file = $this->folio(rows: 3);
+        $default = (new FolioFtsIndexer())->rebuild($file);
+
+        self::assertSame('disabled', $default['skipped']);
+        self::assertFalse($this->hasTable($file, 'item_fts'));
+
+        $forced = (new FolioFtsIndexer())->rebuild($file, force: true);
+        self::assertNull($forced['skipped']);
+        self::assertTrue($this->hasTable($file, 'item_fts'));
     }
 
     private function folio(int $rows, string $ftsContent = Folio::FTS_CONTENT_STORED): string

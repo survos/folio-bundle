@@ -20,6 +20,8 @@ final class FolioFtsIndexer
         private readonly SluggerInterface $slugger = new AsciiSlugger(),
         /** survos_folio.fts_max_rows: rows past which a folio gets no FTS index. 0 = no limit. */
         private readonly int $maxRows = 0,
+        /** survos_folio.fts_enabled: build the FTS5 index at all. Off by default (search is Elasticsearch); `force` still builds one. */
+        private readonly bool $enabled = false,
         private readonly ?LoggerInterface $logger = null,
     ) {
     }
@@ -145,6 +147,10 @@ final class FolioFtsIndexer
      */
     private function gate(\PDO $pdo, int $items): ?string
     {
+        if (!$this->enabled) {
+            return 'disabled';
+        }
+
         if (Folio::FTS_CONTENT_OFF !== self::ftsContent($pdo)) {
             return null;
         }

@@ -133,6 +133,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
                     ->variableNode('selection')->defaultValue(['mode' => 'all'])->info('Intent sent on reset: {mode: all} | {mode: tags, tags: [...]} | {mode: datasets, datasetKeys: [...]} | {mode: manual}.')->end()
                 ->end()
             ->end()
+            ->booleanNode('fts_enabled')
+                ->defaultFalse()
+                ->info('Build the per-file SQLite FTS5 index (item_fts) when a folio is built or inflated. Off by default: search is Elasticsearch (Harvest writes folio_item/folio_text), and the FTS pass re-tokenizes every row, which is slow and large on text-heavy folios. Set true for an app that still serves text search from the folio file itself; `folio:fts:rebuild --force` builds one on demand regardless.')
+            ->end()
             ->integerNode('fts_max_rows')
                 ->defaultValue(0)
                 ->info('Rows up to which a folio is given a SQLite FTS index EVEN THOUGH its dataset opted out (extras.search: backend elasticsearch + allowFtsSkip — see docs/search-policy.md); past it, the opt-out is honored and no index is built. 0 = always honor it. A dataset that has not opted out is always indexed whatever its size, since no search at all is worse than a slow build.')
@@ -324,7 +328,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
             ->arg('$cache', service('cache.system'));
         $services->set(FolioSummaryService::class)->autowire()->autoconfigure()->public();
         $services->set(FolioFtsIndexer::class)->autowire()->autoconfigure()->public()
-            ->arg('$maxRows', $config['fts_max_rows']);
+            ->arg('$maxRows', $config['fts_max_rows'])
+            ->arg('$enabled', $config['fts_enabled']);
         $services->set(FolioQueryAnalyzer::class)->autowire()->autoconfigure()->public();
         $services->set(FolioRetriever::class)->autowire()->autoconfigure()->public();
         $services->set(FolioChatContextHolder::class)->autowire()->autoconfigure()->public();

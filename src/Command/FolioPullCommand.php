@@ -62,6 +62,8 @@ final class FolioPullCommand
 
         #[Option('Replace existing folio files')]
         bool $force = false,
+        #[Option('Also build the per-file SQLite FTS5 index (off by default; search is Elasticsearch)')]
+        ?bool $fts = null,
 
         #[Option('Pull over HTTP from a folio API base URL (e.g. https://zm.example) instead of storage')]
         ?string $api = null,
@@ -75,6 +77,7 @@ final class FolioPullCommand
         #[Option('Hugging Face dataset repo (with --hf)')]
         string $repo = 'museado/folios',
     ): int {
+        $fts ??= false;
         if (!$hf && !$storage && null === $api && $this->catalog?->usesDatasetApi()) {
             $entries = $this->catalog->refresh();
             if (!$all && null === $dataset && null === $provider) {
@@ -88,7 +91,7 @@ final class FolioPullCommand
                     continue;
                 }
                 $matched = true;
-                if (Command::SUCCESS !== $this->pullEntry($io, $entry, $force)) {
+                if (Command::SUCCESS !== $this->pullEntry($io, $entry, $force, $fts)) {
                     return Command::FAILURE;
                 }
             }
@@ -102,7 +105,7 @@ final class FolioPullCommand
             $apiBase = (null !== $api && '' !== $api) ? $api : $this->folioServer;
             if (!$storage && null !== $apiBase && '' !== $apiBase) {
                 try {
-                    return $this->pullFromApi($io, $apiBase, $dataset, $provider, $all, $force);
+                    return $this->pullFromApi($io, $apiBase, $dataset, $provider, $all, $force, fts: $fts);
                 } catch (\Throwable $e) {
                     // An unreachable or non-folio API is a reason to try the archive storage, not
                     // to fail: the archives live in S3 (reached through the folio-archive mount)
@@ -117,7 +120,7 @@ final class FolioPullCommand
                 }
             }
 
-            return $this->pullFromStorage($io, $dataset, $provider, $all, $force);
+            return $this->pullFromStorage($io, $dataset, $provider, $all, $force, $fts);
         }
 
         $remotes = $this->resolveRemotes($io, $repo, $dataset, $provider, $all);
@@ -174,7 +177,7 @@ final class FolioPullCommand
      * Pull over plain HTTP from a folio API (e.g. zm's read-only `/folio/list.json` + download routes).
      * No SSH/credentials — just GET the JSON registry, download each `.folio.gz`, restore() + inflate().
      */
-    private function pullFromApi(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all, bool $force, ?array $entries = null, array $headers = [], ?\Closure $download = null): int
+    private function pullFromApi(SymfonyStyle $io, string $baseUrl, ?string $dataset, ?string $provider, bool $all, bool $force, ?array $entries = null, array $headers = [], ?\Closure $download = null, bool $fts = false): int
     {
         if (null === $this->http) {
             $io->error('No HTTP client available (require symfony/http-client).');
@@ -236,7 +239,7 @@ final class FolioPullCommand
             $io->text(sprintf('Downloaded: %s (%s)', $downloadUrl, Bytes::parse($bytes)->humanize()));
 
             // restore() gunzips → working folio AND inflates (indexes + FTS + views).
-            $result = $this->archiveService->restore($localGz, $code, $force, locale: $locale);
+            $result = $this->archiveService->restore($localGz, $code, $force, locale: $locale, fts: $fts);
             $io->text(sprintf(
                 'Inflated: %s (%s, %s FTS rows)',
                 $result['target'],
@@ -254,7 +257,7 @@ final class FolioPullCommand
     }
 
     /** The shared entry point for dataset-feed consumers; all file handling stays here. */
-    public function pullEntry(SymfonyStyle $io, FolioCatalogEntry $entry, bool $force = false): int
+    public function pullEntry(SymfonyStyle $io, FolioCatalogEntry $entry, bool $force = false, bool $fts = false): int
     {
         if ($this->folios->exists($entry->datasetKey, $entry->locale) && ($this->localPassthrough || !$force)) {
             return Command::SUCCESS;
@@ -269,7 +272,7 @@ final class FolioPullCommand
         try {
             return $this->pullFromApi($io, $this->catalog?->url() ?? $entry->downloadUrl, $entry->datasetKey, null, false, $force,
                 entries: [get_object_vars($entry)], headers: null === $download ? ($this->catalog?->downloadHeaders($entry->downloadUrl) ?? []) : [],
-                download: $download);
+                download: $download, fts: $fts);
         } catch (ArtifactChecksumException $mismatch) {
             $io->error($entry->datasetKey.': '.$mismatch->getMessage());
 
@@ -354,7 +357,7 @@ final class FolioPullCommand
      * Default source: read `<provider>/<code>.folio.gz` from the folio_archive flysystem storage
      * (SFTP/S3/local — backend is pure config) and inflate via the same restore() path as HF.
      */
-    private function pullFromStorage(SymfonyStyle $io, ?string $dataset, ?string $provider, bool $all, bool $force): int
+    private function pullFromStorage(SymfonyStyle $io, ?string $dataset, ?string $provider, bool $all, bool $force, bool $fts = false): int
     {
         if (null === $this->archiveStorage) {
             $io->error([
@@ -412,7 +415,7 @@ final class FolioPullCommand
             $io->text(sprintf('Downloaded: %s (%s)', $remotePath, Bytes::parse(filesize($localGz) ?: 0)->humanize()));
 
             // restore() gunzips → working folio AND inflates (indexes + FTS + views).
-            $result = $this->archiveService->restore($localGz, $code, $force, locale: $locale);
+            $result = $this->archiveService->restore($localGz, $code, $force, locale: $locale, fts: $fts);
             $io->text(sprintf(
                 'Inflated: %s (%s, %s FTS rows)',
                 $result['target'],

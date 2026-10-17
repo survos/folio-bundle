@@ -238,7 +238,7 @@ final readonly class FolioArchiveService
     /**
      * @return array{archive:string,target:string,targetBytes:int,indexedRows:int}
      */
-    public function restore(string $archivePath, string $folioCode, bool $force = false, ?string $locale = null): array
+    public function restore(string $archivePath, string $folioCode, bool $force = false, ?string $locale = null, bool $fts = false): array
     {
         if (!is_file($archivePath)) {
             throw new \RuntimeException(sprintf('Folio archive not found: %s', $archivePath));
@@ -250,7 +250,7 @@ final readonly class FolioArchiveService
         }
 
         $this->gunzip($archivePath, $target);
-        $inflated = $this->inflate($target);
+        $inflated = $this->inflate($target, $fts);
         // The archive has its build's schema; the reader may be newer. See FolioService::upgradeSchema().
         $this->folios->upgradeSchema($folioCode, $locale);
 
@@ -267,7 +267,7 @@ final readonly class FolioArchiveService
      *
      * @return array{indexes:int,views:int,ftsRows:int}
      */
-    public function inflate(string $dbFile): array
+    public function inflate(string $dbFile, bool $fts = false): array
     {
         $pdo = new \PDO('sqlite:'.$dbFile);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
@@ -333,7 +333,7 @@ final readonly class FolioArchiveService
         // Rebuild FTS -- also ensures 'sort_key' exists (FolioFtsIndexer::createBrowseIndexes()),
         // so it doesn't need its own separate call here too.
         $tFts = microtime(true);
-        $fts = $this->ftsIndexer->rebuild($dbFile);
+        $ftsResult = $this->ftsIndexer->rebuild($dbFile, $fts);
         $ftsTime = microtime(true) - $tFts;
 
         // Leave the working folio self-contained: the index/view/FTS rebuilds above
@@ -344,7 +344,7 @@ final readonly class FolioArchiveService
         return [
             'indexes' => $indexes,
             'views' => $views['views'] ?? 0,
-            'ftsRows' => $fts['rows'] ?? 0,
+            'ftsRows' => $ftsResult['rows'] ?? 0,
             'timing' => ['indexes' => $indexesTime, 'views' => $viewsTime, 'fts' => $ftsTime],
         ];
     }
