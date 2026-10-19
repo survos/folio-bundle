@@ -22,6 +22,7 @@ use Survos\FolioBundle\DependencyInjection\DefaultDataPathsPass;
 use Survos\FolioBundle\EventListener\FolioFtsIndexListener;
 use Survos\FolioBundle\EventListener\FolioRouteAttributeListener;
 use Survos\FolioBundle\Menu\FolioMenu;
+use Survos\FolioBundle\Menu\FolioNavbarMenu;
 use Survos\FolioBundle\Menu\RowMenu;
 use Survos\FolioBundle\Publisher\PublisherApiClient;
 use Survos\FolioBundle\Publisher\PublisherRegistrar;
@@ -109,6 +110,9 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $children
             ->booleanNode('admin_navbar_menu')->defaultTrue()
                 ->info('Set false to disable this bundle\'s admin navbar menu entries.')
+            ->end()
+            ->booleanNode('folio_navbar_menu')->defaultTrue()
+                ->info('Set false to drop the per-folio navbar menu (Search, Gallery, Map, Timeline, Chat, Term Cloud) and register your own.')
             ->end()
             ->integerNode('archive_compression_level')->min(0)->max(9)->defaultValue(1)->end()
             ->booleanNode('read_only')->defaultFalse()->info('Open published folios without schema updates, writes or journal-mode changes.')->end()
@@ -505,6 +509,10 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // always returns false for it and silently drops this registration.)
         if (trait_exists(\Survos\TablerBundle\Menu\MenuBuilderTrait::class)) {
             $services->set(RowMenu::class)->autowire()->autoconfigure()->public();
+        }
+        // Per-folio navbar menu, public like RowMenu. Overview/Schema inside it are admin-only.
+        if ($config['folio_navbar_menu'] && trait_exists(\Survos\TablerBundle\Menu\MenuBuilderTrait::class)) {
+            $services->set(FolioNavbarMenu::class)->autowire()->autoconfigure()->public();
         }
         // Same "null if the optional collaborator isn't configured" optional service pattern
         // above — a host app that hasn't set bookmark_class/folder_class simply doesn't get
