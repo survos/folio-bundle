@@ -315,11 +315,21 @@
                             {% set pageImg = page.url %}
                             {% set pageHires = page.url %}
                             {% set pageInfoUrl = null %}
-                            {% guard filter imgproxy %}
-                                {% set pageImg = page.url|folio_image('thumb') %}
-                                {% set pageHires = page.url|folio_image('archive') %}
-                                {% set pageInfoUrl = path('survos_imgproxy_info', {url: page.url}) %}
-                            {% endguard %}
+                            {# A captured source may already publish native IIIF tiles. Match both
+                               page index and image URL so an unrelated asset cannot supply its tiles. #}
+                            {% for asset in row.extras.pageAssets ?? [] %}
+                                {% if (asset.pageIndex ?? null) is same as(page.pageIndex) and (asset.url ?? null) is same as(page.url) and asset.iiifInfo is defined %}
+                                    {% set pageInfoUrl = asset.iiifInfo %}
+                                    {% set pageImg = asset.thumbnailUrl ?? page.url %}
+                                {% endif %}
+                            {% endfor %}
+                            {% if pageInfoUrl is null %}
+                                {% guard filter imgproxy %}
+                                    {% set pageImg = page.url|folio_image('thumb') %}
+                                    {% set pageHires = page.url|folio_image('archive') %}
+                                    {% set pageInfoUrl = path('survos_imgproxy_info', {url: page.url}) %}
+                                {% endguard %}
+                            {% endif %}
                             {% set viewerImages = viewerImages|merge([pageImg]) %}
                             {% set viewerHires = viewerHires|merge([pageHires]) %}
                             {% set viewerInfoUrls = viewerInfoUrls|merge([pageInfoUrl]) %}
