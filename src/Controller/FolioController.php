@@ -6,6 +6,7 @@ namespace Survos\FolioBundle\Controller;
 
 use Doctrine\DBAL\Connection;
 use Survos\DataContracts\Dto\Item\BaseItemDto;
+use Survos\DataContracts\Util\ImageUrl;
 use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\FolioBundle\Entity\Core;
@@ -184,10 +185,14 @@ final class FolioController extends AbstractController
         $limitSql = $limit > 0 ? sprintf(' LIMIT %d', $limit) : '';
         $slides = $conn->executeQuery(
             sprintf(
-                "SELECT d.local_id AS id,
-                        coalesce(json_extract(d.dto_data, '\$.thumbnailUrl'), json_extract(d.dto_data, '\$.largeImageUrl')) AS thumb,
+                // Imagery comes from PAGES ONLY (see Row::getRawThumbnailSource()): page.url of
+                // the first page, never dto_data's stale image fields. LEFT JOIN so a row with no
+                // page still gets its slide, just without a thumb -- same row set as before.
+                'SELECT d.local_id AS id,
+                        p.url AS thumb,
                         %s AS v
-                 FROM item d WHERE %s ORDER BY %s ASC%s",
+                 FROM item d LEFT JOIN page p ON p.row_id = d.id AND p.seq = 1
+                 WHERE %s ORDER BY %s ASC%s',
                 $sort['expr'],
                 $where,
                 $sort['expr'],
@@ -195,6 +200,14 @@ final class FolioController extends AbstractController
             ),
             $params,
         )->fetchAllAssociative();
+
+        // Same renderability rule as Row::getThumbnailSource(): viewer configs, documents and
+        // empty strings become "no thumb" rather than a guaranteed-broken imgproxy request.
+        foreach ($slides as &$slide) {
+            $thumb = (string) ($slide['thumb'] ?? '');
+            $slide['thumb'] = '' !== $thumb && ImageUrl::classify($thumb)->isRenderable() ? $thumb : null;
+        }
+        unset($slide);
 
         return [
             'slides' => $slides,

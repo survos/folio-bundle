@@ -1,15 +1,11 @@
 {% extends '@SurvosFolioBundle/folio/base.html.twig' %}
 
-{# folio_rows (Row::API_ROWS) is still {provider}/{dataset}/{coreCode} — its own separate,
-   not-yet-done migration (see PhotoGrid's docblock) — so this is the one place in this
-   template that still needs the split, purely to feed that API endpoint. #}
-{% set parts = folio.code|split('/') %}
-{% set provider = parts[0] %}
-{% set dataset = parts[1] %}
-{% set apiUrl = path('folio_rows', {
-    provider: provider,
-    dataset: dataset,
-    coreCode: core.code
+{# The browser grid reads Row::API_GRID_ROWS (the row:read representation); Row::API_ROWS is the
+   Unity WallCard feed. Both take the whole {folioCode}; the grid provider scopes to a core with
+   ?core= (FolioRowProvider, default "obj"). No provider/dataset split needed. #}
+{% set apiUrl = path('folio_grid_rows', {
+    folioCode: folio.code,
+    core: core.code
 }) %}
 
 {% block body_class %}folio-layout{% endblock %}
