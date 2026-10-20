@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Doctrine\DBAL\ArrayParameterType;
+use Doctrine\DBAL\ParameterType;
+use Survos\Folio\Enum\PageType;
+use Survos\FolioBundle\Set\ItemCriteria;
 
 /**
  * Streams folio rows as flat search documents, for any engine.
@@ -49,8 +52,10 @@ final class FolioDocumentStream
         ?array $contentTypes = null,
         array $extraKeys = [],
         ?FolioDocumentStreamReport $report = null,
+        ?ItemCriteria $itemCriteria = null,
     ): \Generator {
         $report ??= new FolioDocumentStreamReport();
+        $itemCriteria ??= new ItemCriteria();
 
         // Core code is schema/table naming, not a content signal — the same folio can file real
         // objects and scanned text-document pages under the same core (see NARA). $contentTypes
@@ -72,12 +77,24 @@ final class FolioDocumentStream
                 // The first page is a row's canonical image (Row::getRawThumbnailSource()). Folios
                 // built before pages existed have no page table, and those rows get no pageUrl.
                 $hasPages = (bool) $connection->fetchOne("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'page'");
+                if ($itemCriteria->minImages > 0 && !$hasPages) {
+                    continue; // Legacy folios without attached pages have zero image pages.
+                }
+                $params = null !== $contentTypes ? ['contentTypes' => $contentTypes] : ['core' => $core];
+                $types = null !== $contentTypes ? ['contentTypes' => ArrayParameterType::STRING] : [];
+                $imageWhere = '';
+                if ($itemCriteria->minImages > 0) {
+                    $imageWhere = 'AND (SELECT COUNT(*) FROM page images WHERE images.row_id = i.id'
+                        .' AND images.type IN (:imageTypes) AND length(trim(images.url)) > 0) >= :minImages ';
+                    $params['imageTypes'] = [PageType::Photo->value, PageType::Scan->value, PageType::Document->value];
+                    $params['minImages'] = $itemCriteria->minImages;
+                    $types['imageTypes'] = ArrayParameterType::STRING;
+                    $types['minImages'] = ParameterType::INTEGER;
+                }
                 $sql = $select
                     .($hasPages ? ', (SELECT p.url FROM page p WHERE p.row_id = i.id ORDER BY p.seq LIMIT 1) AS page_url' : ', NULL AS page_url')
-                    .$from.$where.'ORDER BY i.id';
-                $result = null !== $contentTypes
-                    ? $connection->executeQuery($sql, ['contentTypes' => $contentTypes], ['contentTypes' => ArrayParameterType::STRING])
-                    : $connection->executeQuery($sql, ['core' => $core]);
+                    .$from.$where.$imageWhere.'ORDER BY i.id';
+                $result = $connection->executeQuery($sql, $params, $types);
 
                 while (($row = $result->fetchAssociative()) !== false) {
                     $doc = $this->documentBuilder->build(
@@ -96,8 +113,8 @@ final class FolioDocumentStream
                     }
 
                     $extras = $this->decodeJson($row['extras'] ?? null);
-                    // The raw fortepan tags live in extras.source_tags; expose them as `tags`.
-                    if (is_array($extras) && ($extras['source_tags'] ?? null)) {
+                    // Legacy fallback only: canonical tags also carry AI provenance and must win.
+                    if (empty($doc['tags']) && is_array($extras) && ($extras['source_tags'] ?? null)) {
                         $doc['tags'] = $extras['source_tags'];
                     }
                     // Anything else the caller named. Scalars and lists only: extras also holds
@@ -112,6 +129,11 @@ final class FolioDocumentStream
                         if (is_scalar($value) || (is_array($value) && $value === array_filter($value, 'is_scalar'))) {
                             $doc[$key] = $value;
                         }
+                    }
+
+                    // Match before field projection, so keep: ['title'] cannot disable a tag filter.
+                    if (!$itemCriteria->matchesTags(is_array($doc['tags'] ?? null) ? $doc['tags'] : [])) {
+                        continue;
                     }
 
                     ++$report->count;
