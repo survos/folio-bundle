@@ -18,6 +18,22 @@ final readonly class ItemCriteria
         }
     }
 
+    /** Filters belong in bool.filter so hits, totals and aggregations share the same scope.
+     * @return list<array<string,mixed>>
+     */
+    public function elasticFilters(): array
+    {
+        $filters = [];
+        if ($this->minImages > 0) {
+            $filters[] = ['range' => ['imageCount' => ['gte' => $this->minImages]]];
+        }
+        if ([] !== $this->tags) {
+            $filters[] = ['terms' => ['attrs.tags' => $this->tags]];
+        }
+
+        return $filters;
+    }
+
     /** @param list<string> $itemTags */
     public function matchesTags(array $itemTags): bool
     {

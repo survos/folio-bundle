@@ -268,6 +268,7 @@ final class FolioSearchIndex
                 'dateStart' => $date, 'dateEnd' => $date,
                 'hasImage' => ['type' => 'boolean'],
                 'pageCount' => ['type' => 'integer'],
+                'imageCount' => ['type' => 'integer'],
                 'mediaKinds' => $keyword,
                 'license' => $keyword,
                 'thumbnailUrl' => ['type' => 'keyword', 'index' => false, 'doc_values' => false],

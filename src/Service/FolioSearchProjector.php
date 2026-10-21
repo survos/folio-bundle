@@ -23,7 +23,7 @@ final class FolioSearchProjector
      * Bump whenever what a row projects to changes. The build stamp only covers the folio file, so
      * without this a folio indexed by older code verifies `ok` forever; with it, it is `outdated`.
      */
-    public const int DOCUMENT_VERSION = 2; // 2: license
+    public const int DOCUMENT_VERSION = 3; // 3: canonical image counts and item tags
     public const string FAMILY_ITEM = 'item';
     public const string FAMILY_TEXT = 'text';
 
@@ -65,7 +65,7 @@ final class FolioSearchProjector
         // Pages and links are merge-joined in row-id order, never loaded into memory: a newspaper
         // folio has a page and an issue link for each of its million articles.
         // SQLite's bare-column rule: with MIN(seq), url comes from the row's first page.
-        $pages = $this->sortedCursor($pdo, 'page', 'SELECT row_id, COUNT(*), GROUP_CONCAT(DISTINCT type), url, MIN(seq) FROM page GROUP BY row_id ORDER BY row_id');
+        $pages = $this->sortedCursor($pdo, 'page', "SELECT row_id, COUNT(*), GROUP_CONCAT(DISTINCT type), url, MIN(seq), SUM(CASE WHEN type IN ('photo', 'scan', 'document') AND length(trim(url)) > 0 THEN 1 ELSE 0 END) FROM page GROUP BY row_id ORDER BY row_id");
         // Link ends are local ids; item ids carry the folio code the file was built under.
         $first = (string) $pdo->query('SELECT id FROM item LIMIT 1')->fetchColumn();
         $prefix = false !== ($colon = strpos($first, ':')) ? substr($first, 0, $colon) : $folioCode;
@@ -98,6 +98,15 @@ final class FolioSearchProjector
                 }
             }
 
+            // Item criteria must work even when a folio did not declare a tags facet.
+            $tags = $data['tags'] ?? [];
+            if (!$tags) {
+                $tags = $extras['source_tags'] ?? [];
+            }
+            if (is_array($tags) && [] !== $tags) {
+                $attrs['tags'] = array_values(array_filter($tags, 'is_string'));
+            }
+
             $doc = [
                 'rowId' => $rowId,
                 'folioCode' => $folioCode,
@@ -116,6 +125,7 @@ final class FolioSearchProjector
                 'dateEnd' => $dateEnd,
                 'hasImage' => $pageCount > 0 || [] !== array_filter(array_map(static fn (string $f) => $data[$f] ?? null, self::IMAGE_FIELDS)),
                 'pageCount' => $pageCount,
+                'imageCount' => null === $page ? 0 : (int) $page[5],
                 'mediaKinds' => $mediaKinds,
                 // One facetable licence from the row's free-text rights; the raw text stays in attrs.
                 'license' => RightsClassifier::classify($data['license'] ?? null, $data['rightsUri'] ?? null, $data['rights'] ?? null),

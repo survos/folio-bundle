@@ -74,6 +74,23 @@ final class FolioSearchIndexTest extends TestCase
         self::assertSame(3, $meta['rows']);
     }
 
+    public function testImageCriteriaExcludeAudioAndBlankPagesAndKeepCanonicalTags(): void
+    {
+        $this->newspaper('test/paper');
+        $db = new \PDO('sqlite:'.$this->folios->path('test/paper'));
+        $db->exec("UPDATE page SET type = 'audio' WHERE seq = 2");
+        $db->exec("UPDATE page SET url = ' ' WHERE row_id = 'test/paper:article:i1-a2'");
+        $db->exec(<<<'SQL'
+            UPDATE item SET dto_data = '{"tags":["ai:describe","curated"]}', extras = '{"source_tags":["stale"]}' WHERE local_id = 'i1-a1'
+            SQL);
+        $this->index()->index('test/paper');
+        $first = $this->docs['folio_text']['test/paper:article:i1-a1'];
+        self::assertSame(2, $first['pageCount']);
+        self::assertSame(1, $first['imageCount']);
+        self::assertSame(['ai:describe', 'curated'], $first['attrs']['tags']);
+        self::assertSame(0, $this->docs['folio_text']['test/paper:article:i1-a2']['imageCount']);
+    }
+
     public function testRebuildReplacesInPlaceAndDropsVanishedRows(): void
     {
         $this->newspaper('test/paper');

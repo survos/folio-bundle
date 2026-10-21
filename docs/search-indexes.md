@@ -122,3 +122,14 @@ Row counts equal SQLite on every folio; `folio_text` for rappnews4909 is 1.1 GB.
 The mapping carries `_meta.folioSearchVersion`. The writer refuses an index on another version
 rather than mixing shapes: create the new version under new names (`search.item_index` …),
 reindex, verify, switch readers, then drop the old indexes.
+
+### Item views
+
+`ItemCriteria::elasticFilters()` translates `minImages` and any-of `tags` into
+`bool.filter` clauses on `imageCount` and `attrs.tags`. Apply these alongside the
+recorded set's folio and core filters, before computing both hits and aggregations.
+Projection version 3 guarantees canonical tags (legacy source tags only as a fallback)
+and counts nonblank photo/scan/document pages separately from all-media `pageCount`.
+These are additive fields: reindex affected folios in place with `--stale-only`.
+The same criteria object is exposed by Harvest's `SetItemSource::criteria()` for
+search consumers; `folios()` returns recorded membership without fetching.
