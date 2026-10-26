@@ -1,5 +1,5 @@
 import { Controller } from '@hotwired/stimulus';
-import { path } from '@survos/js-twig-bundle/routing';
+import { path } from 'router'; // the app's assets/router.js (symfony/ux-router)
 import { paintPlaceholder } from '../thumbhash.js';
 
 /*
