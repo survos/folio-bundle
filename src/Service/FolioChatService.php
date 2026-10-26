@@ -82,6 +82,8 @@ final readonly class FolioChatService
                     Message::ofUser($contextPrompt),
                 ),
             );
+            // Execution is lazy: keep tool context and error handling active until it finishes.
+            $answer = $result->getContent();
         } catch (\Throwable $e) {
             $this->logger?->error('Scoped folio Scholar call failed.', [
                 'exception' => $e,
@@ -102,7 +104,6 @@ final readonly class FolioChatService
             $this->holder->set(null);
         }
 
-        $answer = $result->getContent();
         if (!\is_string($answer) || '' === trim($answer)) {
             $answer = 'I could not produce a useful Scholar response from the available context.';
         }
