@@ -169,6 +169,17 @@ class Page
     #[Groups(['page:read'])]
     public ?string $color = null;
 
+    /**
+     * Checksum of the source master this page was captured from, as the source's own manifest gave it
+     * (bare hex). The algorithm is not repeated per page: it is the folio property
+     * `sourceChecksum.algorithm` (e.g. "md5"). Lets a consumer that mirrors the master verify it without
+     * going back to the source for a manifest.
+     */
+    #[ORM\Column(name: 'source_checksum', length: 128, nullable: true)]
+    #[ApiProperty('Checksum of the source image master (algorithm: folio property sourceChecksum.algorithm)')]
+    #[Groups(['page:read'])]
+    public ?string $sourceChecksum = null;
+
     public function __construct(Row $row, int $seq, string $url)
     {
         $this->row = $row;

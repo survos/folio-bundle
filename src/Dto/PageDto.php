@@ -73,6 +73,11 @@ final readonly class PageDto
          * @var array<string,mixed>|null
          */
         public ?array $known = null,
+        /**
+         * Checksum of the source image master, bare hex, as the source's manifest gave it. The algorithm
+         * lives once on the folio (property `sourceChecksum.algorithm`), not on every page.
+         */
+        public ?string $sourceChecksum = null,
     ) {
     }
 }
