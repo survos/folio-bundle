@@ -17,7 +17,7 @@ class Claim
     #[ORM\Column(length: 64, options: ['comment' => 'Hash of item_id|predicate|source|value'])]
     public string $id;
 
-    #[ORM\ManyToOne(targetEntity: Row::class)]
+    #[ORM\ManyToOne(targetEntity: Row::class, inversedBy: 'claims')]
     #[ORM\JoinColumn(name: 'item_id', referencedColumnName: 'id', nullable: false, onDelete: 'CASCADE')]
     public Row $item;
 
