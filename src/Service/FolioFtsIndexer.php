@@ -50,6 +50,22 @@ final class FolioFtsIndexer
     ];
 
     /**
+     * Browse indexes and facet counts only; the full-text index, present or not, is left exactly as it is.
+     * For a folio whose facet flags changed but whose text did not: rebuild() would DROP an existing index
+     * whenever this deployment's policy skips FTS, which loses search a folio built elsewhere still has.
+     *
+     * @return int the folio's item count
+     */
+    public function rebuildFacets(string $dbFile): int
+    {
+        $pdo = $this->connect($dbFile);
+        $this->createBrowseIndexes($pdo);
+        $this->rebuildFacetCounts($pdo);
+
+        return (int) ($pdo->query('SELECT count(*) FROM item')->fetchColumn() ?: 0);
+    }
+
+    /**
      * @return array{rows:int, bytes:int, items:int, skipped:?string}
      */
     public function rebuild(string $dbFile, bool $force = false): array

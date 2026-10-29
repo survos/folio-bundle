@@ -414,7 +414,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
             '$readOnly' => $config['read_only'],
         ]);
         $services->set(Service\FolioBuilder::class)->autowire()->autoconfigure()->public();
-        foreach ([FolioMigrateCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
+        foreach ([Service\FolioMigrator::class, FolioMigrateCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
         foreach ($config['sites'] as $siteCode => $site) {
