@@ -42,6 +42,10 @@
 {% set citationUrl = attribute(row.dtoData, 'sourceUrl')|default(null) %}
 {% set sourceUrl = attribute(row.dtoData, 'url')|default(null) %}
 {% set tombstoneUrl = citationUrl ?: sourceUrl %}
+{# Where the record lives at the institution: its public page, and its staff page in the source system.
+   Each is shown only when set and not already the link above. #}
+{% set publicUrl = attribute(row.dtoData, 'publicUrl')|default(attribute(row.extras, 'publicUrl')|default(null)) %}
+{% set adminUrl = attribute(row.dtoData, 'adminUrl')|default(attribute(row.extras, 'adminUrl')|default(null)) %}
 {% set tombstoneCredit = attribute(row.dtoData, 'citation')|default(null) %}
 {% set tombstoneSourceImage = attribute(row.dtoData, 'largeImageUrl')|default(attribute(row.dtoData, 'iiifBase')|default(null)) %}
 {% set promotedFields = ['title', 'description', 'date', 'dimensions', 'dimensionsRaw', 'weight', 'citationUrl', 'ocrText'] %}
@@ -192,6 +196,17 @@
                             {% if sourceUrl and sourceUrl != tombstoneUrl %}
                                 <a href="{{ sourceUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
                                     Source record {{ ux_icon('tabler:external-link', { class: 'icon ms-1' }) }}
+                                </a>
+                            {% endif %}
+
+                            {% if publicUrl and publicUrl != tombstoneUrl and publicUrl != sourceUrl %}
+                                <a href="{{ publicUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
+                                    {{ 'public_site'|trans({}, 'folio') }} {{ ux_icon('tabler:world', { class: 'icon ms-1' }) }}
+                                </a>
+                            {% endif %}
+                            {% if adminUrl and adminUrl != tombstoneUrl and adminUrl != sourceUrl %}
+                                <a href="{{ adminUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
+                                    {{ 'admin_site'|trans({}, 'folio') }} {{ ux_icon('tabler:edit', { class: 'icon ms-1' }) }}
                                 </a>
                             {% endif %}
 

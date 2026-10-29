@@ -21,6 +21,8 @@
     ]|filter(v => v is not empty)|join(', ') %}
     {% set sourceCaption = attribute(row.dtoData, 'sourceCaption')|default(attribute(row.extras, 'sourceCaption')|default(null)) %}
     {% set citationUrl = row.citationUrl ?: attribute(row.dtoData, 'citationUrl')|default(null) %}
+    {% set publicUrl = attribute(row.dtoData, 'publicUrl')|default(attribute(row.extras, 'publicUrl')|default(null)) %}
+    {% set adminUrl = attribute(row.dtoData, 'adminUrl')|default(attribute(row.extras, 'adminUrl')|default(null)) %}
     {# imageSource feeds only the 'display' preset, so it may be the provider's smaller rendition;
        the download stays on the original. #}
     {% set imageSource = row.displaySource %}
@@ -230,6 +232,18 @@
                             {{ 'source'|trans({}, 'folio') }}
                         </a>
                     {% endif %}
+                    {% if publicUrl and publicUrl != citationUrl %}
+                        <a href="{{ publicUrl }}" class="btn btn-outline-secondary" target="_blank" rel="noopener">
+                            {{ ux_icon('tabler:world', {class: 'icon me-1'}) }}
+                            {{ 'public_site'|trans({}, 'folio') }}
+                        </a>
+                    {% endif %}
+                    {% if adminUrl and adminUrl != citationUrl %}
+                        <a href="{{ adminUrl }}" class="btn btn-outline-secondary" target="_blank" rel="noopener">
+                            {{ ux_icon('tabler:edit', {class: 'icon me-1'}) }}
+                            {{ 'admin_site'|trans({}, 'folio') }}
+                        </a>
+                    {% endif %}
                 </div>
 
             </div>
@@ -356,6 +370,18 @@
                     <a href="{{ citationUrl }}" class="btn btn-outline-secondary" target="_blank" rel="noopener">
                         {{ ux_icon('tabler:external-link', {class: 'icon me-1'}) }}
                         {{ 'source'|trans({}, 'folio') }}
+                    </a>
+                {% endif %}
+                {% if publicUrl and publicUrl != citationUrl %}
+                    <a href="{{ publicUrl }}" class="btn btn-outline-secondary" target="_blank" rel="noopener">
+                        {{ ux_icon('tabler:world', {class: 'icon me-1'}) }}
+                        {{ 'public_site'|trans({}, 'folio') }}
+                    </a>
+                {% endif %}
+                {% if adminUrl and adminUrl != citationUrl %}
+                    <a href="{{ adminUrl }}" class="btn btn-outline-secondary" target="_blank" rel="noopener">
+                        {{ ux_icon('tabler:edit', {class: 'icon me-1'}) }}
+                        {{ 'admin_site'|trans({}, 'folio') }}
                     </a>
                 {% endif %}
             </div>

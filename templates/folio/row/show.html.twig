@@ -134,6 +134,20 @@
             </a>
         {% endif %}
 
+        {# The record's public page and its staff page in the source system, when set and not already shown above. #}
+        {% set publicUrl = attribute(row.dtoData, 'publicUrl')|default(attribute(row.extras, 'publicUrl')|default(null)) %}
+        {% set adminUrl = attribute(row.dtoData, 'adminUrl')|default(attribute(row.extras, 'adminUrl')|default(null)) %}
+        {% if publicUrl and publicUrl != citationUrl and publicUrl != sourceUrl %}
+            <a href="{{ publicUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
+                {{ 'public_site'|trans({}, 'folio') }} {{ ux_icon('tabler:world', { class: 'icon ms-1' }) }}
+            </a>
+        {% endif %}
+        {% if adminUrl and adminUrl != citationUrl and adminUrl != sourceUrl %}
+            <a href="{{ adminUrl }}" target="_blank" rel="noopener" class="text-decoration-none">
+                {{ 'admin_site'|trans({}, 'folio') }} {{ ux_icon('tabler:edit', { class: 'icon ms-1' }) }}
+            </a>
+        {% endif %}
+
         {% if tombstoneSourceImage %}
             <a href="{{ tombstoneSourceImage }}" target="_blank" rel="noopener" class="text-decoration-none">
                 Source image {{ ux_icon('tabler:photo', { class: 'icon ms-1' }) }}

@@ -6,6 +6,8 @@ item_not_found: "Item not found."
 download: Download
 share: Share
 source: Source
+public_site: On public site
+admin_site: Edit in source system
 donor: Donor
 description: Description
 year: Year
