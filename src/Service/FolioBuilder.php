@@ -36,7 +36,11 @@ final readonly class FolioBuilder
             if (0 === $result['rows']) {
                 throw new \RuntimeException('Refusing to publish an empty folio: '.$code);
             }
-            $pdo = new \PDO('sqlite:file:'.$workingPath.'?mode=ro');
+            $pdo = new \PDO('sqlite:'.$workingPath);
+            $buildId = bin2hex(random_bytes(16));
+            $pdo->exec('CREATE TABLE IF NOT EXISTS _folio_build (build_id TEXT NOT NULL, schema_version INTEGER NOT NULL)');
+            $pdo->exec('DELETE FROM _folio_build');
+            $pdo->prepare('INSERT INTO _folio_build VALUES (?, ?)')->execute([$buildId, DuckDbFolioExporter::SCHEMA_VERSION]);
             $properties = (new PropertyStore($pdo))->values();
             unset($pdo);
             $barePath = $this->archives->snapshotBare($code, $workingPath, locale: $locale);
@@ -58,6 +62,7 @@ final readonly class FolioBuilder
 
         return [
             'path' => $workingPath,
+            'buildId' => $buildId,
             'barePath' => $barePath,
             'archive' => $compressed,
             'rows' => $result['rows'],

@@ -414,6 +414,12 @@ final class SurvosFolioBundle extends AbstractUxBundle
             '$readOnly' => $config['read_only'],
         ]);
         $services->set(Service\FolioBuilder::class)->autowire()->autoconfigure()->public();
+        $services->set(Service\DuckDbFolioExporter::class)->autowire()->autoconfigure()->public();
+        $services->set(Service\DuckDbFolioPreparer::class)->autowire()->autoconfigure();
+        $services->set(Service\DuckDbFolioSearchProjection::class)->autowire()->autoconfigure();
+        $services->set(Service\DuckDbDtoSchema::class)->autowire()->autoconfigure();
+        $services->set(Service\DuckDbFolioBuilder::class)->autowire()->autoconfigure()->public();
+        $services->set(Service\DuckDbFolioReader::class)->autowire()->autoconfigure()->public();
         foreach ([Service\FolioMigrator::class, FolioMigrateCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }

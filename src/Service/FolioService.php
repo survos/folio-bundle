@@ -29,6 +29,22 @@ final class FolioService
      */
     public ?string $requestContentLocale = null;
 
+    private function selectedContext(string $code, string $path, EntityManagerInterface $em): FolioContext
+    {
+        $connection = $em->getConnection();
+        $identity = false;
+        if ($connection->fetchOne("SELECT 1 FROM sqlite_master WHERE type='table' AND name='_folio_build'")) {
+            $identity = $connection->fetchAssociative('SELECT build_id, schema_version FROM _folio_build');
+        }
+        $companion = new DuckDbCompanion(
+            substr($path, 0, -strlen($this->extension)).'duckdb',
+            $identity ? $identity['build_id'] : null,
+            $identity ? (int) $identity['schema_version'] : null,
+        );
+
+        return new FolioContext($code, $path, $em, $companion);
+    }
+
     public function __construct(
         private readonly EntityManagerInterface $folioEntityManager,
         private readonly FolioSchemaManager $schemaManager,
@@ -394,7 +410,7 @@ final class FolioService
     {
         $em = $this->switch($folioCode, $locale);
         if ($this->readOnly) {
-            return new FolioContext($folioCode, $this->path($folioCode, locale: $locale), $em);
+            return $this->selectedContext($folioCode, $this->path($folioCode, locale: $locale), $em);
         }
 
         // Self-healing schema: update() is a cheap PRAGMA-version check that no-ops when the folio
@@ -443,7 +459,7 @@ final class FolioService
             unset($this->preservedProperties[$key]);
         }
 
-        return new FolioContext($folioCode, $this->path($folioCode, locale: $locale), $em);
+        return $this->selectedContext($folioCode, $this->path($folioCode, locale: $locale), $em);
     }
 
     /**

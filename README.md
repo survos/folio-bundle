@@ -78,3 +78,24 @@ persists the compact versioned summary in its registry; Ink consumes that record
 The former dataset-registry collection controller and grid are removed. Applications
 render published catalog entries using `FolioCatalogClient`; the demo shows this
 without a dataset database. Reader routes for individual folios remain available.
+
+## Prepare a queryable DuckDB companion
+
+`DuckDbFolioPreparer::prepare($folioPath, fts: true)` derives a local `.duckdb`
+from an already restored `.folio`, without running Harvest ingestion. Restore
+archives with the existing `FolioPullCommand` / `FolioArchiveService` first.
+The optional target defaults to the sibling `.duckdb` path.
+
+The preparer reuses `DuckDbFolioExporter`, then adds `search_records` via
+`DuckDbFolioSearchProjection` and optional persisted FTS via search-bundle's
+`DuckDbFtsIndexer`. Native DTO columns remain authoritative; this export still
+mirrors the archive's logical tables as well. It is not a lean export profile.
+
+`_duckdb_preparation` records the shared build ID, schema/version signature and
+FTS choice. Matching files are reused. Changes rebuild under a per-file local
+lock into a staging file and replace the target only after a checkpoint.
+Failures preserve the previously published companion. `force: true` rebuilds
+regardless of its signature. No PDO connection remains open after preparation.
+Native PDO DuckDB 2.x is required; install the FTS extension beforehand when used.
+Older folios without `_folio_build` are rejected rather than assigned an invented
+identity. ORM access through `FolioContext` is unchanged.

@@ -36,9 +36,13 @@
         "ext-pdo_sqlite": "*",
         "tacman/gcf-php": "^1.0",
         "survos/kit-bundle": "^2.33",
-        "survos/folio": "^2.35.13"
+        "survos/folio": "^2.35.13",
+        "symfony/property-info": "^8.1",
+        "phpdocumentor/reflection-docblock": "^5.6",
+        "symfony/lock": "^8.1"
     },
     "suggest": {
+        "ext-pdo_duckdb": "Build optional local DuckDB 2.0 analytical snapshots from explicit JSONL inputs.",
         "survos/imgproxy-bundle": "Image backend for |folio_image and the API thumbnails (or imagor-bundle); without one, source URLs are used as-is.",
         "survos/imagor-bundle": "Image backend for |folio_image and the API thumbnails (or imgproxy-bundle).",
         "survos/fetch-bundle": "Provides ChunkDownloader for HTTP folio:pull downloads.",
