@@ -51,6 +51,11 @@ final class FolioRouteAttributeListener
     {
         $request = $event->getRequest();
 
+        // This manifestation is resolved by DuckDbFolioConnection; do not open SQLite.
+        if ('duckdb' === $request->attributes->get('_folio_reader')) {
+            return;
+        }
+
         $folioCode = $request->attributes->get('folioCode');
         if (null === $folioCode) {
             return;

@@ -16,7 +16,7 @@
         "survos/dimensions-bundle": "^2.10",
         "survos/field-bundle": "^2.5",
         "survos/jsonl-bundle": "^2.5",
-        "survos/search-bundle": "^2.5",
+        "survos/search-bundle": "^2.45.7",
         "symfony/ux-router": "^3.6",
         "twig/string-extra": "^3.20",
         "zenstruck/bytes": "^1.1",

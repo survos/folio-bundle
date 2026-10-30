@@ -48,6 +48,7 @@ final class RowMenu
         protected readonly ?RouterInterface $router = null,
         protected readonly ?RouteAliasService $routeAliasService = null,
         protected readonly ?IconService $iconService = null,
+        private readonly ?\Symfony\Component\HttpFoundation\RequestStack $requestStack = null,
     ) {
     }
 
@@ -59,6 +60,10 @@ final class RowMenu
     #[AsMenuListener(MenuSlot::BREADCRUMB, priority: 50)]
     public function breadcrumb(MenuEvent $event): void
     {
+        if ('duckdb' === $this->requestStack?->getCurrentRequest()?->attributes->get('_folio_reader')) {
+            return;
+        }
+
         $row = $event->getOption('row');
         $folio = $event->getOption('folio');
         $folioCode = match (true) {
@@ -104,6 +109,10 @@ final class RowMenu
     #[AsMenuListener(MenuSlot::PAGE_ACTIONS, priority: 50)]
     public function pageActions(MenuEvent $event): void
     {
+        if ('duckdb' === $this->requestStack?->getCurrentRequest()?->attributes->get('_folio_reader')) {
+            return;
+        }
+
         $row = $event->getOption('row');
 
         if (!$row instanceof Row) {

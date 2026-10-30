@@ -115,6 +115,8 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('Set false to drop the per-folio navbar menu (Search, Gallery, Map, Timeline, Chat, Term Cloud) and register your own.')
             ->end()
             ->integerNode('archive_compression_level')->min(0)->max(9)->defaultValue(1)->end()
+            ->booleanNode('duckdb_browse')->defaultFalse()->info('Enable the optional DuckDB folio reader routes; ES routes are unchanged.')->end()
+            ->arrayNode('duckdb_sources')->useAttributeAsKey('folioCode')->scalarPrototype()->end()->defaultValue([])->end()
             ->booleanNode('read_only')->defaultFalse()->info('Open published folios without schema updates, writes or journal-mode changes.')->end()
             ->scalarNode('archive_api_prefix')->defaultValue('/folio')->info('Remote archive API prefix, independent of browse routes.')->end()
             ->scalarNode('extension')->defaultValue('folio')->end()
@@ -420,6 +422,12 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $services->set(Service\DuckDbDtoSchema::class)->autowire()->autoconfigure();
         $services->set(Service\DuckDbFolioBuilder::class)->autowire()->autoconfigure()->public();
         $services->set(Service\DuckDbFolioReader::class)->autowire()->autoconfigure()->public();
+        $services->set(Service\LocalDuckDbFolioLocator::class)->autowire()->arg('$sources', $config['duckdb_sources']);
+        $services->alias(Service\DuckDbFolioLocatorInterface::class, Service\LocalDuckDbFolioLocator::class);
+        $services->set(Service\DuckDbFolioConnection::class)->autowire()->autoconfigure()->arg('$enabled', $config['duckdb_browse']);
+        $services->set(Service\DuckDbFolioView::class)->autowire();
+        $services->set(Search\FolioDuckDbSearch::class)->autowire()->autoconfigure()->public();
+
         foreach ([Service\FolioMigrator::class, FolioMigrateCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
             $services->set($class)->autowire()->autoconfigure()->public();
         }
@@ -556,7 +564,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         // folio itself. Every app used to add this identical line to survos_search.yaml; an app
         // can still override it there.
         if ($builder->hasExtension('survos_search')) {
-            $builder->prependExtensionConfig('survos_search', ['adapters' => ['folio_fts' => 'sqlite-fts5://folio']]);
+            $builder->prependExtensionConfig('survos_search', ['adapters' => ['folio_fts' => 'sqlite-fts5://folio', 'folio_duckdb' => 'duckdb://folio']]);
         }
         // Row pages call ux_icon() with vocabulary codes (term sets 'pla', 'per', …). data-bundle
         // registers the same aliases, but folio-bundle does not require it.

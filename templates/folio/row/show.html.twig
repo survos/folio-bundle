@@ -30,13 +30,13 @@
 {% set tombstoneLongitude = null %}
 {% if dto %}
     {# displayTitle() already prefers the DTO title; don't re-apply it and lose the fallbacks. #}
-    {% set tombstoneYear = dto.year ?: dto.date %}
-    {% set tombstoneCredit = dto.credit %}
-    {% set citationUrl = citationUrl ?: dto.sourceUrl %}
-    {% set sourceUrl = sourceUrl ?: dto.url %}
-    {% set tombstoneSourceImage = dto.largeImageUrl ?: dto.iiifBase %}
-    {% set tombstoneLatitude = dto.latitude %}
-    {% set tombstoneLongitude = dto.longitude %}
+    {% set tombstoneYear = (dto.year|default(null)) ?: (dto.date|default(null)) %}
+    {% set tombstoneCredit = (dto.credit|default(null)) %}
+    {% set citationUrl = citationUrl ?: (dto.sourceUrl|default(null)) %}
+    {% set sourceUrl = sourceUrl ?: (dto.url|default(null)) %}
+    {% set tombstoneSourceImage = (dto.largeImageUrl|default(null)) ?: (dto.iiifBase|default(null)) %}
+    {% set tombstoneLatitude = (dto.latitude|default(null)) %}
+    {% set tombstoneLongitude = (dto.longitude|default(null)) %}
 {% else %}
     {% set tombstoneTitle = attribute(row.dtoData, 'title')|default(attribute(row.extras, 'dcterms:title')|default(tombstoneTitle)) %}
     {% set tombstoneYear = attribute(row.dtoData, 'year')|default(attribute(row.dtoData, 'date')|default(null)) %}

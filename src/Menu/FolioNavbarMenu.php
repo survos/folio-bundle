@@ -41,6 +41,7 @@ final class FolioNavbarMenu
         private readonly TranslatorInterface $translator,
         protected readonly ?RouterInterface $router = null,
         private readonly ?AuthorizationCheckerInterface $authorizationChecker = null,
+        private readonly ?\Symfony\Component\HttpFoundation\RequestStack $requestStack = null,
     ) {
     }
 
@@ -54,6 +55,11 @@ final class FolioNavbarMenu
 
         $rp = $folio->getRp();
         $menu = $event->getMenu();
+        if ('duckdb' === $this->requestStack?->getCurrentRequest()?->attributes->get('_folio_reader')) {
+            $this->item($menu, 'Search', 'survos_folio_duckdb_search', $rp, 'tabler:search');
+
+            return;
+        }
         $admin = $this->isAdmin();
 
         if ($admin) {

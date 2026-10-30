@@ -1,0 +1,24 @@
+{# Shared folio title, attribution, dates, dimensions and source links; read-only DuckDB body. #}
+{% extends '@SurvosFolioBundle/folio/row/show.html.twig' %}
+{% block body %}
+<div class="container-xl py-4" {{ stimulus_controller(survos_stimulus('folio-bundle', 'json-viewer')) }}>
+    <div class="d-flex gap-3 mb-3">
+        <a href="{{ path('survos_folio_duckdb_search', folio.rp) }}">← Search {{ folio.label ?: folio.code }}</a>
+        {% set itemSource = dto.sourceUrl ?: dto.url %}
+        {% if itemSource and (itemSource starts with 'https://' or itemSource starts with 'http://') %}<a href="{{ itemSource }}" target="_blank" rel="noopener noreferrer">Source ↗</a>{% endif %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" popovertarget="duck-item-json" title="Show the stored document">{}</button>
+    </div>
+    <div id="duck-item-json" popover class="folio-raw-json">
+        <andypf-json-viewer expanded="2" show-toolbar="true" show-copy="true" theme="monokai" data="{{ dtoJson|e('html_attr') }}"></andypf-json-viewer>
+    </div>
+    {% if dto.description %}<p>{{ dto.description|striptags }}</p>{% endif %}
+    <div class="row g-3">
+        {% for page in pages %}
+            {% set image = page.url ?: page.sourceUrl %}
+            {% if image %}<div class="col-md-6"><a href="{{ image|folio_image('archive') }}" target="_blank" rel="noopener"><img src="{{ image|folio_image('thumb') }}" alt="{{ tombstoneTitle }}" class="img-fluid rounded" loading="lazy"></a></div>{% endif %}
+        {% else %}
+            {% if (dto.thumbnailUrl|default(null)) %}<div class="col-md-6"><img src="{{ (dto.thumbnailUrl|default(null))|folio_image('thumb') }}" alt="{{ tombstoneTitle }}" class="img-fluid rounded"></div>{% endif %}
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

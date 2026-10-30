@@ -1,0 +1,27 @@
+.folio-raw-json-btn {
+    position: absolute;
+    top: .25rem;
+    right: .25rem;
+    z-index: 2;
+    font: 600 .75rem/1 ui-monospace, monospace;
+    padding: .2rem .35rem;
+    border: 1px solid #0003;
+    border-radius: .25rem;
+    background: #fffc;
+    color: #333;
+    cursor: pointer;
+    opacity: .55;
+}
+.folio-raw-json-btn:hover,
+.folio-raw-json-btn:focus-visible {
+    opacity: 1;
+}
+.folio-raw-json {
+    width: min(56rem, calc(100vw - 2rem));
+    max-height: 85vh;
+    margin: auto;
+    padding: 0;
+    overflow: auto;
+    border: 1px solid #0003;
+    border-radius: .5rem;
+}

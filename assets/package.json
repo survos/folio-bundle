@@ -66,7 +66,16 @@
         "enabled": true,
         "fetch": "lazy",
         "autoimport": []
+      },
+      "json-viewer": {
+        "main": "controllers/json_viewer_controller.js",
+        "enabled": true,
+        "fetch": "lazy",
+        "autoimport": []
       }
+    },
+    "importmap": {
+      "@andypf/json-viewer": "^2.8.0"
     }
   },
   "peerDependencies": {

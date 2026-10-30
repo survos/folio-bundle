@@ -1,0 +1,24 @@
+{% set parts = hit.datasetCode|split('/') %}
+{% set detailUrl = path('survos_folio_duckdb_row_show', {folioCode: hit.datasetCode, coreCode: hit.coreCode, localId: hit.localId}) %}
+{% set rawId = 'duck-json-' ~ hit.id|url_encode %}
+<article {{ stimulus_controller(survos_stimulus('folio-bundle', 'json-viewer')) }} class="hit-item card h-100 shadow-none position-relative">
+    <button type="button" class="folio-raw-json-btn" popovertarget="{{ rawId }}" title="Show the stored document">{}</button>
+    <div id="{{ rawId }}" popover class="folio-raw-json">
+        <andypf-json-viewer expanded="1" indent="2" show-data-types="false" show-toolbar="true" show-size="true" show-copy="true" theme="monokai" data="{{ hit.dtoData|e('html_attr') }}"></andypf-json-viewer>
+    </div>
+    {% if hit.thumbnailUrl %}
+        <a href="{{ detailUrl }}" class="ratio ratio-4x3 bg-light">
+            <img src="{{ hit.thumbnailUrl|folio_image('thumb') }}" alt="{{ hit.title }}" loading="lazy" class="object-fit-contain">
+        </a>
+    {% endif %}
+    <div class="card-body p-3">
+        <span class="badge bg-blue-lt">{{ hit.contentType }}</span>
+        <h2 class="h3 mt-2"><a href="{{ detailUrl }}" class="text-reset">{{ hit.title }}</a></h2>
+        <div class="small text-secondary">{{ hit.id }}</div>
+        {% if hit.description %}<p class="mt-2">{{ hit.description|striptags|u.truncate(240, '…') }}</p>{% endif %}
+    </div>
+    <div class="card-footer d-flex gap-3">
+        <a href="{{ detailUrl }}">Open item</a>
+        {% if hit.url starts with 'https://' or hit.url starts with 'http://' %}<a href="{{ hit.url }}" target="_blank" rel="noopener noreferrer">Source ↗</a>{% endif %}
+    </div>
+</article>
