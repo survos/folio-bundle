@@ -38,6 +38,10 @@ final class DuckDbFolioReader
         }
         if ($remote) {
             $db->exec('LOAD httpfs');
+            // macOS libcurl proxy discovery is not fork-safe in PHP-FPM workers.
+            if ('Darwin' === PHP_OS && 'fpm-fcgi' === PHP_SAPI) {
+                $db->exec("SET httpfs_client_implementation = 'httplib'");
+            }
             $s3?->configure($db, $path);
             // ATTACH is a SQL utility statement, so quote the URI rather than shelling out.
             $db->exec('ATTACH '.$db->quote($path).' AS folio (READ_ONLY)');

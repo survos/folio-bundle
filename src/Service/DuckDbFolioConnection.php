@@ -10,7 +10,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 final readonly class DuckDbFolioConnection implements DuckDbConnectionProviderInterface
 {
     public function __construct(private DuckDbFolioLocatorInterface $locator, private DuckDbFolioReader $reader,
-        private bool $enabled = false)
+        private bool $enabled = false, private ?\Survos\FolioBundle\Dto\DuckDbS3Configuration $s3 = null)
     {
     }
 
@@ -27,7 +27,9 @@ final readonly class DuckDbFolioConnection implements DuckDbConnectionProviderIn
         $key = $options['folioCode'];
         self::validate($key);
 
-        return $this->reader->open($this->locator->locate($key));
+        $path = $this->locator->locate($key);
+
+        return $this->reader->open($path, str_starts_with($path, 's3://') ? $this->s3 : null);
     }
 
     public static function validate(string $key): void
