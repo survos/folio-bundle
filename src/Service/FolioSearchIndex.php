@@ -39,7 +39,13 @@ final class FolioSearchIndex
         private readonly int $replicas = 0,
         private readonly int $matchLimit = 1000,
         private readonly ?LoggerInterface $logger = null,
+        private readonly string $source = 'sqlite',
     ) {
+    }
+
+    public function sourceExtension(): string
+    {
+        return 'duckdb' === $this->source ? 'duckdb' : $this->folios->fileExtension();
     }
 
     public function isConfigured(): bool
@@ -54,18 +60,12 @@ final class FolioSearchIndex
     }
 
     /**
-     * The build a folio file on disk represents: changes whenever the published file is replaced.
+     * The shared logical build identity, independent of SQLite or DuckDB storage.
      * Deterministic, so a reader or an audit can tell from the file alone whether ES is current.
      */
     public function buildStamp(string $folioCode): string
     {
-        $path = $this->folios->path($folioCode);
-        clearstatcache(true, $path);
-        if (!is_file($path)) {
-            throw new \RuntimeException(sprintf('No folio at %s.', $path));
-        }
-
-        return substr(hash('sha256', $folioCode."\0".filesize($path)."\0".filemtime($path)), 0, 20);
+        return $this->stamp($this->openSource($folioCode), $folioCode);
     }
 
     /**
@@ -102,7 +102,7 @@ final class FolioSearchIndex
 
     /**
      * Is this folio's current build fully and only in ES? Compares per family:
-     * SQLite rows vs ES docs on the current build, and counts docs left on older builds.
+     * Source rows vs ES docs on the current build, and counts docs left on older builds.
      *
      * @return array{folio: string, status: string, build: ?string, expected: array{item: int, text: int}, indexed: array{item: ?int, text: ?int}, stale: ?int, meta: ?string}
      */
@@ -110,11 +110,12 @@ final class FolioSearchIndex
     {
         $result = ['folio' => $folioCode, 'status' => 'ok', 'build' => null, 'expected' => ['item' => 0, 'text' => 0], 'indexed' => ['item' => null, 'text' => null], 'stale' => null, 'meta' => null];
         try {
-            $build = $this->buildStamp($folioCode);
+            $pdo = $this->openSource($folioCode);
+            $build = $this->stamp($pdo, $folioCode);
         } catch (\RuntimeException) {
             return ['status' => 'no-folio'] + $result;
         }
-        $expected = $this->projector->expectedCounts($this->open($this->folios->path($folioCode)));
+        $expected = $this->projector->expectedCounts($pdo);
         $result['build'] = $build;
         $result['expected'] = ['item' => $expected['item'], 'text' => $expected['text']];
         $current = ['bool' => ['filter' => [['term' => ['folioCode' => $folioCode]], ['term' => ['build' => $build]]]]];
@@ -301,8 +302,8 @@ final class FolioSearchIndex
     private function indexLocked(string $folioCode, ?callable $progress): array
     {
         $this->ensureIndexes();
-        $build = $this->buildStamp($folioCode);
-        $pdo = $this->open($this->folios->path($folioCode));
+        $pdo = $this->openSource($folioCode);
+        $build = $this->stamp($pdo, $folioCode);
         $names = [FolioSearchProjector::FAMILY_ITEM => $this->itemIndex, FolioSearchProjector::FAMILY_TEXT => $this->textIndex];
 
         $rows = 0;
@@ -429,8 +430,40 @@ final class FolioSearchIndex
         return (int) ($response['deleted'] ?? 0);
     }
 
-    private function open(string $dbFile): \PDO
+    private function stamp(\PDO $pdo, string $folioCode): string
     {
+        if ($pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_folio_build'")->fetchColumn()) {
+            $identities = $pdo->query('SELECT build_id, schema_version FROM _folio_build')->fetchAll(\PDO::FETCH_ASSOC);
+            if (1 !== count($identities) || '' === (string) $identities[0]['build_id']
+                || DuckDbFolioExporter::SCHEMA_VERSION !== (int) $identities[0]['schema_version']) {
+                throw new \RuntimeException('Invalid or unsupported Folio build identity.');
+            }
+
+            return substr(hash('sha256', $folioCode."\0".$identities[0]['build_id']."\0".$identities[0]['schema_version']), 0, 20);
+        }
+        if ('duckdb' === $this->source) {
+            throw new \RuntimeException('DuckDB indexing requires a logical Folio export with a shared build identity.');
+        }
+        $path = $this->folios->path($folioCode);
+        clearstatcache(true, $path);
+
+        return substr(hash('sha256', $folioCode."\0".filesize($path)."\0".filemtime($path)), 0, 20);
+    }
+
+    private function openSource(string $folioCode): \PDO
+    {
+        $dbFile = $this->folios->path($folioCode);
+        if ('duckdb' === $this->source) {
+            $dbFile = substr($dbFile, 0, -strlen($this->folios->fileExtension())).'duckdb';
+            if (!is_file($dbFile)) {
+                throw new \RuntimeException(sprintf('No published DuckDB folio at %s.', $dbFile));
+            }
+
+            return (new DuckDbFolioReader())->open($dbFile);
+        }
+        if ('sqlite' !== $this->source) {
+            throw new \InvalidArgumentException('Folio search source must be sqlite or duckdb.');
+        }
         if (!is_file($dbFile)) {
             throw new \RuntimeException(sprintf('No folio at %s.', $dbFile));
         }

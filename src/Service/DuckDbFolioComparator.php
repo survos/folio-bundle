@@ -43,27 +43,40 @@ final class DuckDbFolioComparator
             $shape = json_decode($contract['structure'], true, flags: JSON_THROW_ON_ERROR);
             $type = $contract['dto_type'];
             $count = 0;
-            do {
-                $rows = $sqlite->query('SELECT id, core_id, dto_data FROM item WHERE dto_type = '.$sqlite->quote($type).' ORDER BY id LIMIT 1000 OFFSET '.$count)->fetchAll(\PDO::FETCH_ASSOC);
-                $actual = $db->query('SELECT to_json(t)::VARCHAR FROM dto.'.DuckDbFolioExporter::identifier($type).' t ORDER BY "_itemId" LIMIT 1000 OFFSET '.$count)->fetchAll(\PDO::FETCH_COLUMN);
-                if (count($rows) !== count($actual)) {
+            $sourceRows = $sqlite->query('SELECT id, core_id, dto_data FROM item WHERE dto_type = '.$sqlite->quote($type).' ORDER BY id');
+            $targetRows = $db->query('SELECT to_json(t)::VARCHAR FROM dto.'.DuckDbFolioExporter::identifier($type).' t ORDER BY "_itemId"');
+            while (false !== ($row = $sourceRows->fetch(\PDO::FETCH_ASSOC))) {
+                $actual = $targetRows->fetchColumn();
+                if (false === $actual) {
                     throw new \RuntimeException('DTO projection count mismatch: '.$type);
                 }
-                foreach ($rows as $i => $row) {
-                    $data = json_decode($row['dto_data'], true, flags: JSON_THROW_ON_ERROR);
-                    $wanted = ['_itemId' => $row['id'], '_coreId' => $row['core_id']];
-                    foreach ($shape as $name => $sqlType) {
-                        $wanted[$name] = $data[$name] ?? null;
+                $data = json_decode($row['dto_data'], true, flags: JSON_THROW_ON_ERROR);
+                $wanted = ['_itemId' => $row['id'], '_coreId' => $row['core_id']];
+                foreach ($shape as $name => $sqlType) {
+                    $value = $data[$name] ?? null;
+                    // Legacy serializers sometimes encoded a declared list twice.
+                    if (is_array($sqlType) && is_string($value)) {
+                        $value = json_decode($value, true, flags: JSON_THROW_ON_ERROR);
                     }
-                    $got = json_decode($actual[$i], true, flags: JSON_THROW_ON_ERROR);
-                    // JSON does not distinguish integral double encodings (1 versus 1.0).
-                    if (self::canonical($wanted) !== self::canonical($got)) {
-                        $fields = array_keys(array_filter($wanted, static fn ($value, $key): bool => self::canonical($value) !== self::canonical($got[$key] ?? null), ARRAY_FILTER_USE_BOTH));
-                        throw new \RuntimeException('DTO value mismatch: '.$row['id'].' fields '.implode(', ', $fields));
+                    // VARCHAR projections preserve the value, not JSON's numeric type.
+                    if ('VARCHAR' === $sqlType && (is_int($value) || is_float($value))) {
+                        $value = (string) $value;
                     }
+                    $wanted[$name] = $value;
                 }
-                $count += count($rows);
-            } while (1000 === count($rows));
+                $got = json_decode($actual, true, flags: JSON_THROW_ON_ERROR);
+                // JSON does not distinguish integral double encodings (1 versus 1.0).
+                if (self::canonical($wanted) !== self::canonical($got)) {
+                    $fields = array_keys(array_filter($wanted, static fn ($value, $key): bool => self::canonical($value) !== self::canonical($got[$key] ?? null), ARRAY_FILTER_USE_BOTH));
+                    throw new \RuntimeException('DTO value mismatch: '.$row['id'].' fields '.implode(', ', $fields));
+                }
+
+                ++$count;
+            }
+            if (false !== $targetRows->fetchColumn()) {
+                throw new \RuntimeException('DTO projection count mismatch: '.$type);
+            }
+            $sourceRows = $targetRows = null;
             $projections[$type] = $count;
         }
         $sqlite->commit();

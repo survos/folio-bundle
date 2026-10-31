@@ -89,9 +89,13 @@ final class DuckDbFolioExporter
                 }
                 $structure = json_encode($shape, JSON_THROW_ON_ERROR);
                 $fields = [];
-                foreach ($shape as $name => $_) {
+                foreach ($shape as $name => $fieldType) {
                     $pointer = '/'.str_replace(['~', '/'], ['~0', '~1'], $name);
-                    $fields[] = $db->quote($name).', json_extract(dto_data, '.$db->quote($pointer).')';
+                    $value = 'json_extract(dto_data, '.$db->quote($pointer).')';
+                    if (is_array($fieldType)) {
+                        $value = 'CASE WHEN json_type('.$value.") = 'VARCHAR' THEN CAST(json_extract_string(dto_data, ".$db->quote($pointer).') AS JSON) ELSE '.$value.' END';
+                    }
+                    $fields[] = $db->quote($name).', '.$value;
                 }
                 // Sparse DTO serialization omits empty fields; explicitly supply SQL NULL.
                 $payload = 'json_object('.implode(', ', $fields).')';

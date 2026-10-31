@@ -63,6 +63,35 @@ final class DuckDbFolioExporterTest extends TestCase
         (new DuckDbCompanion($this->dir.'/fixture.duckdb', 'build-b', 1))->open();
     }
 
+    public function testEncodedListProjectsWithoutChangingSourcePayload(): void
+    {
+        $source = new \PDO('sqlite:'.$this->dir.'/fixture.folio');
+        $payload = json_encode(['id' => 123, 'aiTasks' => '["observe","analyze"]'], JSON_THROW_ON_ERROR);
+        $source->prepare('UPDATE item SET dto_data = ?')->execute([$payload]);
+        $source = null;
+        $result = (new DuckDbFolioExporter())->export($this->dir.'/fixture.folio', $this->dir.'/fixture.duckdb');
+        $db = (new DuckDbCompanion($result['path'], 'build-a', 1))->open();
+        self::assertSame($payload, $db->query('SELECT dto_data FROM item')->fetchColumn());
+        self::assertSame('["observe","analyze"]', $db->query('SELECT to_json("aiTasks")::VARCHAR FROM dto.painting')->fetchColumn());
+        self::assertTrue((new DuckDbFolioComparator())->compare($this->dir.'/fixture.folio', $result['path'])['matched']);
+    }
+
+    public function testInvalidEncodedListPreservesPublishedSnapshot(): void
+    {
+        $exporter = new DuckDbFolioExporter();
+        $exporter->export($this->dir.'/fixture.folio', $this->dir.'/fixture.duckdb');
+        $hash = hash_file('sha256', $this->dir.'/fixture.duckdb');
+        $source = new \PDO('sqlite:'.$this->dir.'/fixture.folio');
+        $source->prepare('UPDATE item SET dto_data = ?')->execute(['{"id":"001","aiTasks":"not-json"}']);
+        $source = null;
+        try {
+            $exporter->export($this->dir.'/fixture.folio', $this->dir.'/fixture.duckdb');
+            self::fail('Malformed lists must fail, not disappear.');
+        } catch (\PDOException) {
+            self::assertSame($hash, hash_file('sha256', $this->dir.'/fixture.duckdb'));
+        }
+    }
+
     public function testInvalidTypedRebuildPreservesPublishedDuck(): void
     {
         $exporter = new DuckDbFolioExporter();

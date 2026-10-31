@@ -27,7 +27,7 @@ final class FolioElasticIndexCommand
         #[Argument('Folio codes, e.g. nara/coll_bho-whpo')] array $folioCodes = [],
         #[Option('Every published source folio under the data root (translations excluded)')] bool $all = false,
         #[Option('With --all: only this provider')] ?string $provider = null,
-        #[Option('Only report coverage: SQLite rows vs ES docs for the current build; exits 1 on any gap')] bool $verify = false,
+        #[Option('Only report coverage: source rows vs ES docs for the current build; exits 1 on any gap')] bool $verify = false,
         #[Option('Only (re)index folios that do not verify')] bool $staleOnly = false,
         #[Option('Dispatch IndexFolioRowsMessage per folio instead of indexing here')] bool $queue = false,
         #[Option('Delete the folios from the indexes instead')] bool $remove = false,
@@ -105,7 +105,7 @@ final class FolioElasticIndexCommand
     /** @return list<string> */
     private function publishedFolios(?string $provider): array
     {
-        $extension = $this->folios->fileExtension();
+        $extension = $this->index->sourceExtension();
         $codes = [];
         foreach (glob($this->folios->rootPath().'/'.($provider ?? '*').'/*.'.$extension) ?: [] as $path) {
             $name = basename($path);

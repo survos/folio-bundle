@@ -74,6 +74,55 @@ final class FolioSearchIndexTest extends TestCase
         self::assertSame(3, $meta['rows']);
     }
 
+    public function testDuckDbProducesIdenticalDocumentsWithoutTheSqliteFile(): void
+    {
+        if (!in_array('duckdb', \PDO::getAvailableDrivers(), true)) {
+            self::markTestSkipped('Requires pdo_duckdb.');
+        }
+        $this->newspaper('test/paper');
+        $path = $this->folios->path('test/paper');
+        $sqlite = new \PDO('sqlite:'.$path);
+        $sqlite->exec('CREATE TABLE _folio_build (build_id TEXT, schema_version INT)');
+        $sqlite->exec("INSERT INTO _folio_build VALUES ('shared-build', 1)");
+        $sqlite->exec('CREATE TABLE schema_table (id TEXT, core_code TEXT, dto_type TEXT)');
+        $sqlite->exec("INSERT INTO schema_table VALUES ('x', 'article', 'document')");
+        $sqlite->exec("UPDATE page SET type = 'photo' WHERE seq = 2");
+        $sqlite->exec("INSERT INTO link VALUES ('article', 'i1-a1', 'doc', 'z'), ('article', 'i1-a1', 'doc', 'a')");
+        (new \Survos\FolioBundle\Service\DuckDbFolioExporter())->export($path, substr($path, 0, -5).'duckdb');
+        $sqlite = null;
+        $expectedBuild = $this->index()->buildStamp('test/paper');
+        $this->index()->index('test/paper');
+        $expected = [$this->docs['folio_item'], $this->docs['folio_text']];
+        $expectedFacets = $this->docs['folio_meta']['test/paper']['facets'];
+        unlink($path);
+        $duck = $this->index('duckdb');
+        self::assertSame($expectedBuild, $duck->buildStamp('test/paper'));
+        self::assertSame('ok', $duck->index('test/paper')['verify']['status']);
+        self::assertSame($expected, [$this->docs['folio_item'], $this->docs['folio_text']]);
+        self::assertSame('ok', $duck->verify('test/paper')['status']);
+        self::assertSame($expectedFacets, $this->docs['folio_meta']['test/paper']['facets']);
+        self::assertFileDoesNotExist($path);
+        $snapshot = new \PDO('duckdb:'.substr($path, 0, -5).'duckdb');
+        $snapshot->exec("UPDATE _folio_build SET build_id = 'next-build'");
+        $snapshot = null;
+        self::assertSame('stale', $duck->verify('test/paper')['status']);
+        self::assertSame('ok', $duck->index('test/paper')['verify']['status']);
+        $snapshot = new \PDO('duckdb:'.substr($path, 0, -5).'duckdb');
+        $snapshot->exec('UPDATE _folio_build SET schema_version = 999');
+        $snapshot = null;
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Invalid or unsupported Folio build identity');
+        $duck->index('test/paper');
+    }
+
+    public function testDuckDbSourceDoesNotFallBackToSqlite(): void
+    {
+        $this->newspaper('test/paper');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('No published DuckDB');
+        $this->index('duckdb')->index('test/paper');
+    }
+
     public function testImageCriteriaExcludeAudioAndBlankPagesAndKeepCanonicalTags(): void
     {
         $this->newspaper('test/paper');
@@ -185,7 +234,7 @@ final class FolioSearchIndexTest extends TestCase
         }
     }
 
-    private function index(): FolioSearchIndex
+    private function index(string $source = 'sqlite'): FolioSearchIndex
     {
         $http = new MockHttpClient(function (string $method, string $url, array $options): MockResponse {
             $path = rawurldecode((string) parse_url($url, PHP_URL_PATH));
@@ -255,7 +304,7 @@ final class FolioSearchIndexTest extends TestCase
 
         $projector = new FolioSearchProjector(new FolioFtsIndexer());
 
-        return new FolioSearchIndex($this->folios, $projector, new FolioElasticClient($http, 'elasticsearch://localhost:9200'));
+        return new FolioSearchIndex($this->folios, $projector, new FolioElasticClient($http, 'elasticsearch://localhost:9200'), source: $source);
     }
 
     /** The term/bool subset the index sends. */

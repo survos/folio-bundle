@@ -21,7 +21,7 @@ Harvest is the only writer. Readers get a read-only key on `folio_*`.
 ## The document
 
 One strict mapping (`FolioSearchIndex::mapping()`), shared by both families; the text-only
-fields are absent on items. Built by `FolioSearchProjector` from the folio's SQLite file.
+fields are absent on items. Built by `FolioSearchProjector` from the folio's SQLite file or logical DuckDB export.
 
 | field | type | from |
 |---|---|---|
@@ -72,13 +72,15 @@ count records, not pages.
 
 ## Coverage: when a folio counts as searchable
 
-`build` is a stamp of the published file (`sha256(folioCode, size, mtime)`, 20 hex), so a reader
-or an audit can tell from the file alone whether ES is current. Indexing a folio:
+`build` hashes the folio code and shared `_folio_build` identity (build ID and schema
+version, 20 hex). SQLite and its DuckDB export therefore produce the same document
+identity. Legacy SQLite files without that table retain the size/mtime stamp;
+DuckDB requires a supported shared identity. Indexing a folio:
 
 1. bulk-writes every row under the stamp — ids are row ids, so a rebuild overwrites in place;
 2. deletes the folio's documents on any other stamp — the rows that disappeared;
 3. writes `folio_meta` with `complete: false`, then **verifies**: for each family, the count of
-   `folioCode = X AND build = stamp` must equal SQLite's row count, and nothing may remain on an
+   `folioCode = X AND build = stamp` must equal the selected source's row count, and nothing may remain on an
    older stamp;
 4. only then sets `complete: true`. A folio that does not verify fails its message, so Messenger
    retries it and it ends up in the failure transport rather than silently half-indexed.
@@ -90,8 +92,20 @@ does not verify; `--queue` hands each to the worker instead.
 
 ## Producing
 
-- `survos_folio.elastic_auto_index: true` in Harvest only. `FolioPublishedEvent` (source locale)
-  queues `IndexFolioRowsMessage`; `IndexFolioRowsHandler` indexes and verifies.
+- `survos_folio.elastic_auto_index: true` in Harvest only.
+- `survos_folio.search.source: duckdb` reads the local `.duckdb` logical export directly,
+  including counts, facets, pages and links. It needs no uncompressed SQLite `.folio`.
+  Missing or invalid DuckDB snapshots fail; there is no silent SQLite fallback.
+  `--all` discovers files with the selected source extension.
+- With `source: duckdb`, the producer dispatches `DuckDbFolioPublishedEvent` after
+  atomic export and artifact registration. Only that event queues
+  `IndexFolioRowsMessage`; the earlier SQLite publication does not queue ES.
+  The default `source: sqlite` retains the `FolioPublishedEvent` trigger.
+  `IndexFolioRowsHandler` indexes and verifies; translations remain excluded.
+- Both sources use the same projector. Page selection is ordered by sequence and ID,
+  and media kinds, links and attribute keys are deterministic across engines.
+  No embedding generation is involved. Existing ES documents require a one-time
+  reindex for the shared build stamp and document version 4.
 - Rows are merge-joined with their pages and links in row-id order, never held in memory:
   `news/rappnews4909` (967,642 rows) indexes at 110 MB peak.
 - One writer host: runs are serialized per folio by a local file lock.

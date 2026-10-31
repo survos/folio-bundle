@@ -158,6 +158,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 ->info('The shared Elasticsearch search indexes every Folio row lands in once (docs/search-indexes.md). Not app-prefixed: Harvest writes them, every app reads them. Needs ELASTICSEARCH_DSN.')
                 ->addDefaultsIfNotSet()
                 ->children()
+                    ->enumNode('source')->values(['sqlite', 'duckdb'])->defaultValue('sqlite')->info('Authoritative published source for ES indexing and verification. DuckDB requires a completed logical export.')->end()
                     ->scalarNode('item_index')->defaultValue('folio_item')->end()
                     ->scalarNode('text_index')->defaultValue('folio_text')->end()
                     ->scalarNode('meta_index')->defaultValue('folio_meta')->end()
@@ -386,10 +387,13 @@ final class SurvosFolioBundle extends AbstractUxBundle
             '$shards' => $config['search']['shards'],
             '$replicas' => $config['search']['replicas'],
             '$matchLimit' => $config['search']['match_limit'],
+            '$source' => $config['search']['source'],
         ]);
         $services->set(Service\FolioElasticIndexCommand::class)->autowire()->autoconfigure()->public();
         $services->set(EventListener\FolioElasticIndexListener::class)->autowire()->autoconfigure()
             ->arg('$enabled', $config['elastic_auto_index'])
+            ->arg('$source', $config['search']['source'])
+            ->tag('kernel.event_listener', ['event' => 'Survos\FolioBundle\Event\DuckDbFolioPublishedEvent'])
             ->tag('kernel.event_listener', ['event' => 'Survos\FolioBundle\Event\FolioPublishedEvent']);
         if (interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
             $services->set(MessageHandler\IndexFolioRowsHandler::class)->autowire()->autoconfigure();

@@ -23,7 +23,7 @@ final class FolioSearchProjector
      * Bump whenever what a row projects to changes. The build stamp only covers the folio file, so
      * without this a folio indexed by older code verifies `ok` forever; with it, it is `outdated`.
      */
-    public const int DOCUMENT_VERSION = 3; // 3: canonical image counts and item tags
+    public const int DOCUMENT_VERSION = 4; // 4: deterministic page and link ordering across SQLite and DuckDB
     public const string FAMILY_ITEM = 'item';
     public const string FAMILY_TEXT = 'text';
 
@@ -64,12 +64,12 @@ final class FolioSearchProjector
         $facetFields = array_values(array_diff($this->fts->facetFields($pdo), self::TYPED_FACETS));
         // Pages and links are merge-joined in row-id order, never loaded into memory: a newspaper
         // folio has a page and an issue link for each of its million articles.
-        // SQLite's bare-column rule: with MIN(seq), url comes from the row's first page.
-        $pages = $this->sortedCursor($pdo, 'page', "SELECT row_id, COUNT(*), GROUP_CONCAT(DISTINCT type), url, MIN(seq), SUM(CASE WHEN type IN ('photo', 'scan', 'document') AND length(trim(url)) > 0 THEN 1 ELSE 0 END) FROM page GROUP BY row_id ORDER BY row_id");
+        $pages = $this->sortedCursor($pdo, 'page', "SELECT row_id, COUNT(*), GROUP_CONCAT(DISTINCT type), MAX(CASE WHEN rn = 1 THEN url END), MIN(seq), SUM(CASE WHEN type IN ('photo', 'scan', 'document') AND length(trim(url)) > 0 THEN 1 ELSE 0 END) FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY row_id ORDER BY seq, id) AS rn FROM page) p GROUP BY row_id ORDER BY row_id");
         // Link ends are local ids; item ids carry the folio code the file was built under.
-        $first = (string) $pdo->query('SELECT id FROM item LIMIT 1')->fetchColumn();
+        $first = (string) $pdo->query('SELECT id FROM item ORDER BY id LIMIT 1')->fetchColumn();
         $prefix = false !== ($colon = strpos($first, ':')) ? substr($first, 0, $colon) : $folioCode;
-        $links = $this->sortedCursor($pdo, 'link', "SELECT :folio || ':' || left_core || ':' || left_id AS k, GROUP_CONCAT(:folio || ':' || right_core || ':' || right_id, char(31)) FROM link GROUP BY k ORDER BY k", ['folio' => $prefix]);
+        $separator = 'duckdb' === $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) ? 'chr(31)' : 'char(31)';
+        $links = $this->sortedCursor($pdo, 'link', "SELECT :folio || ':' || left_core || ':' || left_id AS k, GROUP_CONCAT(:folio || ':' || right_core || ':' || right_id, $separator) FROM link GROUP BY k ORDER BY k", ['folio' => $prefix]);
         [$provider, $dataset] = self::split($folioCode);
 
         $select = $pdo->query('SELECT id, local_id, label, dto_type, dto_data, extras, core_id FROM item ORDER BY id');
@@ -87,7 +87,10 @@ final class FolioSearchProjector
             $page = self::advance($pages, $rowId);
             $pageCount = null === $page ? 0 : (int) $page[1];
             $mediaKinds = null === $page || null === $page[2] ? [] : array_values(array_unique(explode(',', (string) $page[2])));
+            sort($mediaKinds, SORT_STRING);
             $link = self::advance($links, $rowId);
+            $linkIds = null === $link ? [] : array_values(array_unique(explode("\x1F", (string) $link[1])));
+            sort($linkIds, SORT_STRING);
 
             $attrs = [];
             foreach ($facetFields as $field) {
@@ -106,6 +109,8 @@ final class FolioSearchProjector
             if (is_array($tags) && [] !== $tags) {
                 $attrs['tags'] = array_values(array_filter($tags, 'is_string'));
             }
+
+            ksort($attrs, SORT_STRING);
 
             $doc = [
                 'rowId' => $rowId,
@@ -132,7 +137,7 @@ final class FolioSearchProjector
                 // The first page's URL (often our s3:// mirror): what a hit card shows. Readers decide
                 // whether it is renderable; dto image fields are provenance and stay in SQLite.
                 'thumbnailUrl' => null === $page ? null : self::str($page[3]),
-                'links' => null === $link ? [] : array_values(array_unique(explode("\x1F", (string) $link[1]))),
+                'links' => $linkIds,
                 'attrs' => $attrs,
             ];
             if (self::FAMILY_TEXT === $family) {
