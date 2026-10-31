@@ -37,7 +37,7 @@ final class FolioService
             $identity = $connection->fetchAssociative('SELECT build_id, schema_version FROM _folio_build');
         }
         $companion = new DuckDbCompanion(
-            substr($path, 0, -strlen($this->extension)).'duckdb',
+            DuckDbFolioFile::existingPath(substr($path, 0, -strlen($this->extension)).'dfolio'),
             $identity ? $identity['build_id'] : null,
             $identity ? (int) $identity['schema_version'] : null,
         );

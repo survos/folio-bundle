@@ -20,7 +20,8 @@ final readonly class LocalDuckDbFolioLocator implements DuckDbFolioLocatorInterf
         if (isset($this->sources[$folioCode])) {
             return $this->sources[$folioCode];
         }
-        $path = $this->paths->folioFile($folioCode, 'duckdb');
+        $path = $this->paths->folioFile($folioCode, 'dfolio');
+        $path = DuckDbFolioFile::existingPath($path);
         if (!is_file($path)) {
             throw new NotFoundHttpException('No DuckDB working copy for '.$folioCode);
         }

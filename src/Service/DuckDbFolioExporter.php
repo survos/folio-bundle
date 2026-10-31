@@ -21,8 +21,8 @@ final class DuckDbFolioExporter
     /** @return array{path:string,buildId:string,rows:int,counts:array<string,int>} */
     public function export(string $folio, string $target): array
     {
-        if (!is_file($folio) || !str_ends_with($target, '.duckdb') || !is_dir(dirname($target))) {
-            throw new \InvalidArgumentException('Supply an existing folio and a local .duckdb target directory.');
+        if (!is_file($folio) || !DuckDbFolioFile::accepts($target) || !is_dir(dirname($target))) {
+            throw new \InvalidArgumentException('Supply an existing folio and a local .dfolio or .duckdb target directory.');
         }
         $source = new \PDO('sqlite:file:'.$folio.'?mode=ro', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
         $source->beginTransaction(); // Pin one SQLite revision for the entire export.
