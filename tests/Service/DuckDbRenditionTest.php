@@ -178,8 +178,8 @@ ROUTER);
             (new DuckDbFolioExporter())->export($this->root.'/source.folio', $path, static function (): never {throw new \RuntimeException('upload failed'); });
             self::fail();
         } catch (\RuntimeException $e) {
-            self::assertSame('upload failed',$e->getMessage());
-            self::assertSame('previous',file_get_contents($path));
+            self::assertSame('upload failed', $e->getMessage());
+            self::assertSame('previous', file_get_contents($path));
         }
     }
 }
