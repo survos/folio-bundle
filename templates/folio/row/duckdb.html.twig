@@ -3,7 +3,7 @@
 {% block body %}
 <div class="container-xl py-4" {{ stimulus_controller(survos_stimulus('folio-bundle', 'json-viewer')) }}>
     <div class="d-flex gap-3 mb-3">
-        <a href="{{ path('survos_folio_duckdb_search', folio.rp) }}">← Search {{ folio.label ?: folio.code }}</a>
+        <a href="{{ path('survos_folio_duckdb_search', folio.rp|merge({language: app.request.query.get('language') ?: (app.request.hasSession ? app.request.session.get('dfolio_language.' ~ folio.code) : null)})) }}">← Search {{ folio.label ?: folio.code }}</a>
         {% set itemSource = dto.sourceUrl ?: dto.url %}
         {% if itemSource and (itemSource starts with 'https://' or itemSource starts with 'http://') %}<a href="{{ itemSource }}" target="_blank" rel="noopener noreferrer">Source ↗</a>{% endif %}
         <button type="button" class="btn btn-sm btn-outline-secondary" popovertarget="duck-item-json" title="Show the stored document">{}</button>

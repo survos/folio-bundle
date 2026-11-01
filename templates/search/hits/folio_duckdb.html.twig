@@ -1,5 +1,5 @@
 {% set parts = hit.datasetCode|split('/') %}
-{% set detailUrl = path('survos_folio_duckdb_row_show', {folioCode: hit.datasetCode, coreCode: hit.coreCode, localId: hit.localId}) %}
+{% set detailUrl = path('survos_folio_duckdb_row_show', {folioCode: hit.datasetCode, coreCode: hit.coreCode, localId: hit.localId, language: app.request.query.get('language') ?: (app.request.hasSession ? app.request.session.get('dfolio_language.' ~ hit.datasetCode) : null)}) %}
 {% set rawId = 'duck-json-' ~ hit.id|url_encode %}
 <article {{ stimulus_controller(survos_stimulus('folio-bundle', 'json-viewer')) }} class="hit-item card h-100 shadow-none position-relative">
     <button type="button" class="folio-raw-json-btn" popovertarget="{{ rawId }}" title="Show the stored document">{}</button>

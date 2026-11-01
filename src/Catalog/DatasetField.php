@@ -9,6 +9,9 @@ final class DatasetField
 {
     public const FOLIO_TYPE = 'folio';
     public const FOLIO_ARCHIVE_TYPE = 'folio_archive';
+    public const DUCKDB_TYPE = 'duckdb';
+    public const REMOTE_URI = 'remoteUri';
+    public const S3_CODE = 's3';
     public const DEFAULT_CODE = 'default';
     public const FOLIOS = 'folios';
     public const RECEIPTS = 'receipts';
