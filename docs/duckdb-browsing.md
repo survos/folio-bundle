@@ -5,9 +5,9 @@ local, HTTPS or S3 snapshots read-only. Existing Elasticsearch searches and
 SQLite folio routes are unchanged. Vector indexing/querying is not implemented
 by these routes; the reader boundary can support it later.
 
-Enable in any reader application with `survos_folio.duckdb_browse: true`.
+Enable in any reader application with `survos_folio.dfolio_browse: true`.
 The default locator uses `DataPaths::folioFile(code, 'duckdb')`; trusted remote
-URIs can be configured under `survos_folio.duckdb_sources`, keyed by folio code.
+URIs can be configured under `survos_folio.dfolio_sources`, keyed by folio code.
 Alternatively alias `DuckDbFolioLocatorInterface` to the application's registry
 adapter. Harvest does this for its registered `duckdb` artifacts. No dataset
 registry or Harvest class is required in FotoStory or Ink.
@@ -52,3 +52,11 @@ DuckDB 2.0's columnar `VARIANT` storage is a possible future improvement for
 semi-structured payloads; adopting it needs separate export/query benchmarks.
 Its asynchronous I/O also benefits remote native DuckDB storage. Neither feature
 changes the PDO JSON-to-PHP conversion policy.
+
+## File naming
+
+New DuckDB Folios use `.dfolio`; SQLite retains `.folio` and `.folio.gz`.
+Existing `.duckdb` artifact URIs remain supported. Local discovery prefers
+`.dfolio`, falling back to `.duckdb` until a rebuild publishes the new name.
+Remote readers accept either extension and use the exact registered URI.
+Rebuilds update the artifact URI; no bulk rename is needed.

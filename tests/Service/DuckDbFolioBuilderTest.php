@@ -41,7 +41,7 @@ final class DuckDbFolioBuilderTest extends TestCase
         file_put_contents($this->root.'/page.jsonl', '');
         $result = (new DuckDbFolioBuilder())->build(new FolioBuildInput(
             'test/snapshot', ['obj' => $this->root.'/obj.jsonl.gz'], [], 'en', files: ['page' => $this->root.'/page.jsonl'],
-        ), $this->root.'/snapshot.duckdb');
+        ), $this->root.'/snapshot.dfolio');
         self::assertSame(3, $result['rows']);
         self::assertSame(['main.obj' => 3, 'aux.page' => 0], $result['counts']);
         $db = $this->open();
@@ -52,7 +52,7 @@ final class DuckDbFolioBuilderTest extends TestCase
         self::assertSame('Late field', $db->query('SELECT "'.ItemField::DESCRIPTION.'" FROM obj ORDER BY "'.ItemField::ID.'" DESC LIMIT 1')->fetchColumn());
         $raw = $db->query('SELECT json::VARCHAR FROM raw_core.obj')->fetchAll(\PDO::FETCH_COLUMN);
         self::assertEqualsCanonicalizing($objects, array_map(static fn (string $json): array => json_decode($json, true, flags: JSON_THROW_ON_ERROR), $raw));
-        self::assertSame([], glob($this->root.'/.duckdb-build-*'));
+        self::assertSame([], glob($this->root.'/.dfolio-build-*'));
     }
 
     public function testMalformedRebuildPreservesExistingSnapshot(): void
@@ -61,7 +61,7 @@ final class DuckDbFolioBuilderTest extends TestCase
         file_put_contents($file, json_encode([ItemField::ID => '1'], JSON_THROW_ON_ERROR)."\n");
         $builder = new DuckDbFolioBuilder();
         $input = new FolioBuildInput('test/snapshot', ['obj' => $file], [], 'en');
-        $target = $this->root.'/snapshot.duckdb';
+        $target = $this->root.'/snapshot.dfolio';
         $builder->build($input, $target);
         $before = hash_file('sha256', $target);
         file_put_contents($file, "{broken\n");
@@ -70,7 +70,7 @@ final class DuckDbFolioBuilderTest extends TestCase
             self::fail('Malformed JSONL must fail.');
         } catch (\PDOException) {
             self::assertSame($before, hash_file('sha256', $target));
-            self::assertSame([], glob($this->root.'/.duckdb-build-*'));
+            self::assertSame([], glob($this->root.'/.dfolio-build-*'));
         }
     }
 
@@ -78,16 +78,16 @@ final class DuckDbFolioBuilderTest extends TestCase
     {
         file_put_contents($this->root.'/obj.jsonl', '');
         try {
-            (new DuckDbFolioBuilder())->build(new FolioBuildInput('test/empty', ['obj' => $this->root.'/obj.jsonl'], [], 'en'), $this->root.'/snapshot.duckdb');
+            (new DuckDbFolioBuilder())->build(new FolioBuildInput('test/empty', ['obj' => $this->root.'/obj.jsonl'], [], 'en'), $this->root.'/snapshot.dfolio');
             self::fail('Empty row cores must fail.');
         } catch (\RuntimeException $e) {
             self::assertStringContainsString('empty DuckDB folio', $e->getMessage());
-            self::assertFileDoesNotExist($this->root.'/snapshot.duckdb');
+            self::assertFileDoesNotExist($this->root.'/snapshot.dfolio');
         }
     }
 
     private function open(): \PDO
     {
-        return new \PDO('duckdb:'.$this->root.'/snapshot.duckdb', options: [\PDO::DUCKDB_ATTR_CONFIG => ['access_mode' => 'read_only']]);
+        return new \PDO('duckdb:'.$this->root.'/snapshot.dfolio', options: [\PDO::DUCKDB_ATTR_CONFIG => ['access_mode' => 'read_only']]);
     }
 }

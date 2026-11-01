@@ -67,6 +67,6 @@ final class FolioDuckDbSearchTest extends TestCase
     public function testArbitraryDatasetPathsAreRejected(): void
     {
         $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
-        (new FolioDuckDbSearch())->create(['folioCode' => '/tmp/private.duckdb']);
+        (new FolioDuckDbSearch())->create(['folioCode' => '/tmp/private.dfolio']);
     }
 }

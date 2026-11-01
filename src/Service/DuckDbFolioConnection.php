@@ -32,6 +32,17 @@ final readonly class DuckDbFolioConnection implements DuckDbConnectionProviderIn
         return $this->reader->open($path, str_starts_with($path, 's3://') ? $this->s3 : null);
     }
 
+    /** Restore a split newspaper for the shared browse view using this connection's S3 configuration. */
+    public function restoreNewspaper(\PDO $db, string $folioCode, string $issueId, array $record, array $pages): array
+    {
+        $path = $this->locator->locate($folioCode);
+        $reader = new DuckDbRenditionReader($this->reader);
+        $rend = $reader->open($db, $path, $issueId, str_starts_with($path, 's3://') ? $this->s3 : null);
+        [$rows, $pages] = $reader->restore($rend, [$record], $pages);
+
+        return [$rows[0], $pages];
+    }
+
     public static function validate(string $key): void
     {
         if (!preg_match('{^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*/[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$}', $key)) {

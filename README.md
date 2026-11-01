@@ -99,3 +99,19 @@ regardless of its signature. No PDO connection remains open after preparation.
 Native PDO DuckDB 2.x is required; install the FTS extension beforehand when used.
 Older folios without `_folio_build` are rejected rather than assigned an invented
 identity. ORM access through `FolioContext` is unchanged.
+
+### Newspaper DuckDB geometry
+
+Newspaper `.dfolio` export requires a rendition publisher callback. One immutable
+DuckDB `.rend` per issue holds page layouts/dimensions and nested coordinate
+patches; `_renditions` pins its URI, SHA-256, size and source build. Stable anchors,
+text and semantic grouping remain in `.dfolio`. Every source item/page must map
+to an issue. Non-newspaper exports retain the previous complete-table behavior.
+
+`DuckDbRenditionReader` validates the namespace, issue and build before restoring
+exact geometry. `DuckDbFolioRowMapper` constructs the existing detached Row/Page
+model. Full `DuckDbFolioComparator` comparison of a newspaper pair requires an
+`openRend` callback and compares restored values, not counts alone. Remote readers
+attach both files read-only with HTTP ranges. S3 secrets are temporary in the
+reader's isolated in-memory database, including the internal WAL existence probe;
+no credentials are written into either snapshot.

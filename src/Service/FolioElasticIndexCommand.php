@@ -107,7 +107,13 @@ final class FolioElasticIndexCommand
     {
         $extension = $this->index->sourceExtension();
         $codes = [];
-        foreach (glob($this->folios->rootPath().'/'.($provider ?? '*').'/*.'.$extension) ?: [] as $path) {
+        $pattern = $this->folios->rootPath().'/'.($provider ?? '*').'/*.';
+        $paths = glob($pattern.$extension) ?: [];
+        if ('dfolio' === $extension) {
+            $paths = array_merge($paths, glob($pattern.'duckdb') ?: []);
+        }
+        foreach ($paths as $path) {
+            $extension = pathinfo($path, PATHINFO_EXTENSION);
             $name = basename($path);
             // <dataset>.<locale>.folio is a translation of <dataset>.folio, not another set of rows.
             if (preg_match('/\.[a-z]{2}(?:-[A-Za-z]+)?\.'.preg_quote($extension, '/').'$/', $name) || str_starts_with($name, '_')) {
@@ -115,6 +121,7 @@ final class FolioElasticIndexCommand
             }
             $codes[] = basename(dirname($path)).'/'.substr($name, 0, -strlen($extension) - 1);
         }
+        $codes = array_values(array_unique($codes));
         sort($codes);
 
         return $codes;

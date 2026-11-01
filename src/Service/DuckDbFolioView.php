@@ -30,11 +30,19 @@ final readonly class DuckDbFolioView
     public function item(string $folioCode, string $coreCode, string $localId): array
     {
         $db = $this->connection->connect(['folioCode' => $folioCode]);
-        $statement = $db->prepare('SELECT id, local_id, label, dto_type, dto_data, CAST(dto_data AS VARCHAR) AS dto_json, extras FROM item WHERE core_id = ? AND local_id = ?');
+        $statement = $db->prepare('SELECT *, CAST(dto_data AS VARCHAR) AS dto_json FROM item WHERE core_id = ? AND local_id = ?');
         $statement->execute([$folioCode.':'.$coreCode, $localId]);
         $record = $statement->fetch(\PDO::FETCH_ASSOC);
         if (false === $record) {
             throw new NotFoundHttpException('Item not found in this folio working copy.');
+        }
+        $pagesQuery = $db->prepare('SELECT * FROM page WHERE row_id = ? ORDER BY seq, id');
+        $pagesQuery->execute([$record['id']]);
+        $pageRows = $pagesQuery->fetchAll(\PDO::FETCH_ASSOC);
+        $split = (bool) $db->query("SELECT count(*) FROM information_schema.tables WHERE table_name = '_renditions'")->fetchColumn();
+        if ($split) {
+            $issueId = 'doc' === $coreCode ? $localId : self::normalizedData($record['extras'])['issueId'];
+            [$record, $pageRows] = $this->connection->restoreNewspaper($db, $folioCode, $issueId, $record, $pageRows);
         }
         $folio = new Folio($folioCode);
         $core = new Core($folio, $coreCode);
@@ -43,16 +51,18 @@ final readonly class DuckDbFolioView
         $row->dtoType = $record['dto_type'];
         $row->dtoData = self::normalizedData($record['dto_data']);
         $row->extras = null === $record['extras'] ? null : self::normalizedData($record['extras']);
+        if ($split) {
+            $row = DuckDbFolioRowMapper::hydrate($folioCode, $coreCode, $record, $pageRows);
+        }
         $dtoClass = $this->types->classForType($row->dtoType);
         $dto = $dtoClass::fromNormalized($row->dtoData);
-        $pages = $db->prepare('SELECT url, source_url AS "sourceUrl", width, height FROM page WHERE row_id = ? ORDER BY seq, id');
-        $pages->execute([$record['id']]);
 
         return [
             'folio' => $folio, 'core' => $core, 'row' => $row, 'dto' => $dto, 'dtoClass' => $dtoClass,
             'ctx' => (object) ['folioCode' => $folioCode], 'reader' => 'duckdb',
             'dtoJson' => $record['dto_json'],
-            'pages' => $pages->fetchAll(\PDO::FETCH_ASSOC),
+            'pages' => array_map(static fn (array $page): array => ['url' => $page['url'], 'sourceUrl' => $page['source_url'],
+                'width' => $page['width'], 'height' => $page['height']], $pageRows),
         ];
     }
 }

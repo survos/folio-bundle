@@ -426,6 +426,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $services->set(Service\DuckDbDtoSchema::class)->autowire()->autoconfigure();
         $services->set(Service\DuckDbFolioBuilder::class)->autowire()->autoconfigure()->public();
         $services->set(Service\DuckDbFolioReader::class)->autowire()->autoconfigure()->public();
+        $services->set(Service\DuckDbRenditionReader::class)->autowire()->autoconfigure()->public();
         $services->set(Service\LocalDuckDbFolioLocator::class)->autowire()->arg('$sources', $config['duckdb_sources']);
         $services->alias(Service\DuckDbFolioLocatorInterface::class, Service\LocalDuckDbFolioLocator::class);
         $services->set(Service\DuckDbFolioConnection::class)->autowire()->autoconfigure()->arg('$enabled', $config['duckdb_browse']);

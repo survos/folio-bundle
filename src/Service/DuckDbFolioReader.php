@@ -11,6 +11,16 @@ final class DuckDbFolioReader
 {
     public function open(string $path, ?DuckDbS3Configuration $s3 = null): \PDO
     {
+        return $this->openSnapshot($path, $s3, false);
+    }
+
+    public function openRend(string $path, ?DuckDbS3Configuration $s3 = null): \PDO
+    {
+        return $this->openSnapshot($path, $s3, true);
+    }
+
+    private function openSnapshot(string $path, ?DuckDbS3Configuration $s3, bool $rend): \PDO
+    {
         if (!in_array('duckdb', \PDO::getAvailableDrivers(), true)) {
             throw new \RuntimeException('DuckDB reads require ext-pdo_duckdb (DuckDB 2.0).');
         }
@@ -18,7 +28,7 @@ final class DuckDbFolioReader
         $remote = false !== $url && isset($url['scheme']);
         if ($remote) {
             if (!in_array($url['scheme'], ['s3', 'https'], true) || !isset($url['host'], $url['path'])
-                || !DuckDbFolioFile::accepts($url['path']) || isset($url['user']) || isset($url['pass'])
+                || !($rend ? str_ends_with($url['path'], '.rend') : DuckDbFolioFile::accepts($url['path'])) || isset($url['user']) || isset($url['pass'])
                 || isset($url['fragment']) || ('s3' === $url['scheme'] && isset($url['query']))) {
                 throw new \InvalidArgumentException('Use an s3:// or https:// URI pointing to a .dfolio snapshot.');
             }
@@ -42,7 +52,8 @@ final class DuckDbFolioReader
             if ('Darwin' === PHP_OS && 'fpm-fcgi' === PHP_SAPI) {
                 $db->exec("SET httpfs_client_implementation = 'httplib'");
             }
-            $s3?->configure($db, $path);
+            // DuckDB also probes the adjacent .wal; scope the secret to this immutable object's directory.
+            $s3?->configure($db, substr($path, 0, (int) strrpos($path, '/') + 1));
             // ATTACH is a SQL utility statement, so quote the URI rather than shelling out.
             $db->exec('ATTACH '.$db->quote($path).' AS folio (READ_ONLY)');
             $db->exec('USE folio');

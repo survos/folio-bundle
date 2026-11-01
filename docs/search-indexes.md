@@ -93,7 +93,7 @@ does not verify; `--queue` hands each to the worker instead.
 ## Producing
 
 - `survos_folio.elastic_auto_index: true` in Harvest only.
-- `survos_folio.search.source: duckdb` reads the local `.duckdb` logical export directly,
+- `survos_folio.search.source: duckdb` reads the local `.dfolio` logical export directly,
   including counts, facets, pages and links. It needs no uncompressed SQLite `.folio`.
   Missing or invalid DuckDB snapshots fail; there is no silent SQLite fallback.
   `--all` discovers files with the selected source extension.

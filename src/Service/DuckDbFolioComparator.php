@@ -7,11 +7,43 @@ namespace Survos\FolioBundle\Service;
 /** Full-value comparison, including duplicates, nulls, JSON text and DTO projections. */
 final class DuckDbFolioComparator
 {
-    public function compare(string $folio, string $duck): array
+    /** @param callable(array):\PDO|null $openRend Opens the pinned rendition for full geometry verification. */
+    public function compare(string $folio, string $duck, ?callable $openRend = null): array
     {
         $sqlite = new \PDO('sqlite:file:'.$folio.'?mode=ro');
         $sqlite->beginTransaction();
         $db = (new DuckDbFolioReader())->open($duck);
+        $split = (bool) $db->query("SELECT count(*) FROM information_schema.tables WHERE table_name = '_renditions'")->fetchColumn();
+        if ($split && null === $openRend) {
+            throw new \RuntimeException('Full newspaper comparison requires the pinned renditions.');
+        }
+        $refs = $split ? $db->query('SELECT * FROM _renditions')->fetchAll(\PDO::FETCH_UNIQUE | \PDO::FETCH_ASSOC) : [];
+        $activeIssue = null;
+        $patches = [];
+        $restore = static function (string $table, array $row, array $expected) use ($sqlite, $refs, $openRend, &$activeIssue, &$patches): array {
+            $item = $expected;
+            if ('page' === $table) {
+                $stmt = $sqlite->prepare('SELECT core_id, local_id, extras FROM item WHERE id = ?');
+                $stmt->execute([$expected['row_id']]);
+                $item = $stmt->fetch(\PDO::FETCH_ASSOC);
+            }
+            $issue = str_ends_with($item['core_id'], ':doc') ? $item['local_id'] : json_decode($item['extras'], true, flags: JSON_THROW_ON_ERROR)['issueId'];
+            if ($activeIssue !== $issue) {
+                $ref = $refs[$issue] ?? throw new \RuntimeException('Missing issue rendition.');
+                $rend = $openRend(['issue_id' => $issue] + $ref);
+                $meta = $rend->query('SELECT k,v FROM meta')->fetchAll(\PDO::FETCH_KEY_PAIR);
+                if (($meta['buildId'] ?? null) !== $ref['build_id'] || ($meta['issue'] ?? null) !== $issue) {
+                    throw new \RuntimeException('Rend identity mismatch.');
+                }
+                foreach (['item', 'page'] as $kind) {
+                    $patches[$kind] = $rend->query('SELECT id,patch FROM '.$kind.'_geometry')->fetchAll(\PDO::FETCH_KEY_PAIR);
+                }
+                $activeIssue = $issue;
+            }
+            $patch = $patches[$table][$row['id']] ?? throw new \RuntimeException('Missing geometry row.');
+
+            return NewspaperGeometry::restoreRow($table, $row, json_decode($patch, true, flags: JSON_THROW_ON_ERROR));
+        };
         $counts = [];
         foreach (DuckDbFolioExporter::tables($sqlite) as $table) {
             $quoted = DuckDbFolioExporter::identifier($table);
@@ -27,6 +59,16 @@ final class DuckDbFolioComparator
             while (true) {
                 $expected = $left->fetch(\PDO::FETCH_ASSOC);
                 $actual = $right->fetch(\PDO::FETCH_ASSOC);
+                if ($split && false !== $expected && false !== $actual && in_array($table, ['item', 'page'], true)) {
+                    $actual = $restore($table, $actual, $expected);
+                    // Separation may change object key order; compare the full JSON values.
+                    foreach ('item' === $table ? ['dto_data', 'extras', 'raw'] : ['layout', 'ledger', 'dialogue'] as $field) {
+                        if (isset($expected[$field])) {
+                            $expected[$field] = self::canonical(json_decode($expected[$field], true, flags: JSON_THROW_ON_ERROR));
+                            $actual[$field] = self::canonical(json_decode($actual[$field], true, flags: JSON_THROW_ON_ERROR));
+                        }
+                    }
+                }
                 if ($expected !== $actual) {
                     throw new \RuntimeException('Content mismatch in '.$table.' at row '.$count);
                 }
@@ -49,6 +91,9 @@ final class DuckDbFolioComparator
                 $actual = $targetRows->fetchColumn();
                 if (false === $actual) {
                     throw new \RuntimeException('DTO projection count mismatch: '.$type);
+                }
+                if ($split) {
+                    [$row] = NewspaperGeometry::splitRow('item', $row);
                 }
                 $data = json_decode($row['dto_data'], true, flags: JSON_THROW_ON_ERROR);
                 $wanted = ['_itemId' => $row['id'], '_coreId' => $row['core_id']];
@@ -81,7 +126,7 @@ final class DuckDbFolioComparator
         }
         $sqlite->commit();
 
-        return ['tables' => $counts, 'dtoProjections' => $projections, 'matched' => true];
+        return ['tables' => $counts, 'dtoProjections' => $projections, 'matched' => true, 'renditionsCompared' => count($refs)];
     }
 
     private static function canonical(mixed $value): string

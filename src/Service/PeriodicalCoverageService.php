@@ -15,8 +15,13 @@ final readonly class PeriodicalCoverageService
 
     public function compute(string $folioCode): array
     {
-        $connection = $this->folios->context($folioCode)->em->getConnection();
-        $issues = $connection->fetchAllAssociative(
+        return self::computeWith($folioCode, $this->folios->context($folioCode)->em->getConnection()->fetchAllAssociative(...));
+    }
+
+    /** Same calculation for local DBAL and remote DuckDB projections. */
+    public static function computeWith(string $folioCode, callable $read): array
+    {
+        $issues = $read(
             "SELECT local_id, label, json_extract(extras, '$.issueProcessing.stage') AS stage FROM item WHERE core_id = ? AND COALESCE(json_extract(extras, '$.issueKind'), '') <> 'annual index'",
             [Core::id($folioCode, 'doc')],
         );
@@ -28,7 +33,7 @@ final readonly class PeriodicalCoverageService
         // Headlines and articles are counted apart because they are different products: one is a
         // block the page happened to break that way, the other is a story put back together.
         // Presenting 20,945 of the first as "articles" overstates what the archive actually has.
-        $groups = $connection->fetchAllAssociative(
+        $groups = $read(
             "SELECT json_extract(extras, '$.issueId') AS issue_id,
                 CASE
                     WHEN json_extract(extras, '$.recordKind') = 'advertisement' THEN 'ads'

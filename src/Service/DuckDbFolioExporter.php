@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Survos\DataContracts\Metadata\ContentType;
 use Survos\JsonlBundle\IO\JsonlWriter;
 use Symfony\Component\Filesystem\Filesystem;
 
@@ -19,7 +20,7 @@ final class DuckDbFolioExporter
     }
 
     /** @return array{path:string,buildId:string,rows:int,counts:array<string,int>} */
-    public function export(string $folio, string $target): array
+    public function export(string $folio, string $target, ?callable $publishRend = null): array
     {
         if (!is_file($folio) || !DuckDbFolioFile::accepts($target) || !is_dir(dirname($target))) {
             throw new \InvalidArgumentException('Supply an existing folio and a local .dfolio or .duckdb target directory.');
@@ -30,17 +31,33 @@ final class DuckDbFolioExporter
         if (1 !== count($identity) || self::SCHEMA_VERSION !== (int) $identity[0]['schema_version']) {
             throw new \RuntimeException('Rebuild the folio with a supported shared build identity before exporting.');
         }
+        $newspaper = (bool) $source->query('SELECT 1 FROM item WHERE dto_type = '.$source->quote(ContentType::NEWSPAPER).' LIMIT 1')->fetchColumn();
+        if ($newspaper && null === $publishRend) {
+            throw new \RuntimeException('Newspaper export requires a rendition publisher; geometry must not be embedded in .dfolio.');
+        }
+        if (!$newspaper) {
+            $publishRend = null;
+        }
         $fs = new Filesystem();
-        $directory = dirname($target).'/.duckdb-export-'.bin2hex(random_bytes(8));
+        $directory = dirname($target).'/.dfolio-export-'.bin2hex(random_bytes(8));
         $fs->mkdir($directory, 0700);
         $db = null;
         try {
-            $db = new \PDO('duckdb:'.$directory.'/snapshot.duckdb', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+            $db = new \PDO('duckdb:'.$directory.'/snapshot.dfolio', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
             if (!str_starts_with((string) $db->query('SELECT version()')->fetchColumn(), 'v2.')) {
                 throw new \RuntimeException('DuckDB 2.x is required.');
             }
             $db->beginTransaction();
-            $counts = [];
+            if (null !== $publishRend) {
+                $refs = (new DuckDbRenditionExporter())->export($source, $identity[0]['build_id'], $directory, $publishRend);
+                $db->exec('CREATE TABLE _renditions(issue_id VARCHAR PRIMARY KEY, uri VARCHAR, sha256 VARCHAR, bytes BIGINT, build_id VARCHAR)');
+                $insert = $db->prepare('INSERT INTO _renditions VALUES (?,?,?,?,?)');
+                foreach ($refs as $ref) {
+                    $insert->execute(array_values($ref));
+                }
+                unset($insert);
+            }
+            $counts = isset($refs) ? ['main._renditions' => count($refs)] : [];
             foreach (self::tables($source) as $table) {
                 $shape = [];
                 foreach ($source->query('PRAGMA table_xinfo('.self::identifier($table).')') as $column) {
@@ -57,6 +74,9 @@ final class DuckDbFolioExporter
                 $count = 0;
                 try {
                     foreach ($source->query('SELECT * FROM '.self::identifier($table), \PDO::FETCH_ASSOC) as $row) {
+                        if (null !== $publishRend && in_array($table, ['item', 'page'], true)) {
+                            [$row] = NewspaperGeometry::splitRow($table, $row);
+                        }
                         $writer->write($row);
                         ++$count;
                     }
@@ -108,10 +128,10 @@ final class DuckDbFolioExporter
             $db->exec('CHECKPOINT');
             $db = null;
             $source->commit();
-            if (is_file($directory.'/snapshot.duckdb.wal')) {
+            if (is_file($directory.'/snapshot.dfolio.wal')) {
                 throw new \RuntimeException('DuckDB export has an unmerged WAL.');
             }
-            $fs->rename($directory.'/snapshot.duckdb', $target, overwrite: true);
+            $fs->rename($directory.'/snapshot.dfolio', $target, overwrite: true);
 
             return ['path' => $target, 'buildId' => $identity[0]['build_id'], 'rows' => $counts['main.item'], 'counts' => $counts];
         } finally {

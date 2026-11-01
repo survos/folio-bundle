@@ -87,8 +87,14 @@ final class FolioSearchIndexTest extends TestCase
         $sqlite->exec('CREATE TABLE schema_table (id TEXT, core_code TEXT, dto_type TEXT)');
         $sqlite->exec("INSERT INTO schema_table VALUES ('x', 'article', 'document')");
         $sqlite->exec("UPDATE page SET type = 'photo' WHERE seq = 2");
-        $sqlite->exec("INSERT INTO link VALUES ('article', 'i1-a1', 'doc', 'z'), ('article', 'i1-a1', 'doc', 'a')");
-        (new \Survos\FolioBundle\Service\DuckDbFolioExporter())->export($path, substr($path, 0, -5).'duckdb');
+        $sqlite->exec("INSERT INTO link VALUES ('article', 'i1-a1', 'obj', 'z'), ('article', 'i1-a1', 'obj', 'a')");
+        (new \Survos\FolioBundle\Service\DuckDbFolioExporter())->export($path, substr($path, 0, -5).'dfolio', function (string $rend): array {
+            $hash = hash_file('sha256', $rend);
+            $published = $this->root.'/'.$hash.'.rend';
+            copy($rend, $published);
+
+            return ['uri' => $published, 'sha256' => $hash, 'bytes' => filesize($published)];
+        });
         $sqlite = null;
         $expectedBuild = $this->index()->buildStamp('test/paper');
         $this->index()->index('test/paper');
@@ -101,13 +107,17 @@ final class FolioSearchIndexTest extends TestCase
         self::assertSame($expected, [$this->docs['folio_item'], $this->docs['folio_text']]);
         self::assertSame('ok', $duck->verify('test/paper')['status']);
         self::assertSame($expectedFacets, $this->docs['folio_meta']['test/paper']['facets']);
+        // Existing published artifacts remain readable until their next build.
+        rename(substr($path, 0, -5).'dfolio', substr($path, 0, -5).'duckdb');
+        self::assertSame('ok', $duck->verify('test/paper')['status']);
+        rename(substr($path, 0, -5).'duckdb', substr($path, 0, -5).'dfolio');
         self::assertFileDoesNotExist($path);
-        $snapshot = new \PDO('duckdb:'.substr($path, 0, -5).'duckdb');
+        $snapshot = new \PDO('duckdb:'.substr($path, 0, -5).'dfolio');
         $snapshot->exec("UPDATE _folio_build SET build_id = 'next-build'");
         $snapshot = null;
         self::assertSame('stale', $duck->verify('test/paper')['status']);
         self::assertSame('ok', $duck->index('test/paper')['verify']['status']);
-        $snapshot = new \PDO('duckdb:'.substr($path, 0, -5).'duckdb');
+        $snapshot = new \PDO('duckdb:'.substr($path, 0, -5).'dfolio');
         $snapshot->exec('UPDATE _folio_build SET schema_version = 999');
         $snapshot = null;
         $this->expectException(\RuntimeException::class);

@@ -24,9 +24,9 @@ final readonly class DuckDbFolioPreparer
     public function prepare(string $folio, ?string $target = null, bool $fts = false, bool $force = false): array
     {
         $folio = realpath($folio) ?: throw new \InvalidArgumentException('Folio does not exist.');
-        $target ??= substr($folio, 0, -strlen('.folio')).'.duckdb';
-        if (!str_ends_with($folio, '.folio') || !str_ends_with($target, '.duckdb') || str_contains($target, '://')) {
-            throw new \InvalidArgumentException('Preparation requires local .folio and .duckdb paths.');
+        $target ??= substr($folio, 0, -strlen('.folio')).'.dfolio';
+        if (!str_ends_with($folio, '.folio') || !DuckDbFolioFile::accepts($target) || str_contains($target, '://')) {
+            throw new \InvalidArgumentException('Preparation requires local .folio and .dfolio paths.');
         }
         $fs = new Filesystem();
         $fs->mkdir(dirname($target));
@@ -35,7 +35,7 @@ final readonly class DuckDbFolioPreparer
         if (!$lock->acquire()) {
             throw new \RuntimeException('This DuckDB companion is already being prepared.');
         }
-        $temporary = dirname($target).'/.prepare-'.bin2hex(random_bytes(8)).'.duckdb';
+        $temporary = dirname($target).'/.prepare-'.bin2hex(random_bytes(8)).'.dfolio';
         $db = null;
         try {
             [$buildId, $signature] = $this->identity($folio, $fts);

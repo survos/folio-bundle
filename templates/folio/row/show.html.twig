@@ -715,6 +715,8 @@
                         </div>
                     {% endif %}
 
+                    {% block folio_authorities %}{% endblock %}
+
                     {% set otherLinks = links|default([])|filter(l => l.core != 'image') %}
 
                     {% if otherLinks %}

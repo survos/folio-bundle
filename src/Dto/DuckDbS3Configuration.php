@@ -36,7 +36,7 @@ final readonly class DuckDbS3Configuration
     public function configure(\PDO $db, string $scope): void
     {
         $parameters = [$this->accessKey, $this->secretKey, $this->region, $this->host, $this->urlStyle, $scope];
-        $sql = 'CREATE SECRET folio_s3 IN connection (TYPE s3, KEY_ID ?, SECRET ?, REGION ?, ENDPOINT ?, URL_STYLE ?, SCOPE ?, USE_SSL '.($this->useSsl ? 'true' : 'false');
+        $sql = 'CREATE TEMPORARY SECRET folio_s3 (TYPE s3, KEY_ID ?, SECRET ?, REGION ?, ENDPOINT ?, URL_STYLE ?, SCOPE ?, USE_SSL '.($this->useSsl ? 'true' : 'false');
         if (null !== $this->sessionToken) {
             $sql .= ', SESSION_TOKEN ?';
             $parameters[] = $this->sessionToken;

@@ -11,6 +11,7 @@
     <div id="duck-item-json" popover class="folio-raw-json">
         <andypf-json-viewer expanded="2" show-toolbar="true" show-copy="true" theme="monokai" data="{{ dtoJson|e('html_attr') }}"></andypf-json-viewer>
     </div>
+    {{ block('folio_authorities') }}
     {% if dto.description %}<p>{{ dto.description|striptags }}</p>{% endif %}
     <div class="row g-3">
         {% for page in pages %}

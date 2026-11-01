@@ -25,15 +25,15 @@ final class DuckDbFolioBuilder
         if (null !== $input->locale && $input->locale !== $input->sourceLocale) {
             throw new \InvalidArgumentException('DuckDB snapshots consume source-language inputs; translated folio builds are not supported.');
         }
-        if (!str_ends_with($target, '.duckdb') || !is_dir(dirname($target))) {
-            throw new \InvalidArgumentException('Use a .duckdb target in an existing local directory.');
+        if (!DuckDbFolioFile::accepts($target) || !is_dir(dirname($target))) {
+            throw new \InvalidArgumentException('Use a .dfolio target in an existing local directory.');
         }
 
-        $directory = dirname($target).'/.duckdb-build-'.bin2hex(random_bytes(8));
+        $directory = dirname($target).'/.dfolio-build-'.bin2hex(random_bytes(8));
         if (!mkdir($directory, 0700)) {
             throw new \RuntimeException('Cannot create DuckDB build directory: '.$directory);
         }
-        $temporary = $directory.'/snapshot.duckdb';
+        $temporary = $directory.'/snapshot.dfolio';
         $db = null;
         try {
             $db = new \PDO('duckdb:'.$temporary, options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);

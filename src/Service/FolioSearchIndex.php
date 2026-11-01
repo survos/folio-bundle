@@ -45,7 +45,7 @@ final class FolioSearchIndex
 
     public function sourceExtension(): string
     {
-        return 'duckdb' === $this->source ? 'duckdb' : $this->folios->fileExtension();
+        return 'duckdb' === $this->source ? 'dfolio' : $this->folios->fileExtension();
     }
 
     public function isConfigured(): bool
@@ -454,7 +454,8 @@ final class FolioSearchIndex
     {
         $dbFile = $this->folios->path($folioCode);
         if ('duckdb' === $this->source) {
-            $dbFile = substr($dbFile, 0, -strlen($this->folios->fileExtension())).'duckdb';
+            $dbFile = substr($dbFile, 0, -strlen($this->folios->fileExtension())).'dfolio';
+            $dbFile = DuckDbFolioFile::existingPath($dbFile);
             if (!is_file($dbFile)) {
                 throw new \RuntimeException(sprintf('No published DuckDB folio at %s.', $dbFile));
             }

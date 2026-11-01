@@ -65,7 +65,7 @@ are removed. Other producers pass archive preference and reviewed files directly
 ## Archive and serving representations
 
 The durable artifact remains `.folio.gz`. The planned publication pipeline builds
-`.folio`, converts it to `.duckdb`, compresses and uploads the folio archive using
+`.folio`, converts it to `.dfolio`, compresses and uploads the folio archive using
 the existing archive publication flow, and uploads DuckDB separately under an
 immutable S3 key for remote access. The current adapter still performs archive
 creation inside the SQLite builder; coordinated DuckDB S3 publication is not yet
@@ -82,7 +82,7 @@ and future PostgreSQL projections can all be rebuilt from the folio archive.
 `FolioBuilder` stamps a fresh `_folio_build` identity (build ID and export schema
 version) before taking the bare/archive snapshots. `DuckDbFolioExporter::export()`
 reads the finished SQLite folio in one read transaction and atomically publishes
-its `.duckdb` sibling. This first implementation intentionally exports the finished
+its `.dfolio` sibling. This first implementation intentionally exports the finished
 DTO-normalized content; direct materialization from the same producer contract can
 follow without changing consumers. `DuckDbFolioBuilder` below remains a separate
 input snapshot tool, not the companion exporter.
@@ -122,7 +122,7 @@ A changed value with unchanged counts fails. No external search index participat
 ## Optional local DuckDB snapshot
 
 `DuckDbFolioBuilder::build(FolioBuildInput $input, string $target)` consumes the
-same explicit source-language inputs and creates a closed `.duckdb` file locally.
+same explicit source-language inputs and creates a closed `.dfolio` file locally.
 It does not advance DatasetInfo, change the SQLite builder or publish to storage.
 The caller owns the destination and any later upload. Create its parent directory
 on local disk before calling the builder. A failed/empty build preserves an existing
@@ -153,7 +153,7 @@ CLI PHP and FrankenPHP can have different extension installations. The tested
 release is `2.0.0.0-beta2`, which contains DuckDB `v2.0.0`.
 
 ```php
-$snapshot = $duckDbBuilder->build($input, '/local/collection.duckdb');
+$snapshot = $duckDbBuilder->build($input, '/local/collection.dfolio');
 $db = new \PDO('duckdb:'.$snapshot['path'], options: [
     \PDO::DUCKDB_ATTR_CONFIG => ['access_mode' => 'read_only'],
 ]);
@@ -202,7 +202,7 @@ use Survos\FolioBundle\Dto\DuckDbS3Configuration;
 // Inject these values from the application's existing S3 configuration.
 $s3 = new DuckDbS3Configuration($endpoint, $accessKey, $secretKey, $region);
 $db = $duckDbReader->open(
-    's3://survos-platform/folio-archive/example/collection.<revision>.duckdb',
+    's3://survos-platform/folio-archive/example/collection.<revision>.dfolio',
     $s3,
 );
 $count = $db->query('SELECT count(*) FROM doc')->fetchColumn();

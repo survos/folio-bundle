@@ -22,7 +22,7 @@ final class DuckDbFolioReaderTest extends TestCase
         }
         $this->root = (getenv('FOLIO_TEST_ROOT') ?: sys_get_temp_dir()).'/duckdb-reader-'.bin2hex(random_bytes(5));
         mkdir($this->root, 0700, true);
-        $db = new \PDO('duckdb:'.$this->root.'/fixture.duckdb');
+        $db = new \PDO('duckdb:'.$this->root.'/fixture.dfolio');
         $db->exec('CREATE TABLE objects AS SELECT range::BIGINT AS n, repeat(md5(range::VARCHAR), 20) AS payload FROM range(10000)');
         $db->exec('CHECKPOINT');
     }
@@ -37,7 +37,7 @@ final class DuckDbFolioReaderTest extends TestCase
 
     public function testLocalSnapshotIsReadOnly(): void
     {
-        $db = (new DuckDbFolioReader())->open($this->root.'/fixture.duckdb');
+        $db = (new DuckDbFolioReader())->open($this->root.'/fixture.dfolio');
         self::assertSame(10000, $db->query('SELECT count(*) FROM objects')->fetchColumn());
         $this->expectException(\PDOException::class);
         $db->exec('DELETE FROM objects');
@@ -48,7 +48,7 @@ final class DuckDbFolioReaderTest extends TestCase
         // A local S3-shaped HTTP fixture; no real credentials or external storage.
         file_put_contents($this->root.'/router.php', <<<'PHP'
 <?php
-$file = __DIR__.'/fixture.duckdb';
+$file = __DIR__.'/fixture.dfolio';
 $size = filesize($file);
 $start = 0;
 $end = $size - 1;
@@ -92,9 +92,9 @@ PHP);
         $this->server->start();
         self::assertTrue($this->server->waitUntil(static fn (string $type, string $output): bool => str_contains($output, 'Development Server')), $this->server->getErrorOutput());
         $config = new DuckDbS3Configuration('http://'.$address, 'fixture-key', 'fixture-secret', 'us-east-1');
-        $before = hash_file('sha256', $this->root.'/fixture.duckdb');
+        $before = hash_file('sha256', $this->root.'/fixture.dfolio');
         try {
-            $db = (new DuckDbFolioReader())->open('s3://fixture-bucket/fixture.duckdb', $config);
+            $db = (new DuckDbFolioReader())->open('s3://fixture-bucket/fixture.dfolio', $config);
         } catch (\PDOException $e) {
             throw new \RuntimeException($this->server->getErrorOutput(), previous: $e);
         }
@@ -114,8 +114,8 @@ PHP);
         self::assertNotEmpty($requests);
         self::assertTrue(array_any($requests, static fn (array $request): bool => null !== $request['range']));
         self::assertTrue(array_all($requests, static fn (array $request): bool => $request['signed']));
-        self::assertLessThan(filesize($this->root.'/fixture.duckdb'), array_sum(array_column($requests, 'bytes')));
-        self::assertSame($before, hash_file('sha256', $this->root.'/fixture.duckdb'));
+        self::assertLessThan(filesize($this->root.'/fixture.dfolio'), array_sum(array_column($requests, 'bytes')));
+        self::assertSame($before, hash_file('sha256', $this->root.'/fixture.dfolio'));
     }
 
     public function testConfigurationDoesNotExposeCredentialsInDebugOutput(): void

@@ -34,7 +34,7 @@ final class DuckDbFolioViewTest extends TestCase
         $fs = new Filesystem();
         $fs->mkdir($root);
         try {
-            $path = $root.'/snapshot.duckdb';
+            $path = $root.'/snapshot.dfolio';
             $db = new \PDO('duckdb:'.$path);
             $db->exec("CREATE TABLE item (id VARCHAR, core_id VARCHAR, local_id VARCHAR, label VARCHAR, dto_type VARCHAR, dto_data $storageType, extras $storageType)");
             $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, ?, ?, ?)')->execute([
