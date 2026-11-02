@@ -12,6 +12,7 @@ use Symfony\Component\Filesystem\Filesystem;
 final class DuckDbFolioExporter
 {
     public const int SCHEMA_VERSION = 1;
+    public const string DEFAULT_MEMORY_LIMIT = '6GB';
 
     public function __construct(
         private readonly FolioDtoTypeResolver $types = new FolioDtoTypeResolver(),
@@ -46,6 +47,16 @@ final class DuckDbFolioExporter
             $db = new \PDO('duckdb:'.$directory.'/snapshot.dfolio', options: [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
             if (!str_starts_with((string) $db->query('SELECT version()')->fetchColumn(), 'v2.')) {
                 throw new \RuntimeException('DuckDB 2.x is required.');
+            }
+            // DuckDB defaults to ~80% of the machine's RAM; an export shares the host with the apps, so cap it
+            // and let it spill beside the target instead. DUCKDB_MEMORY_LIMIT overrides (e.g. 12GB, or 0 for DuckDB's default).
+            $limit = (string) (getenv('DUCKDB_MEMORY_LIMIT') ?: self::DEFAULT_MEMORY_LIMIT);
+            if ('0' !== $limit) {
+                if (!preg_match('/^\d+(?:\.\d+)?\s?(?:KB|MB|GB|TB|KiB|MiB|GiB|TiB)$/i', $limit)) {
+                    throw new \InvalidArgumentException('DUCKDB_MEMORY_LIMIT must look like 6GB, or be 0.');
+                }
+                $db->exec('SET memory_limit = '.$db->quote($limit));
+                $db->exec('SET temp_directory = '.$db->quote($directory.'/spill'));
             }
             $db->beginTransaction();
             if (null !== $publishRend) {

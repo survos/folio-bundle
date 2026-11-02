@@ -55,6 +55,21 @@ final class DuckDbFolioExporterTest extends TestCase
         $db->exec('DELETE FROM item');
     }
 
+    public function testMemoryLimitEnvIsValidatedAndLeavesNoSpillBehind(): void
+    {
+        putenv('DUCKDB_MEMORY_LIMIT=1GB');
+        try {
+            $result = (new DuckDbFolioExporter())->export($this->dir.'/fixture.folio', $this->dir.'/capped.dfolio');
+            self::assertSame('build-a', $result['buildId']);
+            self::assertSame([], glob($this->dir.'/.dfolio-export-*') ?: []);
+            putenv('DUCKDB_MEMORY_LIMIT=1; DROP TABLE item');
+            $this->expectException(\InvalidArgumentException::class);
+            (new DuckDbFolioExporter())->export($this->dir.'/fixture.folio', $this->dir.'/bad.dfolio');
+        } finally {
+            putenv('DUCKDB_MEMORY_LIMIT');
+        }
+    }
+
     public function testStaleCompanionRejectedAndMissingCompanionOptional(): void
     {
         self::assertNull((new DuckDbCompanion($this->dir.'/absent.dfolio', 'build-a', 1))->open());
