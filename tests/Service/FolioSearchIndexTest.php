@@ -89,11 +89,10 @@ final class FolioSearchIndexTest extends TestCase
         $sqlite->exec("UPDATE page SET type = 'photo' WHERE seq = 2");
         $sqlite->exec("INSERT INTO link VALUES ('article', 'i1-a1', 'obj', 'z'), ('article', 'i1-a1', 'obj', 'a')");
         (new \Survos\FolioBundle\Service\DuckDbFolioExporter())->export($path, substr($path, 0, -5).'dfolio', function (string $rend): array {
-            $hash = hash_file('sha256', $rend);
-            $published = $this->root.'/'.$hash.'.rend';
+            $published = $this->root.'/paper.drend';
             copy($rend, $published);
 
-            return ['uri' => $published, 'sha256' => $hash, 'bytes' => filesize($published)];
+            return ['uri' => $published, 'bytes' => filesize($published)];
         });
         $sqlite = null;
         $expectedBuild = $this->index()->buildStamp('test/paper');

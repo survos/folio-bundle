@@ -6,7 +6,7 @@ namespace Survos\FolioBundle\Catalog;
 
 use Survos\DataContracts\Vocabulary\ItemField;
 
-/** A published immutable snapshot, not a local acquisition or a download request. */
+/** A published snapshot, not a local acquisition or a download request. */
 final readonly class RemoteDuckDbSnapshot
 {
     public function __construct(public string $locale, public string $uri, public string $revision)
@@ -25,12 +25,11 @@ final readonly class RemoteDuckDbSnapshot
             }
             $uri = $artifact[DatasetField::REMOTE_URI];
             $parts = parse_url($uri);
-            $prefix = '/'.$dataset[DatasetField::DATASET_KEY].'/';
             if (false === $parts || ($parts['scheme'] ?? null) !== 's3'
                 || !isset($parts['host'], $parts['path'])
                 || array_intersect(['user', 'pass', 'query', 'fragment'], array_keys($parts))
                 || in_array('..', explode('/', $parts['path']), true)
-                || !preg_match('~'.preg_quote($prefix, '~').'[a-f0-9]{64}\.dfolio$~D', $parts['path'])) {
+                || !self::isSnapshotPath($parts['path'], $dataset[DatasetField::DATASET_KEY])) {
                 throw new \UnexpectedValueException('Invalid published DuckDB snapshot address.');
             }
             $locale = $artifact[DatasetField::LOCALE];
@@ -44,5 +43,17 @@ final readonly class RemoteDuckDbSnapshot
         }
 
         return $snapshots;
+    }
+
+    /**
+     * The published object is named for its dataset: <folioCode>.dfolio, or <folioCode>.<language>.dfolio for a
+     * translation. Snapshots published before that rule, named <folioCode>/<sha256>.dfolio, are still accepted.
+     */
+    private static function isSnapshotPath(string $path, string $datasetKey): bool
+    {
+        $key = preg_quote('/'.$datasetKey, '~');
+
+        return 1 === preg_match('~'.$key.'(?:\.[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)?\.dfolio$~D', $path)
+            || 1 === preg_match('~'.$key.'/[a-f0-9]{64}\.dfolio$~D', $path);
     }
 }

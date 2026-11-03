@@ -50,13 +50,11 @@ final class DuckDbRenditionTest extends TestCase
     {
         mkdir($this->root.'/bucket/dfolio/news/test', 0777, true);
         $target = $this->root.'/bucket/dfolio/news/test/source.dfolio';
-        (new DuckDbFolioExporter())->export($this->root.'/source.folio', $target, function (string $path, string $issue): array {
-            $hash = hash_file('sha256', $path);
-            $key = '/bucket/dfolio/news/test/rends/'.$issue.'/'.$hash.'.rend';
-            mkdir(dirname($this->root.$key), 0777, true);
+        (new DuckDbFolioExporter())->export($this->root.'/source.folio', $target, function (string $path): array {
+            $key = '/bucket/dfolio/news/test/source.drend';
             copy($path, $this->root.$key);
 
-            return ['uri' => 's3:/'.$key, 'sha256' => $hash, 'bytes' => filesize($path)];
+            return ['uri' => 's3:/'.$key, 'bytes' => filesize($path)];
         });
 
         return $target;
@@ -72,7 +70,7 @@ final class DuckDbRenditionTest extends TestCase
     {
         $target = $this->export();
         $comparison = (new \Survos\FolioBundle\Service\DuckDbFolioComparator())->compare($this->root.'/source.folio', $target,
-            fn (array $ref): \PDO => (new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)));
+            fn (array $ref): \PDO => (new DuckDbRenditionReader(new DuckDbFolioReader()))->scope((new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)), $ref['issue_id'], $ref['build_id']));
         self::assertTrue($comparison['matched']);
         self::assertSame(2, $comparison['renditionsCompared']);
         $db = (new DuckDbFolioReader())->open($target);
@@ -84,7 +82,7 @@ final class DuckDbRenditionTest extends TestCase
         $reader = new DuckDbRenditionReader(new DuckDbFolioReader());
         foreach (['one', 'two'] as $issue) {
             $ref = $reader->reference($db, 's3://bucket/dfolio/news/test/source.dfolio', $issue);
-            $rend = (new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4));
+            $rend = $reader->scope((new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)), $issue, $ref['build_id']);
             $items = array_values(array_filter($db->query('SELECT * FROM item ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC), fn ($r) => str_contains($r['id'], $issue)));
             $pages = array_values(array_filter($db->query('SELECT * FROM page ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC), fn ($r) => str_contains($r['id'], $issue)));
             [$items,$pages] = $reader->restore($rend, $items, $pages);
@@ -132,11 +130,16 @@ ROUTER);
         $rend = $reader->open($db, $uri, 'one', $config);
         self::assertSame(1000, $rend->query('SELECT width FROM page')->fetchColumn());
         $requests = array_map(fn ($s) => json_decode($s, true), file($this->root.'/requests.jsonl', FILE_IGNORE_NEW_LINES));
-        foreach (['.dfolio', '.rend'] as $extension) {
+        foreach (['.dfolio', '.drend'] as $extension) {
             self::assertTrue(array_any($requests, fn ($r) => str_ends_with($r['path'], $extension) && null !== $r['range'] && $r['signed']));
         }
         try {
-            $rend->exec('DELETE FROM page');
+            try {
+                $rend->exec('DELETE FROM page');
+                self::fail('The issue view must not be writable');
+            } catch (\PDOException) {
+            }
+            $rend->exec('DELETE FROM folio.main.page');
             self::fail('Remote rend must be read-only');
         } catch (\PDOException $e) {
             self::assertStringContainsString('read-only', $e->getMessage());
@@ -161,13 +164,13 @@ ROUTER);
         $uri = $db->query("SELECT uri FROM _renditions WHERE issue_id = 'one'")->fetchColumn();
         $db = null;
         $rend = new \PDO('duckdb:'.$this->root.substr($uri, 4));
-        $patch = json_decode($rend->query('SELECT patch FROM page_geometry')->fetchColumn(), true, flags: JSON_THROW_ON_ERROR);
+        $patch = json_decode($rend->query("SELECT patch FROM page_geometry WHERE issue = 'one'")->fetchColumn(), true, flags: JSON_THROW_ON_ERROR);
         $patch['width'] = 9999;
-        $rend->prepare('UPDATE page_geometry SET patch = ?')->execute([json_encode($patch, JSON_THROW_ON_ERROR)]);
+        $rend->prepare("UPDATE page_geometry SET patch = ? WHERE issue = 'one'")->execute([json_encode($patch, JSON_THROW_ON_ERROR)]);
         $rend = null;
         $this->expectExceptionMessage('Content mismatch in page');
         (new \Survos\FolioBundle\Service\DuckDbFolioComparator())->compare($this->root.'/source.folio', $target,
-            fn (array $ref): \PDO => (new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)));
+            fn (array $ref): \PDO => (new DuckDbRenditionReader(new DuckDbFolioReader()))->scope((new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)), $ref['issue_id'], $ref['build_id']));
     }
 
     public function testFailedRendPublicationPreservesPreviousDfolio(): void

@@ -28,9 +28,9 @@ final class DuckDbFolioReader
         $remote = false !== $url && isset($url['scheme']);
         if ($remote) {
             if (!in_array($url['scheme'], ['s3', 'https'], true) || !isset($url['host'], $url['path'])
-                || !($rend ? str_ends_with($url['path'], '.rend') : DuckDbFolioFile::accepts($url['path'])) || isset($url['user']) || isset($url['pass'])
+                || !($rend ? str_ends_with($url['path'], '.drend') : DuckDbFolioFile::accepts($url['path'])) || isset($url['user']) || isset($url['pass'])
                 || isset($url['fragment']) || ('s3' === $url['scheme'] && isset($url['query']))) {
-                throw new \InvalidArgumentException('Use an s3:// or https:// URI pointing to a .dfolio snapshot.');
+                throw new \InvalidArgumentException('Use an s3:// or https:// URI pointing to a .dfolio snapshot (or a .drend rendition).');
             }
             if ('s3' !== $url['scheme'] && null !== $s3) {
                 throw new \InvalidArgumentException('S3 credentials require an s3:// snapshot URI.');

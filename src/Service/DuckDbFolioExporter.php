@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\DataContracts\Metadata\ContentType;
-use Survos\JsonlBundle\IO\JsonlWriter;
 use Symfony\Component\Filesystem\Filesystem;
 
 /** Materialize the built folio's logical content, with DTO-declared analytical tables. */
@@ -13,6 +12,11 @@ final class DuckDbFolioExporter
 {
     public const int SCHEMA_VERSION = 1;
     public const string DEFAULT_MEMORY_LIMIT = '6GB';
+    /** Bytes of source JSON per INSERT when materializing a DTO table; see the comment where it is used. */
+    private const int DTO_BATCH_BYTES = 2 * 1024 * 1024;
+
+    /** Bytes of JSON ingested per statement when copying a source table; see where it is used. */
+    private const int INGEST_CHUNK_BYTES = 32 * 1024 * 1024;
 
     public function __construct(
         private readonly FolioDtoTypeResolver $types = new FolioDtoTypeResolver(),
@@ -81,29 +85,49 @@ final class DuckDbFolioExporter
                     };
                 }
                 $file = $directory.'/table.jsonl';
-                $writer = JsonlWriter::open($file);
-                $count = 0;
+                $structure = $db->quote(json_encode($shape, JSON_THROW_ON_ERROR));
+                // DuckDB's JSON reader holds several times the size of what it ingests, outside the buffer pool, so one
+                // statement over a whole table makes the export's memory grow with the table. Ingest bounded chunks instead.
+                $created = false;
+                $ingest = static function () use ($db, $table, $structure, $file, &$created): void {
+                    $select = 'SELECT unnest(json_transform_strict(json, '.$structure.')) FROM read_ndjson_objects('.$db->quote($file).')';
+                    $db->exec(($created ? 'INSERT INTO '.self::identifier($table).' ' : 'CREATE TABLE '.self::identifier($table).' AS ').$select);
+                    $created = true;
+                };
+                $handle = fopen($file, 'wb') ?: throw new \RuntimeException('Cannot write '.$file);
+                $count = $chunkBytes = 0;
                 try {
                     foreach ($source->query('SELECT * FROM '.self::identifier($table), \PDO::FETCH_ASSOC) as $row) {
                         if (null !== $publishRend && in_array($table, ['item', 'page'], true)) {
                             [$row] = NewspaperGeometry::splitRow($table, $row);
                         }
-                        $writer->write($row);
+                        $line = json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
+                        fwrite($handle, $line);
+                        $chunkBytes += strlen($line);
                         ++$count;
+                        if ($chunkBytes >= self::INGEST_CHUNK_BYTES) {
+                            fclose($handle);
+                            $ingest();
+                            $handle = fopen($file, 'wb') ?: throw new \RuntimeException('Cannot write '.$file);
+                            $chunkBytes = 0;
+                        }
                     }
-                    $writer->finish();
+                    fclose($handle);
+                    $handle = null;
+                    if ($chunkBytes > 0) {
+                        $ingest();
+                    }
                 } finally {
-                    $writer->close();
+                    if (is_resource($handle)) {
+                        fclose($handle);
+                    }
                 }
-                $structure = $db->quote(json_encode($shape, JSON_THROW_ON_ERROR));
                 if (0 === $count) {
                     $columns = [];
                     foreach ($shape as $name => $type) {
                         $columns[] = self::identifier($name).' '.$type;
                     }
                     $db->exec('CREATE TABLE '.self::identifier($table).' ('.implode(', ', $columns).')');
-                } else {
-                    $db->exec('CREATE TABLE '.self::identifier($table).' AS SELECT unnest(json_transform_strict(json, '.$structure.')) FROM read_ndjson_objects('.$db->quote($file).')');
                 }
                 $counts['main.'.$table] = $count;
             }
@@ -132,7 +156,15 @@ final class DuckDbFolioExporter
                 $payload = 'json_object('.implode(', ', $fields).')';
                 $db->prepare('INSERT INTO _dto_schema VALUES (?, ?, ?)')->execute([$type, $class, $structure]);
                 $table = 'dto.'.self::identifier($type);
-                $db->exec('CREATE TABLE '.$table.' AS SELECT id AS "_itemId", core_id AS "_coreId", unnest(json_transform_strict('.$payload.', '.$db->quote($structure).')) FROM item WHERE dto_type = '.$db->quote($type));
+                // json_object/json_transform_strict copy each source document several times per thread, so a type whose
+                // rows are large (a newspaper issue carries its whole OCR text, up to ~1 MB) exhausts the memory limit in
+                // one statement, and even in batches counted in rows. Fill the table in batches bounded by source bytes.
+                $select = 'SELECT id AS "_itemId", core_id AS "_coreId", unnest(json_transform_strict('.$payload.', '.$db->quote($structure).')) FROM item WHERE dto_type = '.$db->quote($type);
+                $db->exec('CREATE TABLE '.$table.' AS '.$select.' LIMIT 0');
+                $batches = $db->query('SELECT min(rowid), max(rowid) FROM (SELECT rowid, floor(sum(length(dto_data)) OVER (ORDER BY rowid) / '.self::DTO_BATCH_BYTES.') AS bucket FROM item WHERE dto_type = '.$db->quote($type).') GROUP BY bucket ORDER BY 1')->fetchAll(\PDO::FETCH_NUM);
+                foreach ($batches as [$first, $last]) {
+                    $db->exec('INSERT INTO '.$table.' '.$select.' AND rowid BETWEEN '.(int) $first.' AND '.(int) $last);
+                }
                 $counts['dto.'.$type] = (int) $db->query('SELECT count(*) FROM '.$table)->fetchColumn();
             }
             $db->commit();

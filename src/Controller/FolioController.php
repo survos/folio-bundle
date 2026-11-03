@@ -1651,7 +1651,7 @@ final class FolioController extends AbstractController
             ->setParameter('folioCode', $folioCode)
             ->setParameter('coreCode', $coreCode)
             ->setParameter('localId', $localId)
-            ->orderBy('t.code', 'ASC')
+            ->orderBy('t.code')
             ->getQuery()
             ->getResult();
 
