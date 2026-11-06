@@ -42,6 +42,7 @@
         "symfony/lock": "^8.1"
     },
     "suggest": {
+        "survos/duckdb-bundle": "Pool opened DuckDB files across a request or worker lifetime and show them in the profiler.",
         "ext-pdo_duckdb": "Build optional local DuckDB 2.0 analytical snapshots from explicit JSONL inputs.",
         "survos/imgproxy-bundle": "Image backend for |folio_image and the API thumbnails (or imagor-bundle); without one, source URLs are used as-is.",
         "survos/imagor-bundle": "Image backend for |folio_image and the API thumbnails (or imgproxy-bundle).",
@@ -76,6 +77,7 @@
         "api-platform/core": "^5.0",
         "symfony/ux-chartjs": "^3.0",
         "survos/fetch-bundle": "^2.5",
+        "survos/duckdb-bundle": "^2.45",
         "survos/tabler-bundle": "^2.5",
         "survos/imgproxy-bundle": "^2.5",
         "survos/iiif-bundle": "^2.5",

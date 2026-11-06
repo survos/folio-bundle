@@ -9,18 +9,50 @@ use Survos\FolioBundle\Dto\DuckDbS3Configuration;
 /** Read local snapshots or attach remote snapshots directly; no sync, restore or local file copy. */
 final class DuckDbFolioReader
 {
-    public function open(string $path, ?DuckDbS3Configuration $s3 = null): \PDO
-    {
-        return $this->openSnapshot($path, $s3, false);
+    /**
+     * With survos/duckdb-bundle installed, opened dfolios are pooled (the ATTACH of a remote file is the expensive part)
+     * and PDO calls show in the profiler. A pooled dfolio is shared: read it, do not change its session state. Without it, every call opens a fresh connection as before.
+     */
+    public function __construct(
+        private readonly ?\Survos\DuckDbBundle\ConnectionPool $pool = null,
+        private readonly ?\Survos\DuckDbBundle\ConnectionFactory $factory = null,
+    ) {
     }
 
+    /**
+     * @param ?string $version for a remote file, anything that changes when the object is replaced (build id, ETag);
+     *                         local files use their own mtime and size
+     */
+    public function open(string $path, ?DuckDbS3Configuration $s3 = null, ?string $version = null): \PDO
+    {
+        return $this->pooled($path, $s3, $version);
+    }
+
+    /**
+     * Never pooled: callers scope a rend with session state (the per-issue views in DuckDbRenditionReader::scope()), so
+     * each caller needs a connection of its own. DuckDbRenditionReader pools the scoped result per issue instead.
+     */
     public function openRend(string $path, ?DuckDbS3Configuration $s3 = null): \PDO
     {
         return $this->openSnapshot($path, $s3, true);
     }
 
+    private function pooled(string $path, ?DuckDbS3Configuration $s3, ?string $version): \PDO
+    {
+        if (null === $this->pool) {
+            return $this->openSnapshot($path, $s3, false);
+        }
+        if (!str_contains($path, '://') && is_file($path)) {
+            clearstatcache(true, $path);
+            $version = filemtime($path).'.'.filesize($path);
+        }
+
+        return $this->pool->remember('dfolio|'.$path.'|'.($s3->host ?? ''), fn (): \PDO => $this->openSnapshot($path, $s3, false), $version, 'dfolio');
+    }
+
     private function openSnapshot(string $path, ?DuckDbS3Configuration $s3, bool $rend): \PDO
     {
+        $start = hrtime(true);
         if (!in_array('duckdb', \PDO::getAvailableDrivers(), true)) {
             throw new \RuntimeException('DuckDB reads require ext-pdo_duckdb (DuckDB 2.0).');
         }
@@ -35,12 +67,12 @@ final class DuckDbFolioReader
             if ('s3' !== $url['scheme'] && null !== $s3) {
                 throw new \InvalidArgumentException('S3 credentials require an s3:// snapshot URI.');
             }
-            $db = new \PDO('duckdb::memory:');
+            $db = $this->factory?->pdo('duckdb::memory:', $rend ? 'drend' : 'dfolio', location: $path, endpoint: $s3?->endpoint) ?? new \PDO('duckdb::memory:');
         } else {
             if (!is_file($path) || null !== $s3) {
                 throw new \InvalidArgumentException('Local DuckDB snapshots must exist and do not use S3 credentials.');
             }
-            $db = new \PDO('duckdb:'.$path, options: [\PDO::DUCKDB_ATTR_CONFIG => ['access_mode' => 'read_only']]);
+            $db = $this->factory?->pdo('duckdb:'.$path, $rend ? 'drend' : 'dfolio', [\PDO::DUCKDB_ATTR_CONFIG => ['access_mode' => 'read_only']]) ?? new \PDO('duckdb:'.$path, options: [\PDO::DUCKDB_ATTR_CONFIG => ['access_mode' => 'read_only']]);
         }
         $version = (string) $db->query('SELECT version()')->fetchColumn();
         if (!str_starts_with($version, 'v2.')) {
@@ -58,6 +90,7 @@ final class DuckDbFolioReader
             $db->exec('ATTACH '.$db->quote($path).' AS folio (READ_ONLY)');
             $db->exec('USE folio');
         }
+        $this->factory?->finishOpen($db, (hrtime(true) - $start) / 1e6);
 
         return $db;
     }

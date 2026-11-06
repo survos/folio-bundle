@@ -425,8 +425,16 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $services->set(Service\DuckDbFolioSearchProjection::class)->autowire()->autoconfigure();
         $services->set(Service\DuckDbDtoSchema::class)->autowire()->autoconfigure();
         $services->set(Service\DuckDbFolioBuilder::class)->autowire()->autoconfigure()->public();
-        $services->set(Service\DuckDbFolioReader::class)->autowire()->autoconfigure()->public();
-        $services->set(Service\DuckDbRenditionReader::class)->autowire()->autoconfigure()->public();
+        // Pooling and profiler output come from survos/duckdb-bundle when it is installed; a folio builds and reads fine without it.
+        $reader = $services->set(Service\DuckDbFolioReader::class)->autowire()->autoconfigure()->public();
+        if (class_exists(\Survos\DuckDbBundle\ConnectionPool::class)) {
+            $reader->arg('$pool', service(\Survos\DuckDbBundle\ConnectionPool::class)->nullOnInvalid())
+                ->arg('$factory', service(\Survos\DuckDbBundle\ConnectionFactory::class)->nullOnInvalid());
+        } else {
+            $reader->arg('$pool', null)->arg('$factory', null);
+        }
+        $renditions = $services->set(Service\DuckDbRenditionReader::class)->autowire()->autoconfigure()->public();
+        $renditions->arg('$pool', class_exists(\Survos\DuckDbBundle\ConnectionPool::class) ? service(\Survos\DuckDbBundle\ConnectionPool::class)->nullOnInvalid() : null);
         $services->set(Service\LocalDuckDbFolioLocator::class)->autowire()->arg('$sources', $config['duckdb_sources']);
         $services->alias(Service\DuckDbFolioLocatorInterface::class, Service\LocalDuckDbFolioLocator::class);
         $services->set(Service\DuckDbFolioConnection::class)->autowire()->autoconfigure()->arg('$enabled', $config['duckdb_browse']);

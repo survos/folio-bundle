@@ -11,7 +11,7 @@ final class DuckDbRenditionReader
 {
     private array $open = [];
 
-    public function __construct(private readonly DuckDbFolioReader $reader)
+    public function __construct(private readonly DuckDbFolioReader $reader, private readonly ?\Survos\DuckDbBundle\ConnectionPool $pool = null)
     {
     }
 
@@ -50,6 +50,10 @@ final class DuckDbRenditionReader
         $ref = $this->reference($folio, $folioUri, $issueId);
         $uri = $ref['uri'];
         $key = $uri.'#'.$issueId;
+        // Each issue's scoped connection is its own pool entry (the scope is session state), reused across requests in a worker.
+        if (null !== $this->pool) {
+            return $this->pool->remember('drend|'.$key.'|'.($s3->host ?? ''), fn (): \PDO => $this->scope($this->reader->openRend($uri, $s3), $issueId, $ref['build_id']), $ref['build_id'], 'drend');
+        }
         if (!isset($this->open[$key])) {
             $db = $this->scope($this->reader->openRend($uri, $s3), $issueId, $ref['build_id']);
             // Bound connections for long-running indexing jobs.
