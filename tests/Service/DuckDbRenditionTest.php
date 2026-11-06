@@ -102,6 +102,23 @@ final class DuckDbRenditionTest extends TestCase
         }
     }
 
+    public function testSavedGroupingIsExportedAsTypedTablesSortedByIssue(): void
+    {
+        $db = (new DuckDbFolioReader())->open($this->export());
+        self::assertSame(2, (int) $db->query('SELECT count(*) FROM issue_page')->fetchColumn());
+        self::assertSame(2, (int) $db->query('SELECT count(*) FROM issue_grouping')->fetchColumn());
+        self::assertSame(2, (int) $db->query('SELECT count(*) FROM issue_extras')->fetchColumn());
+        // The issue's other extras are kept apart from the grouping, so a reader never has to open item.extras.
+        $extras = $db->query("SELECT extras FROM issue_extras WHERE issue_id = 'one'")->fetchColumn(); // the driver decodes JSON columns
+        self::assertArrayHasKey('pageAssets', $extras);
+        self::assertArrayNotHasKey('textsheetGrouping', $extras);
+        $rows = $db->query('SELECT issue_id, page_index, ord, block_ids FROM issue_group ORDER BY issue_id, page_index, ord', \PDO::FETCH_ASSOC)->fetchAll();
+        self::assertSame(['one', 'two'], array_column($rows, 'issue_id'));
+        self::assertSame([1, 1], array_map('intval', array_column($rows, 'ord')));
+        // The JSON stays where it was, so existing readers and the comparator keep working.
+        self::assertSame(2, (int) $db->query("SELECT count(*) FROM item WHERE extras LIKE '%textsheetGrouping%'")->fetchColumn());
+    }
+
     public function testBothFilesAreReadRemotelyAndMissingOrWrongRendFails(): void
     {
         $this->export();

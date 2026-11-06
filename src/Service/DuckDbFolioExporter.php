@@ -73,6 +73,21 @@ final class DuckDbFolioExporter
                 unset($insert);
             }
             $counts = isset($refs) ? ['main._renditions' => count($refs)] : [];
+            $groupFile = $directory.'/grouping.jsonl';
+            $groupHandle = null;
+            $groupBytes = 0;
+            $groupStaged = false;
+            $flushGrouping = static function () use ($db, $groupFile, &$groupHandle, &$groupBytes, &$groupStaged): void {
+                if (is_resource($groupHandle)) {
+                    fclose($groupHandle);
+                    $groupHandle = null;
+                }
+                if ($groupBytes > 0) {
+                    DuckDbGroupingProjection::ingest($db, $groupFile, !$groupStaged);
+                    $groupStaged = true;
+                    $groupBytes = 0;
+                }
+            };
             foreach (self::tables($source) as $table) {
                 $shape = [];
                 foreach ($source->query('PRAGMA table_xinfo('.self::identifier($table).')') as $column) {
@@ -100,6 +115,17 @@ final class DuckDbFolioExporter
                     foreach ($source->query('SELECT * FROM '.self::identifier($table), \PDO::FETCH_ASSOC) as $row) {
                         if (null !== $publishRend && in_array($table, ['item', 'page'], true)) {
                             [$row] = NewspaperGeometry::splitRow($table, $row);
+                        }
+                        if (null !== $publishRend && 'item' === $table) {
+                            foreach (DuckDbGroupingProjection::pages($row) as $page) {
+                                $groupHandle ??= fopen($groupFile, 'wb') ?: throw new \RuntimeException('Cannot write '.$groupFile);
+                                $groupLine = json_encode($page, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
+                                fwrite($groupHandle, $groupLine);
+                                $groupBytes += strlen($groupLine);
+                                if ($groupBytes >= self::INGEST_CHUNK_BYTES) {
+                                    $flushGrouping();
+                                }
+                            }
                         }
                         $line = json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
                         fwrite($handle, $line);
@@ -130,6 +156,10 @@ final class DuckDbFolioExporter
                     $db->exec('CREATE TABLE '.self::identifier($table).' ('.implode(', ', $columns).')');
                 }
                 $counts['main.'.$table] = $count;
+            }
+            $flushGrouping();
+            if ($groupStaged) {
+                $counts += DuckDbGroupingProjection::materialize($db);
             }
             if (0 === ($counts['main.item'] ?? 0)) {
                 throw new \RuntimeException('Refusing to export an empty folio.');
