@@ -39,10 +39,11 @@ final class DuckDbFolioExporter
         if (1 !== count($identity) || self::SCHEMA_VERSION !== (int) $identity[0]['schema_version']) {
             throw new \RuntimeException('Rebuild the folio with a supported shared build identity before exporting.');
         }
-        // A newspaper folio is made of issues. A museum collection can hold the odd newspaper-typed object (the Science
-        // Museum Group's railway advertisers), which must not send the whole folio down the rend path.
-        [$newspaperRows, $allRows] = $source->query('SELECT SUM(dto_type = '.$source->quote(ContentType::NEWSPAPER).'), COUNT(*) FROM item')->fetch(\PDO::FETCH_NUM);
-        $newspaper = (int) $newspaperRows > 0 && (int) $newspaperRows * 2 >= (int) $allRows;
+        // A newspaper folio has issues: newspaper-typed items in its `doc` core, which is how the rend exporter finds them. A
+        // museum collection can hold the odd newspaper-typed object (the Science Museum Group's railway advertisers) in its
+        // object core; that must not send the whole folio down the rend path. Newspaper items are a tiny share of a real
+        // newspaper folio (rappnews4909: 3,115 issues among 966,590 items), so a ratio is not a usable test.
+        $newspaper = (bool) $source->query('SELECT 1 FROM item WHERE dto_type = '.$source->quote(ContentType::NEWSPAPER)." AND core_id LIKE '%:doc' LIMIT 1")->fetchColumn();
         if ($newspaper && null === $publishRend) {
             throw new \RuntimeException('Newspaper export requires a rendition publisher; geometry must not be embedded in .dfolio.');
         }
