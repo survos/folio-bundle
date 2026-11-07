@@ -108,7 +108,8 @@ final readonly class FolioBuilder
             $pdo->prepare('INSERT INTO _folio_build VALUES (?, ?)')->execute([$buildId, DuckDbFolioExporter::SCHEMA_VERSION]);
             unset($pdo);
             $this->preparer->prepare($scratch, ['builtAt' => gmdate(DATE_ATOM)]);
-            $this->archives->inflate($scratch);
+            // No inflate: its indexes, FTS and item_facet tables serve SQLite readers. A .dfolio is read with SQL over its
+            // columns, so building them (and exporting item_facet) is wasted work here.
             $this->finishWorkingFolio($scratch, $io);
 
             return $use($scratch, $buildId, $result);

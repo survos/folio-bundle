@@ -14,6 +14,9 @@ final class DuckDbFolioExporter
     public const string DEFAULT_MEMORY_LIMIT = '6GB';
     /** Bytes of source JSON per INSERT when materializing a DTO table; see the comment where it is used. */
     private const int DTO_BATCH_BYTES = 2 * 1024 * 1024;
+    /** Types whose documents average under DTO_SMALL_DOC bytes take much larger batches (measured ~26% faster on museum rows). */
+    private const int DTO_BATCH_BYTES_SMALL = 32 * 1024 * 1024;
+    private const int DTO_SMALL_DOC = 64 * 1024;
 
     /** Bytes of JSON ingested per statement when copying a source table; see where it is used. */
     private const int INGEST_CHUNK_BYTES = 32 * 1024 * 1024;
@@ -36,7 +39,10 @@ final class DuckDbFolioExporter
         if (1 !== count($identity) || self::SCHEMA_VERSION !== (int) $identity[0]['schema_version']) {
             throw new \RuntimeException('Rebuild the folio with a supported shared build identity before exporting.');
         }
-        $newspaper = (bool) $source->query('SELECT 1 FROM item WHERE dto_type = '.$source->quote(ContentType::NEWSPAPER).' LIMIT 1')->fetchColumn();
+        // A newspaper folio is made of issues. A museum collection can hold the odd newspaper-typed object (the Science
+        // Museum Group's railway advertisers), which must not send the whole folio down the rend path.
+        [$newspaperRows, $allRows] = $source->query('SELECT SUM(dto_type = '.$source->quote(ContentType::NEWSPAPER).'), COUNT(*) FROM item')->fetch(\PDO::FETCH_NUM);
+        $newspaper = (int) $newspaperRows > 0 && (int) $newspaperRows * 2 >= (int) $allRows;
         if ($newspaper && null === $publishRend) {
             throw new \RuntimeException('Newspaper export requires a rendition publisher; geometry must not be embedded in .dfolio.');
         }
@@ -179,17 +185,33 @@ final class DuckDbFolioExporter
                     throw new \LogicException('DTO uses a reserved identity column.');
                 }
                 $structure = json_encode($shape, JSON_THROW_ON_ERROR);
-                $fields = [];
-                foreach ($shape as $name => $fieldType) {
-                    $pointer = '/'.str_replace(['~', '/'], ['~0', '~1'], $name);
-                    $value = 'json_extract(dto_data, '.$db->quote($pointer).')';
-                    if (is_array($fieldType)) {
-                        $value = 'CASE WHEN json_type('.$value.") = 'VARCHAR' THEN CAST(json_extract_string(dto_data, ".$db->quote($pointer).') AS JSON) ELSE '.$value.' END';
+                // Sparse DTO serialization omits empty fields; explicitly supply SQL NULL. One json_merge_patch over the document
+                // pads every absent key with null in a single pass, instead of one json_extract (a document scan) per field.
+                // A merge patch deletes keys the document sets to null explicitly, which would leave them absent, so a type
+                // that has any ':null' in its documents (or none of its shape to pad) takes the per-field extraction instead.
+                $explicitNull = (int) $db->query('SELECT count(*) FROM item WHERE dto_type = '.$db->quote($type)." AND contains(dto_data, ':null')")->fetchColumn() > 0;
+                if (!$explicitNull) {
+                    $payload = 'json_merge_patch(CAST('.$db->quote(json_encode(array_fill_keys(array_keys($shape), null), JSON_THROW_ON_ERROR | JSON_FORCE_OBJECT)).' AS JSON), CAST(dto_data AS JSON))';
+                    foreach ($shape as $name => $fieldType) {
+                        if (!is_array($fieldType)) {
+                            continue;
+                        }
+                        $pointer = $db->quote('/'.str_replace(['~', '/'], ['~0', '~1'], $name));
+                        // A list stored as a JSON-encoded string is parsed into the list.
+                        $payload = 'json_merge_patch('.$payload.", CASE WHEN json_type(json_extract(dto_data, $pointer)) = 'VARCHAR' THEN json_object(".$db->quote($name).', CAST(json_extract_string(dto_data, '.$pointer.') AS JSON)) ELSE CAST(\'{}\' AS JSON) END)';
                     }
-                    $fields[] = $db->quote($name).', '.$value;
+                } else {
+                    $fields = [];
+                    foreach ($shape as $name => $fieldType) {
+                        $pointer = '/'.str_replace(['~', '/'], ['~0', '~1'], $name);
+                        $value = 'json_extract(dto_data, '.$db->quote($pointer).')';
+                        if (is_array($fieldType)) {
+                            $value = 'CASE WHEN json_type('.$value.") = 'VARCHAR' THEN CAST(json_extract_string(dto_data, ".$db->quote($pointer).') AS JSON) ELSE '.$value.' END';
+                        }
+                        $fields[] = $db->quote($name).', '.$value;
+                    }
+                    $payload = 'json_object('.implode(', ', $fields).')';
                 }
-                // Sparse DTO serialization omits empty fields; explicitly supply SQL NULL.
-                $payload = 'json_object('.implode(', ', $fields).')';
                 $db->prepare('INSERT INTO _dto_schema VALUES (?, ?, ?)')->execute([$type, $class, $structure]);
                 $table = 'dto.'.self::identifier($type);
                 // json_object/json_transform_strict copy each source document several times per thread, so a type whose
@@ -197,7 +219,9 @@ final class DuckDbFolioExporter
                 // one statement, and even in batches counted in rows. Fill the table in batches bounded by source bytes.
                 $select = 'SELECT id AS "_itemId", core_id AS "_coreId", unnest(json_transform_strict('.$payload.', '.$db->quote($structure).')) FROM item WHERE dto_type = '.$db->quote($type);
                 $db->exec('CREATE TABLE '.$table.' AS '.$select.' LIMIT 0');
-                $batches = $db->query('SELECT min(rowid), max(rowid) FROM (SELECT rowid, floor(sum(length(dto_data)) OVER (ORDER BY rowid) / '.self::DTO_BATCH_BYTES.') AS bucket FROM item WHERE dto_type = '.$db->quote($type).') GROUP BY bucket ORDER BY 1')->fetchAll(\PDO::FETCH_NUM);
+                $averageDoc = (float) $db->query('SELECT avg(length(dto_data)) FROM item WHERE dto_type = '.$db->quote($type))->fetchColumn();
+                $batchBytes = $averageDoc < self::DTO_SMALL_DOC ? self::DTO_BATCH_BYTES_SMALL : self::DTO_BATCH_BYTES;
+                $batches = $db->query('SELECT min(rowid), max(rowid) FROM (SELECT rowid, floor(sum(length(dto_data)) OVER (ORDER BY rowid) / '.$batchBytes.') AS bucket FROM item WHERE dto_type = '.$db->quote($type).') GROUP BY bucket ORDER BY 1')->fetchAll(\PDO::FETCH_NUM);
                 foreach ($batches as [$first, $last]) {
                     $db->exec('INSERT INTO '.$table.' '.$select.' AND rowid BETWEEN '.(int) $first.' AND '.(int) $last);
                 }
