@@ -80,6 +80,45 @@ final readonly class FolioBuilder
         ];
     }
 
+    /**
+     * Ingest into a scratch SQLite folio, hand it to $use, then delete it. Nothing is written under the
+     * folio root: no working .folio, no bare snapshot, no .folio.gz archive. The .dfolio exporter is the
+     * intended $use; the scratch file exists only because the ingest engine is SQLite.
+     *
+     * @param callable(string $scratchPath, string $buildId, array $result):mixed $use
+     */
+    public function buildTransient(FolioBuildInput $input, string $scratchDir, callable $use, ?SymfonyStyle $io = null): mixed
+    {
+        $this->folios->closeActive();
+        $this->jsonlState->closeAll();
+        gc_collect_cycles();
+        $code = $input->code;
+        $locale = $input->locale !== $input->sourceLocale ? $input->locale : null;
+        $scratch = rtrim($scratchDir, '/').'/'.bin2hex(random_bytes(6)).'.'.$this->folios->fileExtension();
+        $this->folios->buildInto($code, $scratch, $locale);
+        try {
+            $result = $this->ingest->ingest($input, dispatchFinished: false, io: $io);
+            if (0 === $result['rows']) {
+                throw new \RuntimeException('Refusing to publish an empty folio: '.$code);
+            }
+            $pdo = new \PDO('sqlite:'.$scratch);
+            $buildId = bin2hex(random_bytes(16));
+            $pdo->exec('CREATE TABLE IF NOT EXISTS _folio_build (build_id TEXT NOT NULL, schema_version INTEGER NOT NULL)');
+            $pdo->exec('DELETE FROM _folio_build');
+            $pdo->prepare('INSERT INTO _folio_build VALUES (?, ?)')->execute([$buildId, DuckDbFolioExporter::SCHEMA_VERSION]);
+            unset($pdo);
+            $this->preparer->prepare($scratch, ['builtAt' => gmdate(DATE_ATOM)]);
+            $this->archives->inflate($scratch);
+            $this->finishWorkingFolio($scratch, $io);
+
+            return $use($scratch, $buildId, $result);
+        } finally {
+            $this->folios->closeActive();
+            $this->folios->discardBuildAt($code, $locale);
+            $this->jsonlState->closeAll();
+        }
+    }
+
     private function finishWorkingFolio(string $workingPath, ?SymfonyStyle $io): void
     {
         $this->folios->finalize();

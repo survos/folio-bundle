@@ -94,6 +94,24 @@ final class FolioService
         return $temp;
     }
 
+    /**
+     * Send writes for this folio to an explicit scratch file that is never moved into place.
+     * The caller owns it and removes it with discardBuildAt(); nothing is written under the folio root.
+     */
+    public function buildInto(string $folioCode, string $scratchPath, ?string $locale = null): string
+    {
+        if (!is_dir(dirname($scratchPath))) {
+            throw new \InvalidArgumentException('Scratch directory does not exist: '.dirname($scratchPath));
+        }
+        if (is_file($scratchPath)) {
+            unlink($scratchPath);
+        }
+        $this->preservedProperties[$this->buildKey($folioCode, $locale)] = [];
+        $this->buildPaths[$this->buildKey($folioCode, $locale)] = $scratchPath;
+
+        return $scratchPath;
+    }
+
     /** Rename the temp file over the real folio. Returns the final path. */
     public function finishBuildAt(string $folioCode, ?string $locale = null): string
     {
@@ -489,6 +507,21 @@ final class FolioService
         } finally {
             // The next switch() reopens it the app's own way (read-only where configured).
             $this->invalidateConnection();
+        }
+    }
+
+    /** Lay an empty, schema-complete folio (the bootstrap template) at an arbitrary path. */
+    public function createEmptyAt(string $path): void
+    {
+        $bootstrap = $this->bootstrapPath();
+        if (!is_file($bootstrap)) {
+            $this->buildBootstrap();
+        }
+        if (!is_dir(dirname($path))) {
+            throw new \InvalidArgumentException('Target directory does not exist: '.dirname($path));
+        }
+        if (!copy($bootstrap, $path)) {
+            throw new \RuntimeException('Failed to copy bootstrap to '.$path);
         }
     }
 
