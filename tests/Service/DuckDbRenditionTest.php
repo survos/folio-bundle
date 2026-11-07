@@ -70,7 +70,7 @@ final class DuckDbRenditionTest extends TestCase
     {
         $target = $this->export();
         $comparison = (new \Survos\FolioBundle\Service\DuckDbFolioComparator())->compare($this->root.'/source.folio', $target,
-            fn (array $ref): \PDO => (new DuckDbRenditionReader(new DuckDbFolioReader()))->scope((new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)), $ref['issue_id'], $ref['build_id']));
+            fn (array $ref): \PDO => (new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)));
         self::assertTrue($comparison['matched']);
         self::assertSame(2, $comparison['renditionsCompared']);
         $db = (new DuckDbFolioReader())->open($target);
@@ -82,10 +82,11 @@ final class DuckDbRenditionTest extends TestCase
         $reader = new DuckDbRenditionReader(new DuckDbFolioReader());
         foreach (['one', 'two'] as $issue) {
             $ref = $reader->reference($db, 's3://bucket/dfolio/news/test/source.dfolio', $issue);
-            $rend = $reader->scope((new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)), $issue, $ref['build_id']);
+            $rend = (new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4));
+            $reader->validateIssue($rend, $issue, $ref['build_id']);
             $items = array_values(array_filter($db->query('SELECT * FROM item ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC), fn ($r) => str_contains($r['id'], $issue)));
             $pages = array_values(array_filter($db->query('SELECT * FROM page ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC), fn ($r) => str_contains($r['id'], $issue)));
-            [$items,$pages] = $reader->restore($rend, $items, $pages);
+            [$items,$pages] = $reader->restore($rend, $items, $pages, $issue);
             foreach (['item' => $items, 'page' => $pages] as $table => $rows) {
                 foreach ($rows as $row) {
                     $original = array_values(array_filter($this->original[$table], fn ($r) => $r['id'] === $row['id']))[0];
@@ -98,7 +99,7 @@ final class DuckDbRenditionTest extends TestCase
                     self::assertEquals($original, $row);
                 }
             }
-            self::assertSame('B1', $rend->query('SELECT substr(id,3) FROM block')->fetchColumn());
+            self::assertSame('B1', $rend->query('SELECT substr(id,3) FROM block WHERE issue = '.$rend->quote($issue))->fetchColumn());
         }
     }
 
@@ -119,9 +120,65 @@ final class DuckDbRenditionTest extends TestCase
         self::assertSame(2, (int) $db->query("SELECT count(*) FROM item WHERE extras LIKE '%textsheetGrouping%'")->fetchColumn());
     }
 
+    public function testLinkOrdinalsAreMaterializedWithoutChangingExtras(): void
+    {
+        $source = new \PDO('sqlite:'.$this->root.'/source.folio');
+        $source->exec('ALTER TABLE link ADD COLUMN extras TEXT');
+        $source->exec("UPDATE link SET extras = '{\"ordinal\":10,\"keep\":true}' WHERE right_id = 'one'");
+        $source->exec("UPDATE link SET extras = '{\"ordinal\":2}' WHERE right_id = 'two'");
+        $db = (new DuckDbFolioReader())->open($this->export());
+        self::assertSame(['two', 'one'], $db->query('SELECT right_id FROM link ORDER BY ordinal')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertSame('BIGINT', $db->query("SELECT data_type FROM information_schema.columns WHERE table_name = 'link' AND column_name = 'ordinal'")->fetchColumn());
+        self::assertSame('{"ordinal":10,"keep":true}', $db->query("SELECT extras FROM link WHERE right_id = 'one'")->fetchColumn());
+    }
+
+    public function testRoleSpansAndHistoryIssuesAreMaterialized(): void
+    {
+        $source = new \PDO('sqlite:'.$this->root.'/source.folio');
+        $roles = array_map(static fn (int $i): array => ['id' => 'B1', 'role' => 'body', 'start' => $i, 'end' => $i + 1], range(0, 11));
+        $extras = ['textsheetGroupingHistory' => [], 'textsheetGrouping' => ['marking' => 'grouped', 'pages' => [
+            ['pageIndex' => 0, 'groups' => [['id' => 'group', 'roles' => $roles]]],
+        ]]];
+        $source->prepare("UPDATE item SET extras = ? WHERE local_id = 'one'")->execute([json_encode($extras, JSON_THROW_ON_ERROR)]);
+        $db = (new DuckDbFolioReader())->open($this->export());
+        self::assertSame(range(0, 11), $db->query("SELECT ord FROM issue_group_role WHERE issue_id = 'one' ORDER BY ord")->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertSame(12, $db->query("SELECT end_line FROM issue_group_role WHERE issue_id = 'one' ORDER BY ord DESC LIMIT 1")->fetchColumn());
+        self::assertSame('grouped', $db->query("SELECT marking FROM issue_grouping WHERE issue_id = 'one'")->fetchColumn());
+        self::assertArrayHasKey('textsheetGroupingHistory', $db->query("SELECT extras FROM issue_extras WHERE issue_id = 'one'")->fetchColumn());
+    }
+
+    public function testEmptyGroupingAndMissingOrdinalsStillHaveTypedSchema(): void
+    {
+        $source = new \PDO('sqlite:'.$this->root.'/source.folio');
+        $source->exec("UPDATE item SET extras = NULL WHERE core_id = 'news/test:doc'");
+        $db = (new DuckDbFolioReader())->open($this->export());
+        self::assertSame([null, null], $db->query('SELECT ordinal FROM link')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertSame(0, $db->query('SELECT count(*) FROM issue_group_role')->fetchColumn());
+        self::assertSame(0, $db->query('SELECT count(*) FROM issue_grouping')->fetchColumn());
+    }
+
+    public function testRestorationFiltersOverlappingGeometryIdsByIssue(): void
+    {
+        $db = new \PDO('duckdb::memory:');
+        \Survos\FolioBundle\Service\DuckDbRendSchema::createPaper($db);
+        foreach (['one' => 100, 'two' => 200] as $issue => $width) {
+            $db->prepare('INSERT INTO page_geometry VALUES (?, ?, ?)')->execute([$issue, 'same-page', json_encode(['width' => $width])]);
+        }
+        $reader = new DuckDbRenditionReader(new DuckDbFolioReader());
+        foreach (['one', 'two', 'one'] as $issue) {
+            [, $pages] = $reader->restore($db, [], [['id' => 'same-page', 'width' => null]], $issue);
+            self::assertSame('one' === $issue ? 100 : 200, $pages[0]['width']);
+        }
+        $this->expectExceptionMessage('Missing rendition row');
+        $reader->restore($db, [], [['id' => 'same-page', 'width' => null]], 'absent');
+    }
+
     public function testBothFilesAreReadRemotelyAndMissingOrWrongRendFails(): void
     {
         $this->export();
+        $fixture = new \PDO('duckdb:'.$this->root.'/bucket/dfolio/news/test/source.drend');
+        $fixture->exec("UPDATE page SET width = 1200 WHERE issue = 'two'");
+        $fixture = null;
         file_put_contents($this->root.'/router.php', <<<'ROUTER'
 <?php
 $file=__DIR__.parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH);
@@ -143,9 +200,22 @@ ROUTER);
         $config = new DuckDbS3Configuration('http://'.$address, 'fixture-key', 'fixture-secret', 'us-east-1');
         $uri = 's3://bucket/dfolio/news/test/source.dfolio';
         $db = (new DuckDbFolioReader())->open($uri, $config);
-        $reader = new DuckDbRenditionReader(new DuckDbFolioReader());
+        $recorder = new \Survos\DuckDbBundle\Debug\QueryRecorder();
+        $pool = new \Survos\DuckDbBundle\ConnectionPool($recorder);
+        $reader = new DuckDbRenditionReader(new DuckDbFolioReader(factory: new \Survos\DuckDbBundle\ConnectionFactory($recorder)), $pool);
         $rend = $reader->open($db, $uri, 'one', $config);
-        self::assertSame(1000, $rend->query('SELECT width FROM page')->fetchColumn());
+        self::assertSame(1000, $rend->query("SELECT width FROM page WHERE issue = 'one'")->fetchColumn());
+        $second = $reader->open($db, $uri, 'two', $config);
+        self::assertSame($rend, $second, 'Two issues must share one rendition connection.');
+        self::assertSame(1200, $second->query("SELECT width FROM page WHERE issue = 'two'")->fetchColumn());
+        self::assertSame($rend, $reader->open($db, $uri, 'one', $config));
+        self::assertSame(1000, $rend->query("SELECT width FROM page WHERE issue = 'one'")->fetchColumn());
+        self::assertSame(['hits' => 2, 'misses' => 1, 'open' => 1], $pool->stats());
+        self::assertCount(1, array_filter($recorder->snapshot()['queries'], fn ($q) => str_starts_with($q['sql'], 'ATTACH ')));
+        self::assertSame(0, $rend->query("SELECT count(*) FROM duckdb_views() WHERE temporary AND view_name IN ('page','block','crop','meta','item_geometry','page_geometry')")->fetchColumn());
+        // The optional-pool fallback must also reuse the file, not the issue.
+        $unpooled = new DuckDbRenditionReader(new DuckDbFolioReader());
+        self::assertSame($unpooled->open($db, $uri, 'one', $config), $unpooled->open($db, $uri, 'two', $config));
         $requests = array_map(fn ($s) => json_decode($s, true), file($this->root.'/requests.jsonl', FILE_IGNORE_NEW_LINES));
         foreach (['.dfolio', '.drend'] as $extension) {
             self::assertTrue(array_any($requests, fn ($r) => str_ends_with($r['path'], $extension) && null !== $r['range'] && $r['signed']));
@@ -153,13 +223,36 @@ ROUTER);
         try {
             try {
                 $rend->exec('DELETE FROM page');
-                self::fail('The issue view must not be writable');
+                self::fail('The rendition must not be writable');
             } catch (\PDOException) {
             }
             $rend->exec('DELETE FROM folio.main.page');
             self::fail('Remote rend must be read-only');
         } catch (\PDOException $e) {
             self::assertStringContainsString('read-only', $e->getMessage());
+        }
+        // Replacing a published build must invalidate the pooled file connection.
+        $fixture = new \PDO('duckdb:'.$this->root.'/bucket/dfolio/news/test/source.drend');
+        $fixture->exec("UPDATE meta SET v = 'source-b' WHERE k = 'buildId'");
+        $fixture = null;
+        $next = new \PDO('duckdb::memory:');
+        $next->exec("CREATE TABLE _folio_build AS SELECT 'source-b' AS build_id");
+        $next->exec('CREATE TABLE _renditions(issue_id VARCHAR, uri VARCHAR, build_id VARCHAR)');
+        $next->prepare('INSERT INTO _renditions VALUES (?, ?, ?)')->execute(['one', DuckDbRenditionReader::rendUri($uri), 'source-b']);
+        self::assertNotSame($rend, $reader->open($next, $uri, 'one', $config));
+        self::assertSame(2, $pool->stats()['misses']);
+        self::assertSame(1, $pool->stats()['open']);
+        try {
+            $reader->validateIssue($rend, 'one', 'wrong-build');
+            self::fail('Mismatched build accepted.');
+        } catch (\UnexpectedValueException $e) {
+            self::assertStringContainsString('another source build or issue', $e->getMessage());
+        }
+        try {
+            $reader->validateIssue($rend, 'absent', 'source-a');
+            self::fail('Missing issue accepted.');
+        } catch (\UnexpectedValueException $e) {
+            self::assertStringContainsString('another source build or issue', $e->getMessage());
         }
         $this->expectExceptionMessage('Missing or mismatched');
         $reader->open($db, $uri, 'absent', $config);
@@ -187,7 +280,7 @@ ROUTER);
         $rend = null;
         $this->expectExceptionMessage('Content mismatch in page');
         (new \Survos\FolioBundle\Service\DuckDbFolioComparator())->compare($this->root.'/source.folio', $target,
-            fn (array $ref): \PDO => (new DuckDbRenditionReader(new DuckDbFolioReader()))->scope((new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)), $ref['issue_id'], $ref['build_id']));
+            fn (array $ref): \PDO => (new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4)));
     }
 
     public function testFailedRendPublicationPreservesPreviousDfolio(): void

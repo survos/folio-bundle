@@ -9,9 +9,13 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 final readonly class DuckDbFolioConnection implements DuckDbConnectionProviderInterface
 {
+    private DuckDbRenditionReader $renditions;
+
     public function __construct(private DuckDbFolioLocatorInterface $locator, private DuckDbFolioReader $reader,
-        private bool $enabled = false, private ?\Survos\FolioBundle\Dto\DuckDbS3Configuration $s3 = null)
+        private bool $enabled = false, private ?\Survos\FolioBundle\Dto\DuckDbS3Configuration $s3 = null,
+        ?DuckDbRenditionReader $renditions = null)
     {
+        $this->renditions = $renditions ?? new DuckDbRenditionReader($reader);
     }
 
     public function name(): string
@@ -36,9 +40,9 @@ final readonly class DuckDbFolioConnection implements DuckDbConnectionProviderIn
     public function restoreNewspaper(\PDO $db, string $folioCode, string $issueId, array $record, array $pages): array
     {
         $path = $this->locator->locate($folioCode);
-        $reader = new DuckDbRenditionReader($this->reader);
+        $reader = $this->renditions;
         $rend = $reader->open($db, $path, $issueId, str_starts_with($path, 's3://') ? $this->s3 : null);
-        [$rows, $pages] = $reader->restore($rend, [$record], $pages);
+        [$rows, $pages] = $reader->restore($rend, [$record], $pages, $issueId);
 
         return [$rows[0], $pages];
     }

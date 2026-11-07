@@ -16,11 +16,12 @@ use Survos\DataContracts\Metadata\ContentType;
  *   issue_grouping (issue_id, schema_version, source_hash, algorithm_hash, input_hash, folio_code, revision, marking)
  *   issue_page (issue_id, page_index, column_count, body_font_size, masthead_status, slots, analysis, ...)
  *   issue_group (issue_id, page_index, ord, id, parent_id, type, col, basis, title, article_id, block_ids, roles, evidence)
+ *   issue_group_role (issue_id, page_index, group_ord, group_id, ord, role, block_id, start_line, end_line)
  *
- *   issue_extras (issue_id, extras) -- the rest of the issue's extras (everything but the grouping and its history), a
+ *   issue_extras (issue_id, extras) -- the rest of the issue's extras (including any grouping history), a
  *                                      few KB, sorted by issue
  *
- * A reader assembles the issue's extras from these three without ever touching `item.extras`. The JSON in
+ * A reader assembles the issue's extras from these projections without touching `item.extras`. The JSON in
  * `item.extras` is left untouched, so older readers, the rend and the folio comparator keep working.
  */
 final class DuckDbGroupingProjection
@@ -47,13 +48,10 @@ final class DuckDbGroupingProjection
         if (!is_array($extras)) {
             return [];
         }
-        if (isset($extras[self::HISTORY])) {
-            // The rend carries geometry patches for the history's paths; keep those issues on the whole-extras path.
-            return [];
-        }
         $issue = (string) $row['local_id'];
         $grouping = $extras[self::FIELD] ?? null;
-        unset($extras[self::FIELD], $extras[self::HISTORY]);
+        // Preserve history in issue_extras: the rendition still restores its geometry paths.
+        unset($extras[self::FIELD]);
         // Only the issue record itself (core "doc") has an issue-level extras document.
         $lines = str_ends_with((string) ($row['core_id'] ?? ''), ':doc')
             ? [['issue_id' => $issue, 'page_index' => -1, 'meta' => null, 'page' => null, 'extras' => $extras]] : [];
@@ -79,6 +77,7 @@ final class DuckDbGroupingProjection
     /** Build the typed tables, sorted by issue, from the staged pages; drops the staging table. */
     public static function materialize(\PDO $db): array
     {
+        $db->exec('CREATE TABLE IF NOT EXISTS '.self::STAGE.' (issue_id VARCHAR, page_index INTEGER, meta JSON, page JSON, extras JSON)');
         $db->exec(<<<'SQL'
             CREATE TABLE issue_grouping AS
             SELECT issue_id,
@@ -122,6 +121,15 @@ final class DuckDbGroupingProjection
             ORDER BY issue_id, page_index, ord
             SQL);
         $db->exec("CREATE TABLE issue_extras AS SELECT issue_id, extras FROM _issue_grouping_stage WHERE json_type(extras) = 'OBJECT' ORDER BY issue_id");
+        $db->exec(<<<'SQL'
+            CREATE TABLE issue_group_role AS
+            SELECT g.issue_id, g.page_index, g.ord AS group_ord, g.id AS group_id,
+                   r.i AS ord, role->>'$.role' AS role, role->>'$.id' AS block_id,
+                   (role->>'$.start')::INTEGER AS start_line, (role->>'$.end')::INTEGER AS end_line
+            FROM issue_group g, unnest(range(json_array_length(g.roles)::BIGINT)) AS r(i),
+                 LATERAL (SELECT json_extract(g.roles, '$[' || r.i || ']') AS role)
+            ORDER BY g.issue_id, g.page_index, g.ord, r.i
+            SQL);
         $db->exec('DROP TABLE '.self::STAGE);
 
         return [
@@ -129,6 +137,7 @@ final class DuckDbGroupingProjection
             'main.issue_grouping' => (int) $db->query('SELECT count(*) FROM issue_grouping')->fetchColumn(),
             'main.issue_page' => (int) $db->query('SELECT count(*) FROM issue_page')->fetchColumn(),
             'main.issue_group' => (int) $db->query('SELECT count(*) FROM issue_group')->fetchColumn(),
+            'main.issue_group_role' => (int) $db->query('SELECT count(*) FROM issue_group_role')->fetchColumn(),
         ];
     }
 }

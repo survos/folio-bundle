@@ -102,9 +102,9 @@ identity. ORM access through `FolioContext` is unchanged.
 
 ### Newspaper DuckDB geometry
 
-Newspaper `.dfolio` export requires a rendition publisher callback. One immutable
-DuckDB `.rend` per issue holds page layouts/dimensions and nested coordinate
-patches; `_renditions` pins its URI, SHA-256, size and source build. Stable anchors,
+Newspaper `.dfolio` export requires a rendition publisher callback. One published
+DuckDB `.drend` per paper holds every issue's page layouts/dimensions and nested
+coordinate patches; `_renditions` pins its URI, size and source build. Stable anchors,
 text and semantic grouping remain in `.dfolio`. Every source item/page must map
 to an issue. Non-newspaper exports retain the previous complete-table behavior.
 
@@ -115,3 +115,34 @@ model. Full `DuckDbFolioComparator` comparison of a newspaper pair requires an
 attach both files read-only with HTTP ranges. S3 secrets are temporary in the
 reader's isolated in-memory database, including the internal WAL existence probe;
 no credentials are written into either snapshot.
+
+Rendition connections are pooled by file/endpoint and invalidated by build ID,
+not opened again for each issue. Every issue-bearing query must include an
+explicit `WHERE issue = ?`; joins between blocks and crops must also match
+`issue`, since their IDs repeat across issues. No issue-specific temporary views
+are installed on shared connections. `restore($rend, $items, $pages, $issueId)`
+requires the issue explicitly; `validateIssue()` replaces the old `scope()` API.
+Consumers using the old views must migrate with this reader change. The shared
+browse view and comparator use explicit issue filters too. Without DuckDbBundle,
+the reader keeps a bounded two-file cache with the same build invalidation.
+
+### Typed ordering and grouping counts
+
+Exports materialize `link.ordinal` as nullable BIGINT from the retained link
+metadata when the source has no typed ordinal. Ordering can use
+`ORDER BY l.ordinal, i.local_id` without parsing JSON. This is stable relationship
+ordering, not an intrinsic order assigned to every item. Original extras remain
+unchanged; a source's existing typed ordinal takes precedence.
+
+Newspaper exports also materialize `issue_group_role`: issue/page, group ordinal
+and ID, numeric role ordinal, role, block ID, and start/end line offsets. This
+lets counts join `issue_grouping`, `issue_page`, `issue_group`, and role spans to
+rendition OCR without traversing grouping JSON. Empty newspaper projections are
+created too. Issues with grouping history retain that history in `issue_extras`
+and participate in the typed grouping projection.
+
+Re-export and republish existing newspaper snapshots before deploying consumers
+that require these columns/tables. Rebuild from the existing source folio (or
+the normal scratch-folio build from normalized inputs), not by running ALTER
+against published S3 files. No new OCR, grouping algorithm, or source schema
+migration is required. Consumers must synchronize the new catalog revision.

@@ -32,11 +32,13 @@ final class DuckDbFolioComparator
                 $ref = $refs[$issue] ?? throw new \RuntimeException('Missing issue rendition.');
                 $rend = $openRend(['issue_id' => $issue] + $ref);
                 $meta = $rend->query('SELECT k,v FROM meta')->fetchAll(\PDO::FETCH_KEY_PAIR);
-                if (($meta['buildId'] ?? null) !== $ref['build_id'] || ($meta['issue'] ?? null) !== $issue) {
+                if (($meta['buildId'] ?? null) !== $ref['build_id'] || DuckDbRendSchema::PAPER_VERSION !== (int) ($meta['layout'] ?? 0)) {
                     throw new \RuntimeException('Rend identity mismatch.');
                 }
                 foreach (['item', 'page'] as $kind) {
-                    $patches[$kind] = $rend->query('SELECT id,patch FROM '.$kind.'_geometry')->fetchAll(\PDO::FETCH_KEY_PAIR);
+                    $statement = $rend->prepare('SELECT id,patch FROM '.$kind.'_geometry WHERE issue = ?');
+                    $statement->execute([$issue]);
+                    $patches[$kind] = $statement->fetchAll(\PDO::FETCH_KEY_PAIR);
                 }
                 $activeIssue = $issue;
             }
@@ -52,7 +54,8 @@ final class DuckDbFolioComparator
             usort($keys, static fn (array $a, array $b): int => $a['pk'] <=> $b['pk']);
             $keys = array_map(static fn (array $c): string => DuckDbFolioExporter::identifier($c['name']), $keys ?: $columns);
             $order = implode(', ', $keys);
-            $sql = 'SELECT * FROM '.$quoted.' ORDER BY '.$order;
+            // Compare source columns; export-only typed projections are verified separately.
+            $sql = 'SELECT '.implode(', ', array_map(static fn (array $c): string => DuckDbFolioExporter::identifier($c['name']), $columns)).' FROM '.$quoted.' ORDER BY '.$order;
             $left = $sqlite->query($sql);
             $right = $db->query($sql);
             $count = 0;

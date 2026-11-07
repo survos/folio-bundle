@@ -41,33 +41,34 @@ final class DuckDbRenditionReader
     }
 
     /**
-     * One connection per issue onto the paper's single .drend, exposing that issue as plain page/block/crop/
-     * item_geometry/page_geometry/meta views, so a reader queries it as if the issue had a file of its own.
-     * The lookup is a filter on `issue`; over S3 only the row groups that hold the issue are fetched.
+     * One connection per paper/revision. All callers must filter issue-bearing tables explicitly;
+     * no temporary views or other issue-specific session state may be installed on this connection.
      */
     public function open(\PDO $folio, string $folioUri, string $issueId, ?DuckDbS3Configuration $s3 = null): \PDO
     {
         $ref = $this->reference($folio, $folioUri, $issueId);
         $uri = $ref['uri'];
-        $key = $uri.'#'.$issueId;
-        // Each issue's scoped connection is its own pool entry (the scope is session state), reused across requests in a worker.
+        $key = 'drend|'.$uri.'|'.($s3->host ?? '');
         if (null !== $this->pool) {
-            return $this->pool->remember('drend|'.$key.'|'.($s3->host ?? ''), fn (): \PDO => $this->scope($this->reader->openRend($uri, $s3), $issueId, $ref['build_id']), $ref['build_id'], 'drend');
-        }
-        if (!isset($this->open[$key])) {
-            $db = $this->scope($this->reader->openRend($uri, $s3), $issueId, $ref['build_id']);
-            // Bound connections for long-running indexing jobs.
-            if (count($this->open) >= 2) {
-                array_shift($this->open);
+            $db = $this->pool->remember($key,
+                fn (): \PDO => $this->reader->openRend($uri, $s3), $ref['build_id'], 'drend');
+        } else {
+            if (($this->open[$key]['build'] ?? null) !== $ref['build_id']) {
+                unset($this->open[$key]);
+                if (count($this->open) >= 2) {
+                    array_shift($this->open);
+                }
+                $this->open[$key] = ['build' => $ref['build_id'], 'db' => $this->reader->openRend($uri, $s3)];
             }
-            $this->open[$key] = $db;
+            $db = $this->open[$key]['db'];
         }
+        $this->validateIssue($db, $issueId, $ref['build_id']);
 
-        return $this->open[$key];
+        return $db;
     }
 
-    /** Check that an opened .drend belongs to this source build and holds the issue, then expose the issue as plain views. */
-    public function scope(\PDO $db, string $issueId, string $buildId): \PDO
+    /** Check the build, layout and issue without mutating the shared connection. */
+    public function validateIssue(\PDO $db, string $issueId, string $buildId): void
     {
         $catalog = '"'.str_replace('"', '""', (string) $db->query('SELECT current_database()')->fetchColumn()).'"';
         $meta = $db->query('SELECT k,v FROM '.$catalog.'.main.meta')->fetchAll(\PDO::FETCH_KEY_PAIR);
@@ -77,21 +78,16 @@ final class DuckDbRenditionReader
             || DuckDbRendSchema::PAPER_VERSION !== (int) ($meta['layout'] ?? 0)) {
             throw new \UnexpectedValueException('Rend belongs to another source build or issue.');
         }
-        $issue = $db->quote($issueId);
-        foreach (DuckDbRendSchema::ISSUE_COLUMNS as $table => $columns) {
-            $db->exec('CREATE TEMP VIEW '.$table.' AS SELECT '.$columns.' FROM '.$catalog.'.main.'.$table.' WHERE issue = '.$issue);
-        }
-        $db->exec('CREATE OR REPLACE TEMP VIEW meta AS SELECT k, v FROM '.$catalog.'.main.meta UNION ALL SELECT \'issue\', '.$issue);
-
-        return $db;
     }
 
     /** Restore exact geometry before using existing Row/Page presentation and grouping validation. */
-    public function restore(\PDO $rend, array $items, array $pages): array
+    public function restore(\PDO $rend, array $items, array $pages, string $issueId): array
     {
         $result = [];
         foreach (['item' => $items, 'page' => $pages] as $table => $rows) {
-            $patches = $rend->query('SELECT id, patch FROM '.$table.'_geometry')->fetchAll(\PDO::FETCH_KEY_PAIR);
+            $statement = $rend->prepare('SELECT id, patch FROM '.$table.'_geometry WHERE issue = ?');
+            $statement->execute([$issueId]);
+            $patches = $statement->fetchAll(\PDO::FETCH_KEY_PAIR);
             $result[] = array_map(static function (array $row) use ($table, $patches): array {
                 if (!isset($patches[$row['id']])) {
                     throw new \UnexpectedValueException('Missing rendition row: '.$row['id']);

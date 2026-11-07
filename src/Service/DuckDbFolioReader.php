@@ -29,8 +29,8 @@ final class DuckDbFolioReader
     }
 
     /**
-     * Never pooled: callers scope a rend with session state (the per-issue views in DuckDbRenditionReader::scope()), so
-     * each caller needs a connection of its own. DuckDbRenditionReader pools the scoped result per issue instead.
+     * Opens a fresh rendition. DuckDbRenditionReader pools it per file/build; all issue reads
+     * use explicit filters so the pooled connection carries no issue-specific session state.
      */
     public function openRend(string $path, ?DuckDbS3Configuration $s3 = null): \PDO
     {

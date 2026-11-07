@@ -156,9 +156,15 @@ final class DuckDbFolioExporter
                     $db->exec('CREATE TABLE '.self::identifier($table).' ('.implode(', ', $columns).')');
                 }
                 $counts['main.'.$table] = $count;
+                if ('link' === $table && !array_key_exists('ordinal', $shape)) {
+                    $db->exec('ALTER TABLE link ADD COLUMN ordinal BIGINT');
+                    if (array_key_exists('extras', $shape)) {
+                        $db->exec("UPDATE link SET ordinal = CAST(json_extract_string(extras, '$.ordinal') AS BIGINT)");
+                    }
+                }
             }
             $flushGrouping();
-            if ($groupStaged) {
+            if ($groupStaged || isset($refs)) {
                 $counts += DuckDbGroupingProjection::materialize($db);
             }
             if (0 === ($counts['main.item'] ?? 0)) {

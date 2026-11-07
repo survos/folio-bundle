@@ -10,8 +10,7 @@ namespace Survos\FolioBundle\Service;
  *  - createPaper(): the published .drend (layout 4), described below.
  *
  * The published .drend: ONE file per paper, <folioCode>.drend, holding the geometry of every issue.
- * Each table carries an `issue` column, so one query can span the whole paper; DuckDbRenditionReader also exposes a
- * single issue as plain `page`, `block`... views, which is what the issue-scoped readers query.
+ * Each table carries an `issue` column. Readers filter it explicitly on a connection pooled per paper/build.
  * No primary keys on purpose: DuckDB loads a key's index when it opens the file, which over S3 would cost far more than
  * the lookup saves. Rows are written issue by issue, so the per-row-group min/max on `issue` lets a read skip the rest.
  * Legacy SQLite .rend files remain a separate read format.
