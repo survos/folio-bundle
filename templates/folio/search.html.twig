@@ -85,6 +85,7 @@
             {% do app.request.attributes.set('ux_search_placeholder', 'Search ID, title, description, summary, OCR text') %}
             <twig:Survos:Search:Layout
                 :name="searchName|default('folio_row')"
+                :urlRewriting="searchName|default('folio_row') == 'folio_duckdb'"
                 :options="hitOptions"
                 :fixedFilters="fixedFilters"
             />

@@ -57,7 +57,18 @@ final readonly class DuckDbFolioView
         $dtoClass = $this->types->classForType($row->dtoType);
         $dto = $dtoClass::fromNormalized($row->dtoData);
 
+        $facets = [];
+        foreach (\Survos\FolioBundle\Search\FolioDuckDbSearch::declaredFacets($db) as $field) {
+            $value = $row->dtoData[$field['name']] ?? null;
+            if (null === $value || '' === $value || [] === $value) {
+                continue;
+            }
+            $field['values'] = is_array($value) ? $value : [$value];
+            $facets[] = $field;
+        }
+
         return [
+            'facets' => $facets,
             'folio' => $folio, 'core' => $core, 'row' => $row, 'dto' => $dto, 'dtoClass' => $dtoClass,
             'ctx' => (object) ['folioCode' => $folioCode], 'reader' => 'duckdb',
             'dtoJson' => $record['dto_json'],
