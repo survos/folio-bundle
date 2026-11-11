@@ -338,9 +338,11 @@
                                 {% endif %}
                             {% endfor %}
                             {% if pageInfoUrl is null %}
-                                {% guard filter imgproxy %}
+                                {% guard filter folio_image %}
                                     {% set pageImg = page.url|folio_image('thumb') %}
                                     {% set pageHires = page.url|folio_image('archive') %}
+                                {% endguard %}
+                                {% guard filter imgproxy %}
                                     {% set pageInfoUrl = path('survos_imgproxy_info', {url: page.url}) %}
                                 {% endguard %}
                             {% endif %}
@@ -556,7 +558,7 @@
                                                             class="img-fluid rounded border" style="width:100%"></canvas>
                                                 {% else %}
                                                     {% set thumb = page.url %}
-                                                    {% guard filter imgproxy %}
+                                                    {% guard filter folio_image %}
                                                         {% set thumb = page.url|folio_image('thumb') %}
                                                     {% endguard %}
                                                     <img src="{{ thumb }}" alt="p. {{ page.seq }}"
@@ -801,7 +803,7 @@
             {% set firstPage = pages|first %}
             {% if firstPage and firstPage.url %}
                 {% set aspectProbe = firstPage.url %}
-                {% guard filter imgproxy %}{% set aspectProbe = aspectProbe|folio_image('thumb') %}{% endguard %}
+                {% guard filter folio_image %}{% set aspectProbe = aspectProbe|folio_image('thumb') %}{% endguard %}
                 <script>
                     (function () {
                         var probe = {{ aspectProbe|json_encode|raw }};

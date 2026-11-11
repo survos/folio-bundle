@@ -6,7 +6,6 @@ namespace Survos\FolioBundle\Service;
 
 use Survos\FolioBundle\Entity\Core;
 use Survos\FolioBundle\Entity\Folio;
-use Survos\FolioBundle\Entity\Row;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /** Map the DuckDB representation to the existing folio presentation model, without an EntityManager. */
@@ -46,14 +45,7 @@ final readonly class DuckDbFolioView
         }
         $folio = new Folio($folioCode);
         $core = new Core($folio, $coreCode);
-        $row = new Row($core, $record['local_id']);
-        $row->label = $record['label'];
-        $row->dtoType = $record['dto_type'];
-        $row->dtoData = self::normalizedData($record['dto_data']);
-        $row->extras = null === $record['extras'] ? null : self::normalizedData($record['extras']);
-        if ($split) {
-            $row = DuckDbFolioRowMapper::hydrate($folioCode, $coreCode, $record, $pageRows);
-        }
+        $row = DuckDbFolioRowMapper::hydrate($folioCode, $coreCode, $record, $pageRows);
         $dtoClass = $this->types->classForType($row->dtoType);
         $dto = $dtoClass::fromNormalized($row->dtoData);
 
@@ -72,8 +64,15 @@ final readonly class DuckDbFolioView
             'folio' => $folio, 'core' => $core, 'row' => $row, 'dto' => $dto, 'dtoClass' => $dtoClass,
             'ctx' => (object) ['folioCode' => $folioCode], 'reader' => 'duckdb',
             'dtoJson' => $record['dto_json'],
+            'pageTableExists' => true,
+            // These ancillary SQLite-reader panels are not loaded by the DuckDB detail view.
+            'claims' => [], 'aiTaskRuns' => [], 'terms' => [], 'termFields' => [],
+            'links' => [], 'extras' => $row->extras, 'adjacent' => null,
+            'hasUxMap' => class_exists(\Symfony\UX\Map\Map::class),
             'pages' => array_map(static fn (array $page): array => ['url' => $page['url'], 'sourceUrl' => $page['source_url'],
-                'width' => $page['width'], 'height' => $page['height']], $pageRows),
+                'width' => $page['width'], 'height' => $page['height'],
+                'text' => $page['text'], 'layout' => null === $page['layout'] ? null : self::normalizedData($page['layout']),
+                'htr' => $page['htr']], $pageRows),
         ];
     }
 }

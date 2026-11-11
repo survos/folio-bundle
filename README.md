@@ -146,3 +146,11 @@ that require these columns/tables. Rebuild from the existing source folio (or
 the normal scratch-folio build from normalized inputs), not by running ALTER
 against published S3 files. No new OCR, grouping algorithm, or source schema
 migration is required. Consumers must synchronize the new catalog revision.
+
+### DuckDB page OCR
+
+DuckDB detail pages hydrate the existing detached Row/Page model, preserving
+page text, layout, handwriting and dimensions. Records with extracted text use
+the same document viewer and page navigation as other folio readers; image-only
+records retain the compact DuckDB presentation. Image rendering uses
+`folio_image` independently of whether legacy imgproxy IIIF routes are installed.

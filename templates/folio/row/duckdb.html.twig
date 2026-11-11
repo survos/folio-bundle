@@ -2,6 +2,9 @@
 {% extends '@SurvosFolioBundle/folio/row/show.html.twig' %}
 {% block page_subtitle %}{% if tombstoneYear %}<span class="text-secondary small">{{ tombstoneYear }}</span>{% endif %}{% endblock %}
 {% block body %}
+{% if row.pages|filter(p => p.text or p.layout or p.htr)|length %}
+    {{ parent() }}
+{% else %}
 <div class="container-xl pt-1 pb-4" {{ stimulus_controller(survos_stimulus('folio-bundle', 'json-viewer')) }}>
     <div id="duck-item-json" popover class="folio-raw-json">
         <andypf-json-viewer expanded="2" show-toolbar="true" show-copy="true" theme="monokai" data="{{ dtoJson|e('html_attr') }}"></andypf-json-viewer>
@@ -56,4 +59,5 @@
     {% if dto.provenance|default(null) %}<p><strong>Provenance:</strong> {{ dto.provenance }}</p>{% endif %}
     {% if dto.citation|default(null) %}<p><strong>Citation:</strong> {{ dto.citation }}</p>{% endif %}
 </div>
+{% endif %}
 {% endblock %}

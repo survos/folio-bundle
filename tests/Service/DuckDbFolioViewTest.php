@@ -36,13 +36,15 @@ final class DuckDbFolioViewTest extends TestCase
         try {
             $path = $root.'/snapshot.dfolio';
             $db = new \PDO('duckdb:'.$path);
-            $db->exec("CREATE TABLE item (id VARCHAR, core_id VARCHAR, local_id VARCHAR, label VARCHAR, dto_type VARCHAR, dto_data $storageType, extras $storageType)");
-            $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, ?, ?, ?)')->execute([
+            $db->exec("CREATE TABLE item (id VARCHAR, core_id VARCHAR, local_id VARCHAR, label VARCHAR, dto_type VARCHAR, dto_data $storageType, extras $storageType, raw $storageType)");
+            $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 'test/example:obj:42', 'test/example:obj', '42', 'Landscape', 'painting',
-                json_encode([ItemField::ID => '42', 'emptyObject' => (object) [], 'emptyList' => [], ItemField::TITLE => 'Landscape', ItemField::URL => 'https://example.org/42']), null,
+                json_encode([ItemField::ID => '42', 'emptyObject' => (object) [], 'emptyList' => [], ItemField::TITLE => 'Landscape', ItemField::URL => 'https://example.org/42']), null, null,
             ]);
-            $db->exec('CREATE TABLE page (id VARCHAR, row_id VARCHAR, seq INTEGER, url VARCHAR, source_url VARCHAR, width INTEGER, height INTEGER)');
-            $db->exec("INSERT INTO page VALUES ('page-1','test/example:obj:42',1,'https://example.org/image.jpg',NULL,900,600)");
+            $db->exec('CREATE TABLE page (id VARCHAR, row_id VARCHAR, seq INTEGER, url VARCHAR, source_url VARCHAR, width INTEGER, height INTEGER, page_index INTEGER, type VARCHAR, media_id VARCHAR, text VARCHAR, htr VARCHAR, dense_summary VARCHAR, thumb_hash VARCHAR, color VARCHAR, source_checksum VARCHAR, layout VARCHAR, ledger VARCHAR, dialogue VARCHAR)');
+            $db->exec("INSERT INTO page VALUES ('test/example:obj:42#1','test/example:obj:42',1,'https://example.org/image.jpg',NULL,900,600,0,'photo',NULL,'FIRST SIDE',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)");
+            $layout = [['text' => 'SECOND SIDE', 'type' => 'paragraph', 'bbox' => ['x' => 10, 'y' => 20, 'width' => 300, 'height' => 40]]];
+            $db->prepare("INSERT INTO page VALUES ('test/example:obj:42#2','test/example:obj:42',2,'https://example.org/back.jpg',NULL,900,600,0,'photo',NULL,'SECOND SIDE',NULL,NULL,NULL,NULL,NULL,?,NULL,NULL)")->execute([json_encode($layout)]);
             $db->exec('CHECKPOINT');
             $db = null;
             $locator = new LocalDuckDbFolioLocator(new DataPaths($root), ['test/example' => $path]);
@@ -55,6 +57,11 @@ final class DuckDbFolioViewTest extends TestCase
             self::assertStringContainsString('"emptyObject":{}', $data['dtoJson']);
             self::assertStringContainsString('"emptyList":[]', $data['dtoJson']);
             self::assertSame(900, $data['pages'][0]['width']);
+            self::assertCount(2, $data['row']->pages);
+            self::assertSame('FIRST SIDE', $data['row']->pages[0]->text);
+            self::assertSame($layout, $data['row']->pages[1]->layout);
+            self::assertSame($layout, $data['pages'][1]['layout']);
+            self::assertTrue($data['pageTableExists']);
             self::assertFileDoesNotExist($root.'/folio/test/example.folio');
             try {
                 $view->item('test/example', 'obj', "42' OR 1=1 --");
