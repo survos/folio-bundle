@@ -179,6 +179,20 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
         return $this->entries;
     }
 
+    /** SQLite artifacts for explicit archive pulls, separate from the reader catalog/cache. */
+    public function sqliteEntries(): array
+    {
+        if (null === $this->datasets) {
+            return $this->refresh();
+        }
+        $entries = [];
+        foreach ($this->datasets->datasets() as $dataset) {
+            array_push($entries, ...FolioCatalogEntry::fromSqliteDataset($dataset, $this->datasets));
+        }
+
+        return $entries;
+    }
+
     /** Make the candidate catalog visible to the caller, but return a checkpoint only on success. */
     public function synchronize(?array $checkpoint, bool $full, callable $apply): array
     {

@@ -79,7 +79,7 @@ final class FolioPullCommand
     ): int {
         $fts ??= false;
         if (!$hf && !$storage && null === $api && $this->catalog?->usesDatasetApi()) {
-            $entries = $this->catalog->refresh();
+            $entries = $this->catalog->sqliteEntries();
             if (!$all && null === $dataset && null === $provider) {
                 $io->listing(array_map(static fn (FolioCatalogEntry $entry): string => $entry->datasetKey, $entries));
 

@@ -40,9 +40,10 @@ final readonly class FolioCatalogEntry
         public ?string $downloadUrl = null,
         public bool $compressed = false,
         public ?string $revision = null,
-        // The registry artifact this entry was read from (folio or folio_archive); with datasetKey
+        // The registry artifact this entry was read from (duckdb, folio or folio_archive); with datasetKey
         // and artifactCode() it is the variant a publisher receipt names.
         public ?string $artifactType = null,
+        public ?string $publishedArtifactCode = null,
     ) {
     }
 
@@ -80,11 +81,36 @@ final readonly class FolioCatalogEntry
             compressed: (bool) ($row['compressed'] ?? false),
             revision: self::str($row, DatasetField::REVISION),
             artifactType: self::str($row, 'artifactType'),
+            publishedArtifactCode: self::str($row, 'publishedArtifactCode'),
         );
     }
 
-    /** Convert the dataset/artifact relationship once, for every folio consumer. */
+    /** Published reader variants. SQLite artifacts alone do not publish a dataset for browsing. */
     public static function fromDataset(array $dataset, DatasetPublicationClient $client): array
+    {
+        $variants = [];
+        foreach ($dataset[DatasetField::ARTIFACTS] as $artifact) {
+            if (DatasetField::DUCKDB_TYPE !== $artifact[ItemField::TYPE] || !($artifact[DatasetField::AVAILABLE] ?? false)) {
+                continue;
+            }
+            $code = $artifact[DatasetField::CODE];
+            $variant = match (true) {
+                DatasetField::S3_CODE === $code => DatasetField::DEFAULT_CODE,
+                str_starts_with($code, DatasetField::S3_CODE.'.') => substr($code, strlen(DatasetField::S3_CODE) + 1),
+                default => $code,
+            };
+            // A remote and a local copy are one reader variant. Prefer the published
+            // remote copy; its download URL is not a SQLite archive acquisition.
+            if (!isset($variants[$variant]) || null !== ($artifact[DatasetField::REMOTE_URI] ?? null)) {
+                $variants[$variant] = $artifact;
+            }
+        }
+
+        return self::entries($dataset, $variants, $client);
+    }
+
+    /** Explicit SQLite acquisition for archive consumers (including the Unity viewer). */
+    public static function fromSqliteDataset(array $dataset, DatasetPublicationClient $client): array
     {
         $variants = [];
         foreach ($dataset[DatasetField::ARTIFACTS] as $artifact) {
@@ -98,6 +124,12 @@ final readonly class FolioCatalogEntry
                 $variants[$code] = $artifact;
             }
         }
+
+        return self::entries($dataset, $variants, $client);
+    }
+
+    private static function entries(array $dataset, array $variants, DatasetPublicationClient $client): array
+    {
         $entries = [];
         foreach ($variants as $code => $artifact) {
             $url = $artifact[DatasetField::DOWNLOAD_URL];
@@ -108,21 +140,22 @@ final readonly class FolioCatalogEntry
                 description: $dataset[ItemField::DESCRIPTION],
                 locale: DatasetField::DEFAULT_CODE === $code ? null : $code,
                 tags: $dataset[PropertyKey::TAGS], contentType: $dataset[PropertyKey::CONTENT_TYPE],
-                rowCount: $dataset[PropertyKey::ROW_COUNT], sizeBytes: $artifact[DatasetField::SIZE_BYTES],
-                checksum: $artifact[DatasetField::CHECKSUM], updatedAt: $artifact[DatasetField::UPDATED_AT],
+                rowCount: $dataset[PropertyKey::ROW_COUNT], sizeBytes: $artifact[DatasetField::SIZE_BYTES] ?? null,
+                checksum: $artifact[DatasetField::CHECKSUM] ?? null, updatedAt: $artifact[DatasetField::UPDATED_AT] ?? null,
                 downloadUrl: null === $url ? null : $client->downloadUrl($url),
-                compressed: $artifact[DatasetField::COMPRESSED], revision: $artifact[DatasetField::REVISION],
+                compressed: $artifact[DatasetField::COMPRESSED] ?? false, revision: $artifact[DatasetField::REVISION],
                 artifactType: $artifact[ItemField::TYPE],
+                publishedArtifactCode: $artifact[DatasetField::CODE],
             );
         }
 
         return $entries;
     }
 
-    /** The registry artifact code: a locale variant's code, else "default". */
+    /** The original registry artifact code, including remote s3 variants. */
     public function artifactCode(): string
     {
-        return $this->locale ?? DatasetField::DEFAULT_CODE;
+        return $this->publishedArtifactCode ?? $this->locale ?? DatasetField::DEFAULT_CODE;
     }
 
     public function hasTag(string $tag): bool

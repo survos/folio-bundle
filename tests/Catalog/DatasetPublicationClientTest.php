@@ -165,8 +165,8 @@ final class DatasetPublicationClientTest extends TestCase
     {
         return [DatasetField::DATASET_KEY => $key, 'label' => $key, 'description' => null, DatasetField::PROVIDER => explode('/', $key)[0],
             'tags' => [], 'contentType' => null, 'rowCount' => 1, DatasetField::ARTIFACTS => [[
-                'type' => DatasetField::FOLIO_ARCHIVE_TYPE, DatasetField::CODE => DatasetField::DEFAULT_CODE, DatasetField::REVISION => 'r1',
-                DatasetField::CHECKSUM => null, DatasetField::SIZE_BYTES => 1, DatasetField::UPDATED_AT => null, DatasetField::COMPRESSED => true,
+                'type' => DatasetField::DUCKDB_TYPE, DatasetField::AVAILABLE => true, DatasetField::CODE => DatasetField::DEFAULT_CODE, DatasetField::REVISION => 'r1',
+                DatasetField::CHECKSUM => null, DatasetField::SIZE_BYTES => 1, DatasetField::UPDATED_AT => null, DatasetField::COMPRESSED => false,
                 DatasetField::DOWNLOAD_URL => '/api/datasets/'.$key.'/artifacts/1/download?revision=r1',
             ]]];
     }
