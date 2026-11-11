@@ -18,10 +18,6 @@
             {% set viewerHires = viewerHires|merge([image|folio_image('archive')]) %}
         {% endif %}
     {% endfor %}
-    {% if viewerImages is empty and dto.thumbnailUrl %}
-        {% set viewerImages = [dto.thumbnailUrl|folio_image('thumb')] %}
-        {% set viewerHires = [dto.thumbnailUrl|folio_image('archive')] %}
-    {% endif %}
     <div class="row g-4 mb-4">
         <div class="col-lg-8">
             {% if viewerImages is not empty %}
