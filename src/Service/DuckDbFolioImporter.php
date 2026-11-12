@@ -53,7 +53,7 @@ final class DuckDbFolioImporter
                     if (!in_array($name, $have[$table], true) && !$this->isGenerated($sqlite, $table, $name)) {
                         $sqlite->exec(sprintf('ALTER TABLE %s ADD COLUMN %s %s', DuckDbFolioExporter::identifier($table), DuckDbFolioExporter::identifier($name),
                             match (true) {
-                                str_contains($type, 'INT') || 'BOOLEAN' === $type => 'INTEGER', in_array($type, ['DOUBLE', 'FLOAT'], true) => 'REAL', default => 'TEXT'
+                                str_contains($type, 'INT') || 'BOOLEAN' === $type => 'INTEGER', in_array($type, ['DOUBLE', 'FLOAT'], true) => 'REAL', default => 'TEXT',
                             }));
                         $have[$table][] = $name;
                     }
