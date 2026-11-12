@@ -42,6 +42,7 @@
         "symfony/lock": "^8.1"
     },
     "suggest": {
+        "twig/markdown-extra": "Renders chat answers as Markdown (guarded in the chat templates); without it they are shown as plain escaped text. Also needs league/commonmark.",
         "survos/duckdb-bundle": "Pool opened DuckDB files across a request or worker lifetime and show them in the profiler.",
         "ext-pdo_duckdb": "Build optional local DuckDB 2.0 analytical snapshots from explicit JSONL inputs.",
         "survos/imgproxy-bundle": "Image backend for |folio_image and the API thumbnails (or imagor-bundle); without one, source URLs are used as-is.",

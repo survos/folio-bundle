@@ -140,7 +140,7 @@
                                                 <strong>Scholar</strong>
                                             </div>
                                             <template data-folio-chat-copy-source {{ stimulus_target(chatController, 'source') }}>{{ turn.answer }}</template>
-                                            <div class="prose" data-folio-chat-copy-content {{ stimulus_target(chatController, 'content') }}>{{ turn.answer|markdown_to_html }}</div>
+                                            <div class="prose" data-folio-chat-copy-content {{ stimulus_target(chatController, 'content') }}>{% guard filter markdown_to_html %}{{ turn.answer|markdown_to_html }}{% else %}{{ turn.answer|nl2br }}{% endguard %}</div>
                                             {% if app.debug and turn.error|default(null) %}
                                                 <div class="alert alert-warning mt-3 mb-0">
                                                     <div class="fw-semibold mb-1">Scholar diagnostic</div>

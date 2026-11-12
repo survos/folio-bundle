@@ -150,7 +150,7 @@
                         <div data-folio-chat-copy-root>
                             <template data-folio-chat-copy-source {{ stimulus_target(chatController, 'source') }}>{{ result.answer }}</template>
                             <div class="markdown folio-answer fs-5" data-folio-chat-copy-content {{ stimulus_target(chatController, 'content') }}>
-                                {{ result.answer|markdown_to_html }}
+                                {% guard filter markdown_to_html %}{{ result.answer|markdown_to_html }}{% else %}{{ result.answer|nl2br }}{% endguard %}
                             </div>
                             <div class="mt-2">
                                 <button
