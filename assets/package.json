@@ -72,6 +72,12 @@
         "enabled": true,
         "fetch": "lazy",
         "autoimport": []
+      },
+      "map-link": {
+        "main": "controllers/map_link_controller.js",
+        "enabled": true,
+        "fetch": "eager",
+        "autoimport": []
       }
     },
     "importmap": {

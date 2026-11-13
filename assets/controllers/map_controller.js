@@ -69,14 +69,14 @@ export default class extends Controller {
         })[char]);
     }
 
-    popupHtml({ id, label, city, thumbnailUrl, year }) {
+    popupHtml({ id, label, city, thumbnailUrl, year, url: itemUrl }) {
         const thumb = thumbnailUrl ? `<img src="${thumbnailUrl}" alt="">` : '';
         const caption = `<strong>${this.escapeHtml(label)}</strong>${year ? ` (${year})` : ''}`;
         const place = city ? `<div class="folio-map-popup-place">${this.escapeHtml(city)}</div>` : '';
-        const url = this.rowUrl(id);
+        const url = itemUrl || this.rowUrl(id);
         const body = `${thumb}${caption}${place}`;
 
-        return `<div class="folio-map-popup">${url ? `<a href="${url}">${body}</a>` : body}</div>`;
+        return `<div class="folio-map-popup">${url ? `<a href="${this.escapeHtml(url)}">${body}</a>` : body}</div>`;
     }
 
     markerFor(feature) {
@@ -89,7 +89,7 @@ export default class extends Controller {
         const marker = L.marker([lat, lng], {
             icon: L.divIcon({ html: '<div class="folio-map-marker"></div>', className: '', iconSize: [16, 16] }),
         });
-        marker.bindPopup(this.popupHtml({ id, label, city, thumbnailUrl, year }));
+        marker.bindPopup(this.popupHtml(feature.properties));
 
         return marker;
     }

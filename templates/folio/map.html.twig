@@ -30,8 +30,8 @@
            generated with a dummy zoom=0 and then has that trailing "/0" sliced off -- the JS
            controller just appends "/{zoom}" itself on every fetch, whatever the current zoom is. #}
         {% set geojsonUrlBase = (filter
-            ? path('survos_folio_map_geojson_filtered', {folioCode: folio.code, filter: filter, zoom: 0})
-            : path('survos_folio_map_geojson', {folioCode: folio.code, zoom: 0})
+            ? path(geojsonFilteredRoute|default('survos_folio_map_geojson_filtered'), {folioCode: folio.code, filter: filter, zoom: 0})
+            : path(geojsonRoute|default('survos_folio_map_geojson'), {folioCode: folio.code, zoom: 0})
         )|slice(0, -2) %}
         {% guard function ux_map %}
         {{ ux_map(center: [20, 0], zoom: 2, attributes: stimulus_controller(controllerName, {geojsonUrl: geojsonUrlBase, rowUrlTemplate: rowUrlTemplate, slideshowBaseUrl: slideshowBaseUrl|default('')})|merge({

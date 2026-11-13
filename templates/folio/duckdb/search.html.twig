@@ -1,6 +1,14 @@
 {% extends '@SurvosFolioBundle/folio/search.html.twig' %}
 {% set searchName = 'folio_duckdb' %}
 {% block folio_search_header %}
-    <div class="container-xl py-3"><h1>Search {{ folioLabel }}</h1></div>
+    <div class="container-xl py-3"><h1>Search {{ folioLabel }}</h1>
+        {% if hasCoordinates %}
+            {% set mapBase = path('survos_folio_duckdb_map', {folioCode: folio.code}) %}
+            {% set token = slideshow_filter(app.request.query.all) %}
+            <a class="btn btn-sm btn-outline-primary" href="{{ token ? mapBase ~ '/' ~ token : mapBase }}"
+               {{ stimulus_controller(survos_stimulus('folio-bundle', 'map-link'), {base: mapBase}) }}>
+                {{ ux_icon('tabler:map-2', {class: 'icon me-1'}) }} Map
+            </a>
+        {% endif %}</div>
 {% endblock %}
 {% block folio_search_styles %}{% endblock %}

@@ -439,6 +439,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $services->alias(Service\DuckDbFolioLocatorInterface::class, Service\LocalDuckDbFolioLocator::class);
         $services->set(Service\DuckDbFolioConnection::class)->autowire()->autoconfigure()->arg('$enabled', $config['duckdb_browse']);
         $services->set(Service\DuckDbFolioView::class)->autowire();
+        $services->set(Service\DuckDbFolioMap::class)->autowire();
         $services->set(Search\FolioDuckDbSearch::class)->autowire()->autoconfigure()->public();
 
         foreach ([Service\FolioMigrator::class, FolioMigrateCommand::class, FolioInfoCommand::class, FolioBrowseCommand::class, FolioFtsRebuildCommand::class, FolioRestoreCommand::class, FolioPublishCommand::class, FolioPullCommand::class, FolioDtoTypeResolver::class] as $class) {
