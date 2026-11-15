@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Twig\Components;
 
 use Survos\FolioBundle\Entity\Row;
+use Survos\FolioBundle\Service\FolioService;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\HttpClient\Exception\ExceptionInterface as HttpClientExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -74,6 +75,7 @@ final class PhotoGrid
     public function __construct(
         private readonly UrlGeneratorInterface $urlGenerator,
         private readonly ?HttpClientInterface $httpClient = null,
+        private readonly ?FolioService $folios = null,
     ) {
     }
 
@@ -138,6 +140,13 @@ final class PhotoGrid
         }
 
         if (null === $this->httpClient || null === $this->endpoint) {
+            return $this->items = [];
+        }
+
+        // A folio read in place over S3 pays a network round trip per page it touches, and this self-request opens it
+        // a second time, cold, inside the same page load (measured 2.5 s of a 6.8 s page). Leave page 1 to the browser,
+        // which starts the grid at page 1 when nothing was server-rendered (see PhotoGrid.html.twig).
+        if (true === $this->folios?->remoteActive) {
             return $this->items = [];
         }
 

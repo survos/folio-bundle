@@ -404,7 +404,8 @@ final class FolioService
             return $em;
         }
 
-        $remote = $this->remote?->locate($folioCode, $locale);
+        // A folio being built is written to its local .building file; never swap in the published copy (read-only) mid-build.
+        $remote = isset($this->buildPaths[$this->buildKey($folioCode, $locale)]) ? null : $this->remote?->locate($folioCode, $locale);
         $target = $remote['url'] ?? $this->path($folioCode, locale: $locale);
         if (null === $remote && !is_file($target)) {
             throw new FolioNotFoundException($folioCode, $target);
