@@ -31,7 +31,7 @@ final class DuckDbRenditionTest extends TestCase
         $insert = $source->prepare('INSERT INTO item VALUES (?,?,?,?,?,?,?)');
         foreach (['one', 'two'] as $issue) {
             $insert->execute(['news/test:doc:'.$issue, $issue, 'news/test:doc', 'newspaper', json_encode(['id' => $issue, 'title' => '新聞 '.$issue]), json_encode(['pageAssets' => [['pageIndex' => 0, 'width' => 1000, 'height' => 2000]], 'textsheetGrouping' => ['pages' => [['analysis' => ['columnCenters' => [12, 30], 'mastheadRegion' => [0, 0, 100, 20]], 'groups' => [['blockIds' => ['B1']]]]]]]), null]);
-            $insert->execute(['news/test:article:'.$issue.'-a', $issue.'-a', 'news/test:article', 'newspaper', json_encode(['id' => $issue.'-a', 'ocrText' => 'Exact body text']), json_encode(['issueId' => $issue, 'segments' => [['id' => 's1', 'anchors' => [['page' => 0, 'sourceBlockId' => 'B1', 'box' => [10, 20, 30, 40]]]]]]), null]);
+            $insert->execute(['news/test:article:'.$issue.'-a', $issue.'-a', 'news/test:article', 'newspaper', json_encode(['id' => $issue.'-a', 'issueId' => $issue, 'ocrText' => 'Exact body text']), json_encode(['segments' => [['id' => 's1', 'anchors' => [['page' => 0, 'sourceBlockId' => 'B1', 'box' => [10, 20, 30, 40]]]]]]), null]);
             $source->prepare('INSERT INTO link VALUES (?,?,?,?)')->execute([$issue.'-a', 'article', $issue, 'doc']);
             $source->prepare('INSERT INTO page VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')->execute(['news/test:doc:'.$issue.'#1', 'news/test:doc:'.$issue, 1, 0, 1000, 2000, 'https://images.test/'.$issue, null, json_encode(['blocks' => [['id' => 'B1', 'bbox' => ['x' => 10, 'y' => 20, 'width' => 30, 'height' => 40], 'text' => 'Exact source', 'lines' => [['bbox' => [10, 20, 30, 10], 'words' => [['text' => 'Exact', 'bbox' => [10, 20, 10, 10]]]]]]]]), null, null, 'Exact source']);
         }
@@ -101,6 +101,24 @@ final class DuckDbRenditionTest extends TestCase
             }
             self::assertSame('B1', $rend->query('SELECT substr(id,3) FROM block WHERE issue = '.$rend->quote($issue))->fetchColumn());
         }
+    }
+
+    public function testALocalDfolioReadsTheRendBesideIt(): void
+    {
+        $target = $this->export();
+        $db = (new DuckDbFolioReader())->open($target);
+        $reader = new DuckDbRenditionReader(new DuckDbFolioReader());
+        // The dfolio records the address its rend was published at; a local copy does not depend on it.
+        self::assertStringStartsWith('s3://', $db->query('SELECT uri FROM _renditions LIMIT 1')->fetchColumn());
+        $ref = $reader->reference($db, $target, 'one');
+        self::assertSame(dirname($target).'/source.drend', $ref['uri']);
+        $rend = $reader->open($db, $target, 'one');
+        self::assertSame('B1', $rend->query("SELECT substr(id,3) FROM block WHERE issue = 'one'")->fetchColumn());
+        $rend = null;
+        $reader = new DuckDbRenditionReader(new DuckDbFolioReader());
+        rename(dirname($target).'/source.drend', dirname($target).'/elsewhere.drend');
+        $this->expectException(\UnexpectedValueException::class);
+        $reader->reference($db, $target, 'one');
     }
 
     public function testSavedGroupingIsExportedAsTypedTablesSortedByIssue(): void

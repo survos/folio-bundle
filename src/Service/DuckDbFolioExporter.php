@@ -228,6 +228,13 @@ final class DuckDbFolioExporter
                 }
                 $counts['dto.'.$type] = (int) $db->query('SELECT count(*) FROM '.$table)->fetchColumn();
             }
+            // A detail page reads one item and its pages. Zone maps keep the first 8 bytes of a string and every id starts
+            // with the folio code, so without a key the lookup scans the whole column. Added after the load, so that
+            // the key is built once instead of checked for every batch.
+            $db->exec('ALTER TABLE item ADD PRIMARY KEY (id)');
+            if ((bool) $db->query("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'main' AND table_name = 'page' AND column_name = 'row_id'")->fetchColumn()) {
+                $db->exec('CREATE INDEX page_row_id ON page (row_id)');
+            }
             $db->commit();
             $db->exec('CHECKPOINT');
             $db = null;

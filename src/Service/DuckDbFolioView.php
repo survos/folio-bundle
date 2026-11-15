@@ -6,6 +6,7 @@ namespace Survos\FolioBundle\Service;
 
 use Survos\FolioBundle\Entity\Core;
 use Survos\FolioBundle\Entity\Folio;
+use Survos\FolioBundle\Entity\Row;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /** Map the DuckDB representation to the existing folio presentation model, without an EntityManager. */
@@ -26,30 +27,26 @@ final readonly class DuckDbFolioView
         return $data;
     }
 
-    /**
-     * A newspaper record's issue id. DocumentDto declares issueId, so a folio built since data-contracts 2.45.48
-     * keeps it in dto_data; folios built before that kept it in extras. Read both.
-     */
+    /** A newspaper record's issue id. DocumentDto declares issueId, so it is in dto_data; a folio that has it only in extras must be rebuilt. */
     public static function issueIdOf(array $record): string
     {
-        foreach (['dto_data', 'dto_json', 'extras'] as $column) {
-            if (!isset($record[$column])) {
-                continue;
-            }
-            $id = self::normalizedData($record[$column])['issueId'] ?? null;
-            if (is_string($id) && '' !== $id) {
-                return $id;
-            }
+        $id = self::normalizedData($record['dto_data'] ?? $record['dto_json'] ?? '{}')['issueId'] ?? null;
+        if (!is_string($id) || '' === $id) {
+            throw new \UnexpectedValueException(sprintf('Record %s has no issueId in dto_data. Rebuild this folio.', $record['id'] ?? '?'));
         }
 
-        throw new \UnexpectedValueException(sprintf('Record %s has no issueId in dto_data or extras.', $record['id'] ?? '?'));
+        return $id;
     }
 
     public function item(string $folioCode, string $coreCode, string $localId): array
     {
         $db = $this->connection->connect(['folioCode' => $folioCode]);
-        $statement = $db->prepare('SELECT *, CAST(dto_data AS VARCHAR) AS dto_json FROM item WHERE core_id = ? AND local_id = ?');
-        $statement->execute([$folioCode.':'.$coreCode, $localId]);
+        // Without the key this lookup scans the id column of the whole folio. Refuse the file instead of serving it slowly.
+        if (!(bool) $db->query("SELECT count(*) FROM duckdb_constraints() WHERE schema_name = 'main' AND table_name = 'item' AND constraint_type = 'PRIMARY KEY'")->fetchColumn()) {
+            throw new \RuntimeException(sprintf('The dfolio of %s has no primary key on item. Export it again.', $folioCode));
+        }
+        $statement = $db->prepare('SELECT *, CAST(dto_data AS VARCHAR) AS dto_json FROM item WHERE id = ?');
+        $statement->execute([Row::id($folioCode.':'.$coreCode, $localId)]);
         $record = $statement->fetch(\PDO::FETCH_ASSOC);
         if (false === $record) {
             throw new NotFoundHttpException('Item not found in this folio working copy.');
@@ -69,7 +66,7 @@ final readonly class DuckDbFolioView
         $dto = $dtoClass::fromNormalized($row->dtoData);
 
         $facets = [];
-        foreach (\Survos\FolioBundle\Search\FolioDuckDbSearch::declaredFacets($db) as $field) {
+        foreach (\Survos\FolioBundle\Search\FolioDuckDbSearch::declaredFields($db) as $field) {
             $value = $row->dtoData[$field['name']] ?? null;
             if (null === $value || '' === $value || [] === $value) {
                 continue;

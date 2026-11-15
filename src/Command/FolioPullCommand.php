@@ -44,10 +44,11 @@ final class FolioPullCommand
         private readonly bool $localPassthrough = false,
         private readonly ?LoggerInterface $logger = null,
         private readonly ?FolioCatalogClient $catalog = null,
+        private readonly ?\Survos\FolioBundle\Service\FolioSnapshotPuller $snapshots = null,
     ) {
     }
 
-    #[AsCommand('folio:pull', 'Download folio archives from the folio_archive storage (or Hugging Face) and inflate')]
+    #[AsCommand('folio:pull', 'Download a dfolio; use --archive to download and expand a SQLite archive')]
     public function __invoke(
         SymfonyStyle $io,
 
@@ -76,7 +77,47 @@ final class FolioPullCommand
 
         #[Option('Hugging Face dataset repo (with --hf)')]
         string $repo = 'museado/folios',
+
+        #[Option('Download and expand the SQLite archive instead of the reader dfolio')]
+        bool $archive = false,
     ): int {
+        if (!$archive) {
+            if ($hf || $storage || null !== $api || $fts) {
+                $io->error('--hf, --storage, --api and --fts select archive operations; supply --archive explicitly.');
+
+                return Command::INVALID;
+            }
+            if (null === $this->snapshots) {
+                $io->error('No dfolio pull service configured.');
+
+                return Command::FAILURE;
+            }
+            if (null === $this->catalog) {
+                $io->error('Configure the Harvest dataset API before pulling dfolios.');
+
+                return Command::FAILURE;
+            }
+            $entries = array_values(array_filter($this->catalog->refresh(), static fn (FolioCatalogEntry $entry): bool => null === $entry->locale && (null === $dataset || $entry->datasetKey === $dataset)
+                && (null === $provider || $entry->provider === $provider)));
+            $codes = array_map(static fn (FolioCatalogEntry $entry): string => $entry->datasetKey, $entries);
+            if (null === $dataset && null === $provider && !$all) {
+                $io->listing($codes);
+
+                return Command::SUCCESS;
+            }
+            if ([] === $codes) {
+                $io->error('No matching dfolios found.');
+
+                return Command::FAILURE;
+            }
+            foreach ($entries as $entry) {
+                $io->text('Pulling '.$entry->datasetKey.' from the published catalog artifact…');
+                $result = $this->snapshots->pull($entry, $force);
+                $io->text(sprintf('%s: %s (%s)', $entry->datasetKey, $result['path'], $result['source']));
+            }
+
+            return Command::SUCCESS;
+        }
         $fts ??= false;
         if (!$hf && !$storage && null === $api && $this->catalog?->usesDatasetApi()) {
             $entries = $this->catalog->sqliteEntries();

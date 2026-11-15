@@ -141,12 +141,19 @@ final class FolioSearchProjector
                 'attrs' => $attrs,
             ];
             if (self::FAMILY_TEXT === $family) {
-                $issueId = self::str($extras['issueId'] ?? null);
+                // DocumentDto declares these three, so they are in dto_data. A folio that has them only in extras was
+                // built before that and would index without its issue: refuse it.
+                foreach (['issueId', 'articleTier', 'recordKind'] as $declared) {
+                    if (!isset($data[$declared]) && isset($extras[$declared])) {
+                        throw new \UnexpectedValueException(sprintf('"%s" is in extras but not in dto_data on %s. Rebuild this folio.', $declared, $rowId));
+                    }
+                }
+                $issueId = self::str($data['issueId'] ?? null);
                 $doc += [
                     'parentRowId' => null !== $issueId ? $folioCode.':doc:'.$issueId : null,
                     'issueId' => $issueId,
-                    'articleTier' => self::str($extras['articleTier'] ?? null),
-                    'recordKind' => self::str($extras['recordKind'] ?? null),
+                    'articleTier' => self::str($data['articleTier'] ?? null),
+                    'recordKind' => self::str($data['recordKind'] ?? null),
                     'pageSeq' => is_numeric($extras['pdfPage'] ?? null) ? (int) $extras['pdfPage'] : null,
                 ];
             }

@@ -36,7 +36,7 @@ final class DuckDbFolioViewTest extends TestCase
         try {
             $path = $root.'/snapshot.dfolio';
             $db = new \PDO('duckdb:'.$path);
-            $db->exec("CREATE TABLE item (id VARCHAR, core_id VARCHAR, local_id VARCHAR, label VARCHAR, dto_type VARCHAR, dto_data $storageType, extras $storageType, raw $storageType)");
+            $db->exec("CREATE TABLE item (id VARCHAR PRIMARY KEY, core_id VARCHAR, local_id VARCHAR, label VARCHAR, dto_type VARCHAR, dto_data $storageType, extras $storageType, raw $storageType)");
             $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([
                 'test/example:obj:42', 'test/example:obj', '42', 'Landscape', 'painting',
                 json_encode([ItemField::ID => '42', 'emptyObject' => (object) [], 'emptyList' => [], ItemField::TITLE => 'Landscape', ItemField::URL => 'https://example.org/42']), null, null,
@@ -78,6 +78,30 @@ final class DuckDbFolioViewTest extends TestCase
             $readOnly->exec('DELETE FROM item');
         } finally {
             $readOnly = null;
+            $fs->remove($root);
+        }
+    }
+
+    public function testADfolioWithoutTheItemKeyIsRefused(): void
+    {
+        if (!in_array('duckdb', \PDO::getAvailableDrivers(), true)) {
+            self::markTestSkipped('Native PDO DuckDB required.');
+        }
+        $root = sys_get_temp_dir().'/folio-duck-view-'.bin2hex(random_bytes(6));
+        $fs = new Filesystem();
+        $fs->mkdir($root);
+        try {
+            $path = $root.'/snapshot.dfolio';
+            $db = new \PDO('duckdb:'.$path);
+            $db->exec('CREATE TABLE item (id VARCHAR, core_id VARCHAR, local_id VARCHAR, label VARCHAR, dto_type VARCHAR, dto_data VARCHAR, extras VARCHAR, raw VARCHAR)');
+            $db->exec("INSERT INTO item VALUES ('test/example:obj:42', 'test/example:obj', '42', 'Landscape', 'painting', '{}', NULL, NULL)");
+            $db->exec('CHECKPOINT');
+            $db = null;
+            $view = new DuckDbFolioView(new DuckDbFolioConnection(new LocalDuckDbFolioLocator(new DataPaths($root), ['test/example' => $path]), new DuckDbFolioReader(), true), new FolioDtoTypeResolver());
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('has no primary key on item');
+            $view->item('test/example', 'obj', '42');
+        } finally {
             $fs->remove($root);
         }
     }

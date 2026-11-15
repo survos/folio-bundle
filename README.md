@@ -63,7 +63,7 @@ schema auto-migration/folio-row creation and avoids WAL mode changes. Publish a 
 checkpointed folio before sharing; the reader will not upgrade it. Explicit archive restore
 and inflate commands still write their selected local targets.
 
-`archive_api_prefix` defaults to `/folio` and controls `folio:pull` listing/fallback download
+`archive_api_prefix` defaults to `/folio` and controls `folio:pull --archive` listing/fallback download
 URLs independently of this app's `route_prefix` or a remote `/f` browse prefix. Download URLs
 returned by the catalog remain authoritative. `local_passthrough: true` skips already-present
 shared folios even with `--force`.
@@ -154,3 +154,9 @@ page text, layout, handwriting and dimensions. Records with extracted text use
 the same document viewer and page navigation as other folio readers; image-only
 records retain the compact DuckDB presentation. Image rendering uses
 `folio_image` independently of whether legacy imgproxy IIIF routes are installed.
+
+## Downloading reader snapshots
+
+`folio:pull --dataset=provider/code` now downloads a dfolio from the Harvest catalog,
+using the local Flysystem source first. SQLite download and expansion requires
+`--archive`. See [pull configuration and migration notes](docs/folio-pull.md).

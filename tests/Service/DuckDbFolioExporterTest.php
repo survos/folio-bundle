@@ -55,6 +55,19 @@ final class DuckDbFolioExporterTest extends TestCase
         $db->exec('DELETE FROM item');
     }
 
+    public function testItemHasAPrimaryKeyAndPagesAreIndexedByRow(): void
+    {
+        $source = new \PDO('sqlite:'.$this->dir.'/fixture.folio');
+        $source->exec("ALTER TABLE page ADD COLUMN row_id TEXT; UPDATE page SET row_id = 'fixture:obj:001'");
+        $source = null;
+        $result = (new DuckDbFolioExporter())->export($this->dir.'/fixture.folio', $this->dir.'/fixture.dfolio');
+        $db = (new DuckDbCompanion($result['path'], 'build-a', 1))->open();
+        self::assertSame('[id]', $db->query("SELECT constraint_column_names::VARCHAR FROM duckdb_constraints() WHERE table_name = 'item' AND constraint_type = 'PRIMARY KEY'")->fetchColumn());
+        self::assertSame(1, (int) $db->query("SELECT count(*) FROM duckdb_indexes() WHERE table_name = 'page' AND expressions::VARCHAR = '[row_id]'")->fetchColumn());
+        self::assertSame('p1', $db->query("SELECT id FROM page WHERE row_id = 'fixture:obj:001'")->fetchColumn());
+        self::assertTrue((new DuckDbFolioComparator())->compare($this->dir.'/fixture.folio', $result['path'])['matched']);
+    }
+
     public function testMemoryLimitEnvIsValidatedAndLeavesNoSpillBehind(): void
     {
         putenv('DUCKDB_MEMORY_LIMIT=1GB');

@@ -74,12 +74,12 @@ curl https://museado.org/folio/list.json
 curl -H 'Accept: application/json' https://museado.org/api/dataset_infos?aggregator=loc
 ```
 
-Then pull what you want. `folio:pull --api` reads that catalog, downloads each archive, and inflates
+Then pull what you want. `folio:pull --archive --api` reads that catalog, downloads each archive, and inflates
 it locally — no registry involved:
 
 ```bash
-bin/console folio:pull --dataset=loc/voices-remembering-slavery --api=https://museado.org
-bin/console folio:pull --provider=loc --api=https://museado.org
+bin/console folio:pull --dataset=loc/voices-remembering-slavery --archive --api=https://museado.org
+bin/console folio:pull --provider=loc --archive --api=https://museado.org
 ```
 
 `folio:pull` never writes to the dataset registry, whether or not one is present: Harvest alone

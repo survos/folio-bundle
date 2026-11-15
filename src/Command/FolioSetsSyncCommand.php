@@ -149,7 +149,7 @@ final class FolioSetsSyncCommand
         }
 
         try {
-            $exit = $this->pull->__invoke($io, dataset: $key, force: $force);
+            $exit = $this->pull->__invoke($io, dataset: $key, force: $force, archive: true);
             if (Command::SUCCESS !== $exit) {
                 $io->warning(sprintf('%s: folio:pull exited with %d.', $key, $exit));
             }

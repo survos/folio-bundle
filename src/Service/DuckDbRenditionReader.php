@@ -47,11 +47,16 @@ final class DuckDbRenditionReader
         $statement = $folio->prepare('SELECT * FROM _renditions WHERE issue_id = ?');
         $statement->execute([$issueId]);
         $ref = $statement->fetch(\PDO::FETCH_ASSOC);
+        // A dfolio records the address its rend was published at. A local copy reads the rend beside it instead;
+        // validateIssue() then checks that the file belongs to this build.
+        $uri = self::rendUri($folioUri);
+        $local = !str_contains($folioUri, '://');
         if (!$ref || !preg_match('~^[A-Za-z0-9._-]+$~D', $issueId) || '..' === $issueId
-            || $ref['uri'] !== self::rendUri($folioUri)
+            || ($local ? !is_file($uri) : $ref['uri'] !== $uri)
             || $ref['build_id'] !== $folio->query('SELECT build_id FROM _folio_build')->fetchColumn()) {
             throw new \UnexpectedValueException('Missing or mismatched pinned newspaper rendition.');
         }
+        $ref['uri'] = $uri;
 
         return $ref;
     }
@@ -64,6 +69,7 @@ final class DuckDbRenditionReader
     {
         $ref = $this->reference($folio, $folioUri, $issueId);
         $uri = $ref['uri'];
+        $s3 = str_contains($uri, '://') ? $s3 : null;
         $key = 'drend|'.$uri.'|'.($s3->host ?? '');
         if (null !== $this->pool) {
             $db = $this->pool->remember($key,

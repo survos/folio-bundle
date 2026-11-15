@@ -235,8 +235,8 @@ final class FolioSearchIndexTest extends TestCase
         $insert->execute([$code.':doc:i1', 'i1', 'January 1, 1953', 'newspaper', json_encode(['date' => '1953-01-01']), null, $code.':doc']);
         foreach (['i1-a1' => 'Tractor for sale', 'i1-a2' => 'Church supper'] as $localId => $title) {
             $insert->execute([$code.':article:'.$localId, $localId, $title, 'document',
-                json_encode(['date' => '1953-01-01', 'state' => 'Virginia', 'rights' => 'CC 0', 'ocrText' => strtolower($title).' tractor']),
-                json_encode(['issueId' => 'i1', 'articleTier' => 'block', 'recordKind' => 'advertisement', 'pdfPage' => 1]), $code.':article']);
+                json_encode(['date' => '1953-01-01', 'state' => 'Virginia', 'rights' => 'CC 0', 'ocrText' => strtolower($title).' tractor', 'issueId' => 'i1', 'articleTier' => 'block', 'recordKind' => 'advertisement']),
+                json_encode(['pdfPage' => 1]), $code.':article']);
             $db->prepare('INSERT INTO page VALUES (?, ?, 2, ?, ?)')->execute([$code.':article:'.$localId.'#2', $code.':article:'.$localId, 'scan', 's3://bucket/'.$localId.'-2.jpg']);
             $db->prepare('INSERT INTO page VALUES (?, ?, 1, ?, ?)')->execute([$code.':article:'.$localId.'#1', $code.':article:'.$localId, 'scan', 's3://bucket/'.$localId.'-1.jpg']);
             $db->prepare('INSERT INTO link VALUES (?, ?, ?, ?)')->execute(['article', $localId, 'doc', 'i1']);

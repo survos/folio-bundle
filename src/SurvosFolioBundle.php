@@ -291,6 +291,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
         $builder->setParameter('survos_folio.local_passthrough', $config['local_passthrough']);
         $builder->setParameter('survos_folio.data_dir', $config['data_dir']);
         $services = $container->services();
+        $services->set(Service\FolioSnapshotPuller::class)->autowire();
 
         // The one hub-catalog reader (src/Catalog). Registered unconditionally: it is HTTP only,
         // needs no registry, and replacing each app's own copy is the point of it existing.

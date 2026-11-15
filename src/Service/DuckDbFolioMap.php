@@ -35,7 +35,8 @@ final readonly class DuckDbFolioMap
     public function features(string $folioCode, array $source, string $bbox = ''): array
     {
         $search = new FolioDuckDbSearch($this->vectors, $this->connection);
-        $search->create(['folioCode' => $folioCode]);
+        // The coordinate scope below is written over item.dto_data.
+        $search->create(['folioCode' => $folioCode, 'itemSource' => true]);
         $parameters = $search->getAdapterParameters();
         $parameters['where'] = self::COORDINATES;
         $parts = explode(',', $bbox);
