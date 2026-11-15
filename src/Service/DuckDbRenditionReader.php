@@ -5,14 +5,30 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\FolioBundle\Dto\DuckDbS3Configuration;
+use Survos\FolioBundle\Event\FolioPublicationChangedEvent;
+use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 
-/** Resolve only the immutable rendition pinned by the selected folio revision. */
+/** Resolve the stable rendition address and validate it against the selected folio build. */
 final class DuckDbRenditionReader
 {
     private array $open = [];
+    /** @var \WeakMap<\PDO, array{string, string}> */
+    private \WeakMap $pooledPaths;
+
+    #[AsEventListener]
+    public function invalidate(FolioPublicationChangedEvent $event): void
+    {
+        foreach ($this->pooledPaths as $db => [$key, $path]) {
+            if ($event->affects($path)) {
+                $this->pool?->forget($key);
+                unset($this->open[$key], $this->pooledPaths[$db]);
+            }
+        }
+    }
 
     public function __construct(private readonly DuckDbFolioReader $reader, private readonly ?\Survos\DuckDbBundle\ConnectionPool $pool = null)
     {
+        $this->pooledPaths = new \WeakMap();
     }
 
     /** The paper's rendition sits beside its dfolio: <folioCode>.dfolio (or <folioCode>.<language>.dfolio) -> <folioCode>.drend. */
@@ -62,6 +78,7 @@ final class DuckDbRenditionReader
             }
             $db = $this->open[$key]['db'];
         }
+        $this->pooledPaths[$db] = [$key, $uri];
         $this->validateIssue($db, $issueId, $ref['build_id']);
 
         return $db;

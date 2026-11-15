@@ -23,11 +23,11 @@ final class DuckDbFolioComparator
         $restore = static function (string $table, array $row, array $expected) use ($sqlite, $refs, $openRend, &$activeIssue, &$patches): array {
             $item = $expected;
             if ('page' === $table) {
-                $stmt = $sqlite->prepare('SELECT core_id, local_id, extras FROM item WHERE id = ?');
+                $stmt = $sqlite->prepare('SELECT core_id, local_id, extras, dto_data FROM item WHERE id = ?');
                 $stmt->execute([$expected['row_id']]);
                 $item = $stmt->fetch(\PDO::FETCH_ASSOC);
             }
-            $issue = str_ends_with($item['core_id'], ':doc') ? $item['local_id'] : json_decode($item['extras'], true, flags: JSON_THROW_ON_ERROR)['issueId'];
+            $issue = str_ends_with($item['core_id'], ':doc') ? $item['local_id'] : DuckDbFolioView::issueIdOf($item);
             if ($activeIssue !== $issue) {
                 $ref = $refs[$issue] ?? throw new \RuntimeException('Missing issue rendition.');
                 $rend = $openRend(['issue_id' => $issue] + $ref);

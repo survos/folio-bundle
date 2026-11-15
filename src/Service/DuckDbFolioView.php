@@ -26,6 +26,25 @@ final readonly class DuckDbFolioView
         return $data;
     }
 
+    /**
+     * A newspaper record's issue id. DocumentDto declares issueId, so a folio built since data-contracts 2.45.48
+     * keeps it in dto_data; folios built before that kept it in extras. Read both.
+     */
+    public static function issueIdOf(array $record): string
+    {
+        foreach (['dto_data', 'dto_json', 'extras'] as $column) {
+            if (!isset($record[$column])) {
+                continue;
+            }
+            $id = self::normalizedData($record[$column])['issueId'] ?? null;
+            if (is_string($id) && '' !== $id) {
+                return $id;
+            }
+        }
+
+        throw new \UnexpectedValueException(sprintf('Record %s has no issueId in dto_data or extras.', $record['id'] ?? '?'));
+    }
+
     public function item(string $folioCode, string $coreCode, string $localId): array
     {
         $db = $this->connection->connect(['folioCode' => $folioCode]);
@@ -40,7 +59,7 @@ final readonly class DuckDbFolioView
         $pageRows = $pagesQuery->fetchAll(\PDO::FETCH_ASSOC);
         $split = (bool) $db->query("SELECT count(*) FROM information_schema.tables WHERE table_name = '_renditions'")->fetchColumn();
         if ($split) {
-            $issueId = 'doc' === $coreCode ? $localId : self::normalizedData($record['extras'])['issueId'];
+            $issueId = 'doc' === $coreCode ? $localId : self::issueIdOf($record);
             [$record, $pageRows] = $this->connection->restoreNewspaper($db, $folioCode, $issueId, $record, $pageRows);
         }
         $folio = new Folio($folioCode);

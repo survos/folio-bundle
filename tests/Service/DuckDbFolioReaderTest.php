@@ -93,8 +93,10 @@ PHP);
         self::assertTrue($this->server->waitUntil(static fn (string $type, string $output): bool => str_contains($output, 'Development Server')), $this->server->getErrorOutput());
         $config = new DuckDbS3Configuration('http://'.$address, 'fixture-key', 'fixture-secret', 'us-east-1');
         $before = hash_file('sha256', $this->root.'/fixture.dfolio');
+        $pool = new \Survos\DuckDbBundle\ConnectionPool();
+        $reader = new DuckDbFolioReader($pool);
         try {
-            $db = (new DuckDbFolioReader())->open('s3://fixture-bucket/fixture.dfolio', $config);
+            $db = $reader->open('s3://fixture-bucket/fixture.dfolio', $config);
         } catch (\PDOException $e) {
             throw new \RuntimeException($this->server->getErrorOutput(), previous: $e);
         }
@@ -116,6 +118,22 @@ PHP);
         self::assertTrue(array_all($requests, static fn (array $request): bool => $request['signed']));
         self::assertLessThan(filesize($this->root.'/fixture.dfolio'), array_sum(array_column($requests, 'bytes')));
         self::assertSame($before, hash_file('sha256', $this->root.'/fixture.dfolio'));
+
+        // Replace the object at the SAME address, then deliver the publication notification.
+        // A new connection must issue fresh range reads instead of keeping the old buffer cache.
+        $old = \WeakReference::create($reader->open('s3://fixture-bucket/fixture.dfolio', $config));
+        $replacement = new \PDO('duckdb:'.$this->root.'/replacement.dfolio');
+        $replacement->exec('CREATE TABLE objects AS SELECT 42::BIGINT AS n');
+        $replacement->exec('CHECKPOINT');
+        unset($replacement);
+        rename($this->root.'/replacement.dfolio', $this->root.'/fixture.dfolio');
+        $reader->invalidate(new \Survos\FolioBundle\Event\FolioPublicationChangedEvent('test/fixture', [], [
+            new \Survos\FolioBundle\Catalog\FolioCatalogEntry('test/fixture', 'test', 'fixture', 'Fixture',
+                revision: 'replacement', remoteUri: 's3://fixture-bucket/fixture.dfolio'),
+        ]));
+        self::assertNull($old->get(), 'The old native connection must be released.');
+        $fresh = $reader->open('s3://fixture-bucket/fixture.dfolio', $config);
+        self::assertSame([42], $fresh->query('SELECT n FROM objects')->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     public function testConfigurationDoesNotExposeCredentialsInDebugOutput(): void

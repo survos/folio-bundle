@@ -5,10 +5,26 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\FolioBundle\Dto\DuckDbS3Configuration;
+use Survos\FolioBundle\Event\FolioPublicationChangedEvent;
+use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 
 /** Read local snapshots or attach remote snapshots directly; no sync, restore or local file copy. */
 final class DuckDbFolioReader
 {
+    /** @var \WeakMap<\PDO, array{string, string}> Does not retain evicted connections. */
+    private \WeakMap $pooledPaths;
+
+    #[AsEventListener]
+    public function invalidate(FolioPublicationChangedEvent $event): void
+    {
+        foreach ($this->pooledPaths as $db => [$key, $path]) {
+            if ($event->affects($path)) {
+                $this->pool?->forget($key);
+                unset($this->pooledPaths[$db]);
+            }
+        }
+    }
+
     /**
      * With survos/duckdb-bundle installed, opened dfolios are pooled (the ATTACH of a remote file is the expensive part)
      * and PDO calls show in the profiler. A pooled dfolio is shared: read it, do not change its session state. Without it, every call opens a fresh connection as before.
@@ -17,6 +33,7 @@ final class DuckDbFolioReader
         private readonly ?\Survos\DuckDbBundle\ConnectionPool $pool = null,
         private readonly ?\Survos\DuckDbBundle\ConnectionFactory $factory = null,
     ) {
+        $this->pooledPaths = new \WeakMap();
     }
 
     /**
@@ -47,7 +64,11 @@ final class DuckDbFolioReader
             $version = filemtime($path).'.'.filesize($path);
         }
 
-        return $this->pool->remember('dfolio|'.$path.'|'.($s3->host ?? ''), fn (): \PDO => $this->openSnapshot($path, $s3, false), $version, 'dfolio');
+        $key = 'dfolio|'.$path.'|'.($s3->host ?? '');
+        $db = $this->pool->remember($key, fn (): \PDO => $this->openSnapshot($path, $s3, false), $version, 'dfolio');
+        $this->pooledPaths[$db] = [$key, $path];
+
+        return $db;
     }
 
     private function openSnapshot(string $path, ?DuckDbS3Configuration $s3, bool $rend): \PDO

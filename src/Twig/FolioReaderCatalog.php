@@ -6,7 +6,9 @@ namespace Survos\FolioBundle\Twig;
 
 use Psr\Log\LoggerInterface;
 use Survos\FolioBundle\Catalog\DatasetPublicationClient;
+use Survos\FolioBundle\Event\FolioPublicationChangedEvent;
 use Survos\FolioBundle\Publisher\Publication;
+use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
 use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\Cache\ItemInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -35,6 +37,19 @@ final class FolioReaderCatalog
         private readonly ?string $proxy = null,
         private readonly ?DatasetPublicationClient $datasets = null,
     ) {
+    }
+
+    #[AsEventListener]
+    public function invalidate(FolioPublicationChangedEvent $event): void
+    {
+        unset($this->publications[$event->datasetKey]);
+        if (null !== $this->datasets) {
+            $this->cache->delete('folio_publications.'.hash('sha256', $this->datasets->source().'|'.$event->datasetKey));
+        }
+        $this->folios = null;
+        if (null !== $this->server) {
+            $this->cache->delete('folio_reader.'.hash('sha256', $this->server));
+        }
     }
 
     /**

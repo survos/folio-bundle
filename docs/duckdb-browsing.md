@@ -60,3 +60,48 @@ Existing `.duckdb` artifact URIs remain supported. Local discovery prefers
 `.dfolio`, falling back to `.duckdb` until a rebuild publishes the new name.
 Remote readers accept either extension and use the exact registered URI.
 Rebuilds update the artifact URI; no bulk rename is needed.
+
+
+## Replacing published files at stable S3 keys
+
+Harvest publishes a dataset at stable `.dfolio`, `.drend` and `.dwords` addresses.
+The catalog's opaque artifact `revision` changes after successful publication;
+no revision is required in the object name. The consumer must enable the dataset
+API/change-feed synchronization (or configure `folio_server` for catalog refresh).
+
+`FolioCatalogClient` retains `remoteUri` in each entry. On successful refresh or
+sync, and when each worker observes the updated catalog, it emits
+`FolioPublicationChangedEvent` once per changed dataset, including withdrawals.
+The event contains previous/current variants and matches companion rendition and
+word-index addresses as well. Revision equality is used, not timestamps ordered
+as versions. A changed address is also an invalidation even if a revision repeats.
+
+Before each main HTTP request, `FolioPublicationRefreshListener` reloads the shared
+catalog cache and compares it with that worker's last observations. This is
+necessary because closing connections in a scheduler process cannot close handles
+in a FrankenPHP worker. The listener runs before routing and controller caches.
+Unchanged datasets keep their pooled connections. The bundle releases affected
+Folio/rendition pool entries (and the non-pooled rendition fallback), and clears
+related publisher-receipt and reader-URL caches. Bookkeeping uses weak references,
+so it does not itself keep evicted native connections alive.
+
+A sync process and HTTP workers must share `var/catalog/folio-catalog.json` for
+next-request visibility after synchronization. Separate replicas without that
+shared file discover changes through their own sync/catalog refresh interval.
+This is a pull protocol, not an immediate callback from Harvest to every reader.
+Long-running non-HTTP consumers must reset/read the catalog between work items.
+
+Application-specific derived caches and services retaining their own PDO handles
+must subscribe to `FolioPublicationChangedEvent` too: delete only keys for its
+`datasetKey`, and drop their references to affected handles. Do not clear all of
+`cache.app`. Use the event's entries inside a listener instead of recursively
+fetching the catalog. Neither PHP nor the pool can forcibly close a PDO still
+referenced by application code. Folio schema caches are schema-fingerprint keyed
+and do not need content-publication invalidation.
+
+Stable keys do not make a multi-object upload atomic. This invalidation makes the
+next request after notification open new files; it does not cancel in-flight
+requests or prevent reads during the upload window. For a strict no-mixed-build
+guarantee, quiesce readers around replacement. Rendition build checks still reject
+mismatched pairs. A full sync that fails its apply callback does not publish a new
+catalog or issue a successful-publication notification.

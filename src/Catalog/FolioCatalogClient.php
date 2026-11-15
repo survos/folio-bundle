@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Catalog;
 
 use Psr\Log\LoggerInterface;
+use Survos\FolioBundle\Event\FolioPublicationChangedEvent;
 use Survos\FolioBundle\Set\FolioSetResolver;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
@@ -36,6 +38,9 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
     /** @var list<FolioCatalogEntry>|null */
     private ?array $entries = null;
 
+    /** Last publication identities observed by THIS worker; deliberately survives reset(). */
+    private ?array $observed = null;
+
     private bool $stale = false;
 
     private ?int $fetchedAt = null;
@@ -55,6 +60,7 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
         private readonly ?LoggerInterface $logger = null,
         private readonly ?Filesystem $filesystem = null,
         private readonly ?DatasetPublicationClient $datasets = null,
+        private readonly ?EventDispatcherInterface $events = null,
     ) {
     }
 
@@ -91,6 +97,8 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
         }
 
         $saved = $this->readCache();
+        $previousEntries = $this->cachedEntries($saved);
+        $publish = false;
         $fresh = null !== $saved && (time() - (int) ($saved['fetchedAt'] ?? 0)) < $this->ttl;
 
         if (!$fresh) {
@@ -105,7 +113,7 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
                     ])->toArray();
 
                 $saved = ['source' => $this->url(), 'fetchedAt' => time(), 'folios' => self::rows($payload)];
-                $this->writeCache($saved);
+                $publish = true;
             } catch (\Throwable $e) {
                 $this->stale = true;
                 $this->logger?->warning('Folio catalog unavailable; keeping the last recorded metadata', [
@@ -122,6 +130,11 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
             if (is_array($row) && ($entry = FolioCatalogEntry::fromArray($row)) !== null) {
                 $entries[] = $entry;
             }
+        }
+
+        $this->observe($entries, $previousEntries);
+        if ($publish) {
+            $this->writeCache($saved);
         }
 
         return $this->entries = $entries;
@@ -238,7 +251,58 @@ final class FolioCatalogClient implements \Symfony\Contracts\Service\ResetInterf
         $this->entries = array_map(FolioCatalogEntry::fromArray(...), $rows);
         $this->fetchedAt = time();
         $this->stale = false;
+        $this->observe($this->entries, $this->cachedEntries($this->readCache()));
         $this->writeCache([DatasetField::SOURCE => $this->url(), DatasetField::FETCHED_AT => $this->fetchedAt, DatasetField::FOLIOS => $rows]);
+    }
+
+    /**
+     * A scheduler only updates the shared catalog file. Every worker compares its own last
+     * observed identities when it reads that file, so invalidation is not confined to the CLI.
+     * A new worker starts from the on-disk catalog; it has no old handles to invalidate.
+     *
+     * @param list<FolioCatalogEntry> $entries
+     * @param list<FolioCatalogEntry> $baseline
+     */
+    private function observe(array $entries, array $baseline): void
+    {
+        if (null === $this->observed) {
+            $this->observed = [];
+            foreach ($baseline as $entry) {
+                $this->observed[$entry->datasetKey][$entry->artifactCode()] = $entry;
+            }
+        }
+        $current = [];
+        foreach ($entries as $entry) {
+            $current[$entry->datasetKey][$entry->artifactCode()] = $entry;
+        }
+        foreach (array_unique([...array_keys($this->observed), ...array_keys($current)]) as $key) {
+            $previous = $this->observed[$key] ?? [];
+            $next = $current[$key] ?? [];
+            $identity = static function (array $variants): array {
+                $result = [];
+                foreach ($variants as $code => $entry) {
+                    $result[$code] = [$entry->revision, $entry->remoteUri, $entry->checksum, $entry->updatedAt];
+                }
+                ksort($result);
+
+                return $result;
+            };
+            if ($identity($previous) !== $identity($next)) {
+                $this->events?->dispatch(new FolioPublicationChangedEvent($key, array_values($previous), array_values($next)));
+            }
+        }
+        // Only acknowledge once every listener succeeded; failures are retried on the next read.
+        $this->observed = $current;
+    }
+
+    /** @return list<FolioCatalogEntry> */
+    private function cachedEntries(?array $saved): array
+    {
+        if (null === $saved) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(FolioCatalogEntry::fromArray(...), array_filter($saved[DatasetField::FOLIOS], 'is_array'))));
     }
 
     /**

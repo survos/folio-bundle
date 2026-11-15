@@ -15,6 +15,26 @@ use Symfony\Component\HttpClient\Response\MockResponse;
 /** folio/show links only to confirmed, current publications, and renders fine without any. */
 final class FolioPublicationsTest extends TestCase
 {
+    public function testPublicationChangeClearsOnlyRelatedCachedReceipts(): void
+    {
+        $requests = [];
+        $http = new MockHttpClient(static function (string $method, string $url) use (&$requests): MockResponse {
+            $requests[] = $url;
+
+            return new MockResponse(json_encode(['version' => 1, 'publications' => []]));
+        });
+        $cache = new ArrayAdapter();
+        $datasets = new DatasetPublicationClient($http, 'https://harvest.example', 'read-token');
+        $catalog = new FolioReaderCatalog($http, $cache, new NullLogger(), datasets: $datasets);
+        $catalog->publications('loc/one');
+        $catalog->publications('loc/two');
+        $catalog->invalidate(new \Survos\FolioBundle\Event\FolioPublicationChangedEvent('loc/one', [], []));
+        $catalog->publications('loc/one');
+        $catalog->publications('loc/two');
+        self::assertCount(3, $requests);
+        self::assertSame($requests[0], $requests[2]);
+    }
+
     public function testNothingConfiguredMeansNoLinks(): void
     {
         $catalog = new FolioReaderCatalog(new MockHttpClient([]), new ArrayAdapter(), new NullLogger());

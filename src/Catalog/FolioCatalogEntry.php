@@ -44,6 +44,7 @@ final readonly class FolioCatalogEntry
         // and artifactCode() it is the variant a publisher receipt names.
         public ?string $artifactType = null,
         public ?string $publishedArtifactCode = null,
+        public ?string $remoteUri = null,
     ) {
     }
 
@@ -82,6 +83,7 @@ final readonly class FolioCatalogEntry
             revision: self::str($row, DatasetField::REVISION),
             artifactType: self::str($row, 'artifactType'),
             publishedArtifactCode: self::str($row, 'publishedArtifactCode'),
+            remoteUri: self::str($row, DatasetField::REMOTE_URI),
         );
     }
 
@@ -146,6 +148,7 @@ final readonly class FolioCatalogEntry
                 compressed: $artifact[DatasetField::COMPRESSED] ?? false, revision: $artifact[DatasetField::REVISION],
                 artifactType: $artifact[ItemField::TYPE],
                 publishedArtifactCode: $artifact[DatasetField::CODE],
+                remoteUri: $artifact[DatasetField::REMOTE_URI] ?? null,
             );
         }
 

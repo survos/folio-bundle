@@ -315,6 +315,9 @@ final class SurvosFolioBundle extends AbstractUxBundle
                 '$clock' => service('clock')->nullOnInvalid(),
             ]);
         }
+        if ($config['dataset_api']['enabled'] || !empty($config['folio_server'])) {
+            $services->set(EventListener\FolioPublicationRefreshListener::class)->autowire()->autoconfigure();
+        }
         $services->set(FolioCatalogClient::class)
             ->autowire()
             ->autoconfigure()

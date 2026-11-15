@@ -23,6 +23,7 @@ final class PublisherWiringTest extends TestCase
     {
         $builder = $this->build([]);
         self::assertFalse($builder->hasDefinition(PublisherRegistrar::class));
+        self::assertFalse($builder->hasDefinition(\Survos\FolioBundle\EventListener\FolioPublicationRefreshListener::class));
     }
 
     public function testWiredFromConfig(): void
@@ -33,6 +34,8 @@ final class PublisherWiringTest extends TestCase
                 'base_url' => 'https://ink.wip', 'selection' => ['mode' => 'tags', 'tags' => ['newspaper']]],
         ]);
 
+        self::assertTrue($builder->hasDefinition(\Survos\FolioBundle\EventListener\FolioPublicationRefreshListener::class));
+        self::assertTrue($builder->getDefinition(\Survos\FolioBundle\EventListener\FolioPublicationRefreshListener::class)->isAutoconfigured());
         $api = $builder->getDefinition(PublisherApiClient::class);
         self::assertSame(['$server' => 'https://harvest.example', '$token' => 'ink-secret', '$publisher' => 'ink', '$environment' => 'local'], $api->getArguments());
 

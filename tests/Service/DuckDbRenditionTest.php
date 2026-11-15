@@ -231,6 +231,13 @@ ROUTER);
         } catch (\PDOException $e) {
             self::assertStringContainsString('read-only', $e->getMessage());
         }
+        $notification = new \Survos\FolioBundle\Event\FolioPublicationChangedEvent('news/test', [], [
+            new \Survos\FolioBundle\Catalog\FolioCatalogEntry('news/test', 'news', 'test', 'Test', remoteUri: $uri),
+        ]);
+        $fallbackHandle = \WeakReference::create($unpooled->open($db, $uri, 'one', $config));
+        $unpooled->invalidate($notification);
+        self::assertNull($fallbackHandle->get(), 'Fallback rendition cache must release its native connection too.');
+
         // Replacing a published build must invalidate the pooled file connection.
         $fixture = new \PDO('duckdb:'.$this->root.'/bucket/dfolio/news/test/source.drend');
         $fixture->exec("UPDATE meta SET v = 'source-b' WHERE k = 'buildId'");
