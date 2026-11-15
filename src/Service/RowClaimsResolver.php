@@ -23,7 +23,7 @@ final class RowClaimsResolver
 
         // Folios built before claim.meta existed have no such column; select NULL instead.
         $hasMeta = in_array('meta', array_map(
-            static fn (\Doctrine\DBAL\Schema\Column $c): string => strtolower($c->getName()),
+            static fn (\Doctrine\DBAL\Schema\Column $c): string => strtolower($c->getObjectName()->toString()),
             $conn->createSchemaManager()->introspectTableColumnsByUnquotedName('claim'),
         ), true);
         $metaColumn = $hasMeta ? 'meta' : 'NULL AS meta';

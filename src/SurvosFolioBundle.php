@@ -418,6 +418,7 @@ final class SurvosFolioBundle extends AbstractUxBundle
             '$folioEntityManager' => new Reference(sprintf('doctrine.orm.%s_entity_manager', $config['entity_manager'])),
             '$extension' => $config['extension'],
             '$readOnly' => $config['read_only'],
+            '$remote' => new Reference(Service\FolioRemoteSourceInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]);
         $services->set(Service\FolioBuilder::class)->autowire()->autoconfigure()->public();
         $services->set(Service\DuckDbFolioExporter::class)->autowire()->autoconfigure()->public();

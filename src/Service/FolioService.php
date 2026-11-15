@@ -21,6 +21,9 @@ final class FolioService
 {
     public ?string $currentFolioCode = null;
 
+    /** The folio selected by the last switch() is being read over HTTP (never written, never migrated). */
+    public bool $remoteActive = false;
+
     /**
      * Content locale resolved from the current request's URL (e.g. "jarc.en" → "en"), set by
      * FolioRouteAttributeListener before routing. Callers that pass $locale explicitly always
@@ -52,6 +55,7 @@ final class FolioService
         private readonly string $extension = 'folio',
         private readonly ?LoggerInterface $logger = null,
         private readonly bool $readOnly = false,
+        private readonly ?FolioRemoteSourceInterface $remote = null,
     ) {
         $this->folioEntityManager->getEventManager()->addEventListener(
             ['postLoad', 'preFlush', 'postFlush'], new FolioPropertyListener(),
@@ -400,11 +404,17 @@ final class FolioService
             return $em;
         }
 
-        $target = $this->path($folioCode, locale: $locale);
-        if (!is_file($target)) {
+        $remote = $this->remote?->locate($folioCode, $locale);
+        $target = $remote['url'] ?? $this->path($folioCode, locale: $locale);
+        if (null === $remote && !is_file($target)) {
             throw new FolioNotFoundException($folioCode, $target);
         }
-        if ($conn->currentPath !== $target) {
+        $this->remoteActive = null !== $remote;
+        $conn->dbiUrl = $remote['dbiUrl'] ?? null;
+        // A presigned URL changes on every request; the file it names does not, so the connection is kept while the object is.
+        $same = $conn->currentPath === $target
+            || (null !== $remote && $conn->remote && strtok($conn->currentPath, '?') === strtok($target, '?'));
+        if (!$same) {
             if (!$this->readOnly) {
                 try {
                     $em->flush();
@@ -412,7 +422,7 @@ final class FolioService
                 }
             }
             $em->clear();
-            $conn->selectDatabase($target, $this->readOnly);
+            $conn->selectDatabase($target, $this->readOnly || null !== $remote);
             $conn->executeQuery('SELECT 1')->fetchOne();
             $this->logger?->info('Folio database selected', ['folio' => $folioCode, 'path' => $target]);
         }
@@ -427,7 +437,7 @@ final class FolioService
     public function context(string $folioCode, bool $ensureSchema = false, ?string $locale = null): FolioContext
     {
         $em = $this->switch($folioCode, $locale);
-        if ($this->readOnly) {
+        if ($this->readOnly || $this->remoteActive) {
             return $this->selectedContext($folioCode, $this->path($folioCode, locale: $locale), $em);
         }
 

@@ -739,7 +739,7 @@ final class FolioController extends AbstractController
             }
 
             $tables[] = [
-                'name' => $table->getName(),
+                'name' => $table->getObjectName()->toString(),
                 'indexes' => $indexes,
             ];
         }

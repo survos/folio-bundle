@@ -6,8 +6,8 @@
     "prefer-stable": true,
     "require": {
         "php": "^8.5",
-        "doctrine/dbal": "^4.4",
-        "doctrine/doctrine-bundle": "^2.14|^3.0",
+        "doctrine/dbal": "^4.5",
+        "doctrine/doctrine-bundle": "^3.4",
         "doctrine/orm": "^3.7",
         "league/commonmark": "^2.4",
         "survos/babel-bundle": "^2.10",

@@ -20,9 +20,43 @@ final class FolioConnectionWrapper extends Connection
     /** This connection switched the file to WAL for a write; put it back to DELETE on close. */
     private bool $walApplied = false;
 
+    /** True while the selected folio is read over HTTP rather than from a local file. */
+    public bool $remote = false;
+    /** The .dbi helper's URL for the next remote selectDatabase(), or null to read without one. */
+    public ?string $dbiUrl = null;
+    private static bool $webVfsLoaded = false;
+    /** Where the app keeps the built sqlite_web_vfs extension; SQLITE_WEB_VFS overrides it. */
+    public static ?string $webVfsPath = null;
+
+    public static function isRemote(string $path): bool
+    {
+        return str_starts_with($path, 'https://') || str_starts_with($path, 'http://');
+    }
+
+    /**
+     * The VFS is registered process-wide by loading its extension once, on any connection; PDO's own loadExtension
+     * needs PHP 8.4+ (Pdo\Sqlite) and an absolute path, from SQLITE_WEB_VFS.
+     */
+    private static function loadWebVfs(): void
+    {
+        if (self::$webVfsLoaded) {
+            return;
+        }
+        // An empty SQLITE_WEB_VFS (declared but unset in .env) must fall through to the app's default path.
+        $extension = (string) (getenv('SQLITE_WEB_VFS') ?: ($_SERVER['SQLITE_WEB_VFS'] ?? '') ?: ($_ENV['SQLITE_WEB_VFS'] ?? '') ?: (self::$webVfsPath ?? ''));
+        if ('' === $extension || !is_file($extension)) {
+            throw new \RuntimeException('Reading a folio over S3 needs the sqlite_web_vfs extension (https://github.com/mlin/sqlite_web_vfs): build it with bin/build-web-vfs in the app, or set SQLITE_WEB_VFS=/absolute/path/to/web_vfs.(so|dylib).');
+        }
+        if (!class_exists(\Pdo\Sqlite::class)) {
+            throw new \RuntimeException('Reading a folio over S3 needs PHP 8.4+ (Pdo\\Sqlite::loadExtension).');
+        }
+        (new \Pdo\Sqlite('sqlite::memory:'))->loadExtension($extension);
+        self::$webVfsLoaded = true;
+    }
+
     public function selectDatabase(string $path, bool $readOnly = false): void
     {
-        if ($this->currentPath === $path && $this->readOnly === $readOnly) {
+        if ($this->currentPath === $path && $this->readOnly === ($readOnly || self::isRemote($path))) {
             return;
         }
         if ($this->isConnected()) {
@@ -35,6 +69,14 @@ final class FolioConnectionWrapper extends Connection
         $this->readOnly = $readOnly;
         $params['readOnly'] = $readOnly;
         $params['path'] = $readOnly ? 'file:'.str_replace('%2F', '/', rawurlencode($path)).'?'.self::readOnlyQuery($path) : $path;
+        if ($this->remote = self::isRemote($path)) {
+            // An http(s) address, read in place by sqlite_web_vfs: no file to inspect, always read-only and immutable.
+            self::loadWebVfs();
+            $params['readOnly'] = true;
+            $this->readOnly = true;
+            $params['path'] = 'file:/__web__?vfs=web&mode=ro&immutable=1&web_url='.rawurlencode($path)
+                .(null !== $this->dbiUrl ? '&web_dbi_url='.rawurlencode($this->dbiUrl) : '&web_nodbi=1');
+        }
         /* @phpstan-ignore method.internal */
         parent::__construct($params, $this->getDriver(), $this->_config);
 
