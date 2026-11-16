@@ -49,6 +49,8 @@ use Symfony\Component\Serializer\Attribute\Groups;
             uriVariables: ['folioCode' => new Link(identifiers: ['folioCode'])],
             requirements: ['folioCode' => \Survos\FolioBundle\Controller\FolioController::FOLIO_CODE_PATTERN],
             provider: FolioRowProvider::class,
+            // Read from the dfolio: FolioRouteAttributeListener must not open a SQLite folio for this route.
+            defaults: ['_folio_reader' => 'duckdb'],
             name: self::API_GRID_ROWS,
             itemUriTemplate: '/{folioCode}/rows/{localId}',
             normalizationContext: ['groups' => ['row:read']],
@@ -64,6 +66,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
             ],
             requirements: ['folioCode' => \Survos\FolioBundle\Controller\FolioController::FOLIO_CODE_PATTERN],
             provider: FolioRowProvider::class,
+            defaults: ['_folio_reader' => 'duckdb'],
             normalizationContext: ['groups' => ['row:read', 'row:pages', 'page:read']],
         ),
     ],
