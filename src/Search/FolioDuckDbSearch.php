@@ -20,7 +20,7 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
     }
 
     /** Fields the search page shows or matches; each becomes a VARCHAR column of the typed source. */
-    private const array TEXT_FIELDS = [ItemField::TITLE, ItemField::DESCRIPTION, ItemField::SEARCH_SUMMARY, ItemField::THUMBNAIL_URL, ItemField::URL, 'sourceUrl'];
+    private const array TEXT_FIELDS = [ItemField::TITLE, ItemField::DESCRIPTION, ItemField::SEARCH_SUMMARY, ItemField::URL, 'sourceUrl'];
 
     /**
      * Options: folioCode; itemSource (bool) keeps the item table as the source, for a caller that scopes the
@@ -37,6 +37,7 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
         $ftsFunction = '';
         $table = 'item';
         $typed = false;
+        $pages = false;
         $vectors = $this->vectors?->parameters($key) ?? [];
         if (null !== $this->connection) {
             $db = $this->connection->connect(['folioCode' => $key]);
@@ -44,6 +45,7 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
                 $ftsFunction = 'fts_main_item.match_bm25';
             }
             // The embedding column is on item, so a folio with vectors keeps item as its source.
+            $pages = (bool) $db->query("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'main' AND table_name = 'item' AND column_name = 'pages'")->fetchColumn();
             $source = self::source($db, !isset($vectors['vectorColumn']) && !($options['itemSource'] ?? false));
             $table = $source['table'];
             $typed = $source['typed'];
@@ -63,16 +65,18 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
         }
         $this->addAvailableSort(null, 'Relevance');
         $this->addAvailableSort('title:asc', 'Title A–Z');
-        $field = static fn (string $name): string => $typed ? 'd."'.$name.'"' : "json_extract_string(d.dto_data, '$.".$name."')";
+        $field = static fn (string $name): string => $typed ? 'd."'.$name.'"' : 'CAST(d.dto_data."'.$name.'" AS VARCHAR)';
         $title = $field(ItemField::TITLE);
         $description = $field(ItemField::DESCRIPTION);
         $sourceUrl = 'COALESCE(NULLIF('.$field('sourceUrl').", ''), ".$field(ItemField::URL).')';
         // Parsing dto_data for every candidate reads the whole column. With a typed source the ranked query
         // reads typed columns only, and the adapter reads the stored document for the hits of the page.
-        $payload = ['local_id AS "localId"', 'CAST(dto_data AS VARCHAR) AS "dtoData"'];
+        // A hit's thumbnail is the item's first page. The DTO's own image fields are copies of it at best.
+        $thumbnail = ($pages ? 'pages[1].url' : 'NULL::VARCHAR').' AS "'.ItemField::THUMBNAIL_URL.'"';
+        $payload = ['local_id AS "localId"', 'CAST(CAST(dto_data AS JSON) AS VARCHAR) AS "dtoData"', $thumbnail];
         $this->setAdapterParameters([
             'table' => $table, 'idColumn' => 'd.id',
-            'selectColumns' => ['d.id', ...($typed ? [] : ['d.'.$payload[0], 'CAST(d.dto_data AS VARCHAR) AS "dtoData"']), "split_part(d.core_id, ':', 2) AS \"coreCode\"", "'".$key."' AS \"datasetCode\"", $field(ItemField::THUMBNAIL_URL).' AS "'.ItemField::THUMBNAIL_URL.'"', $sourceUrl.' AS "'.ItemField::URL.'"', $title.' AS "'.ItemField::TITLE.'"', $description.' AS "'.ItemField::DESCRIPTION.'"', 'd.dto_type AS "'.ItemField::CONTENT_TYPE.'"'],
+            'selectColumns' => ['d.id', ...($typed ? [] : ['d.'.$payload[0], 'CAST(CAST(d.dto_data AS JSON) AS VARCHAR) AS "dtoData"', ($pages ? 'd.' : '').$thumbnail]), "split_part(d.core_id, ':', 2) AS \"coreCode\"", "'".$key."' AS \"datasetCode\"", $sourceUrl.' AS "'.ItemField::URL.'"', $title.' AS "'.ItemField::TITLE.'"', $description.' AS "'.ItemField::DESCRIPTION.'"', 'd.dto_type AS "'.ItemField::CONTENT_TYPE.'"'],
             'textColumns' => [$title, $description, $field(ItemField::SEARCH_SUMMARY)],
             'ftsFunction' => $ftsFunction, 'facetColumns' => $facetColumns, 'listFacets' => $listFacets, 'rangeFacets' => $rangeFacets,
             'sortColumns' => ['title:asc' => $title.' ASC NULLS LAST'],
@@ -84,7 +88,7 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
 
     /**
      * The table to search and its declared facets. A folio written by DuckDbFolioExporter has one typed table per
-     * DTO type; their union is the source. Any other DuckDB folio is searched through item.dto_data.
+     * DTO type; their union is the source. Any other DuckDB folio is searched through the item.dto_data VARIANT.
      *
      * @return array{table:string,typed:bool,facets:list<array{name:string,label:string,numeric:bool,list:bool,expression:string}>}
      */
@@ -104,11 +108,11 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
                 $expression = 'd."f_'.$name.'"';
                 $hasValue = (bool) $present[$index];
             } else {
-                $json = "json_extract(d.dto_data, '$.".$name."')";
-                $value = "json_extract_string(d.dto_data, '$.".$name."')";
-                $expression = $field['numeric'] ? 'try_cast('.$value.' AS DOUBLE)' : ($field['list']
-                    ? "CASE WHEN json_type($json) = 'ARRAY' THEN from_json($json, '\"VARCHAR[]\"') ELSE CASE WHEN $value IS NULL THEN []::VARCHAR[] ELSE [$value] END END"
-                    : $value);
+                // dto_data is a VARIANT: a path reads one sub-column. A missing key is NULL.
+                $path = 'd.dto_data."'.$name.'"';
+                $expression = $field['numeric'] ? 'try_cast('.$path.' AS DOUBLE)' : ($field['list']
+                    ? "CASE WHEN variant_typeof($path) LIKE 'ARRAY%' THEN CAST($path AS VARCHAR[]) WHEN CAST($path AS VARCHAR) IS NULL THEN []::VARCHAR[] ELSE [CAST($path AS VARCHAR)] END"
+                    : 'CAST('.$path.' AS VARCHAR)');
                 $hasValue = false !== $db->query('SELECT 1 FROM item d WHERE '.($field['list'] ? 'len('.$expression.') > 0' : $expression.' IS NOT NULL').' LIMIT 1')->fetchColumn();
             }
             if (!$hasValue) {

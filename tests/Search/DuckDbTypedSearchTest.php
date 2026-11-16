@@ -26,7 +26,7 @@ final class DuckDbTypedSearchTest extends TestCase
         $path = sys_get_temp_dir().'/folio-typed-'.bin2hex(random_bytes(6)).'.dfolio';
         try {
             $db = new \PDO('duckdb:'.$path);
-            $db->exec('CREATE TABLE item (id VARCHAR, local_id VARCHAR, core_id VARCHAR, dto_type VARCHAR, dto_data VARCHAR)');
+            $db->exec('CREATE TABLE item (id VARCHAR, local_id VARCHAR, core_id VARCHAR, dto_type VARCHAR, dto_data VARIANT)');
             $db->exec('CREATE TABLE schema_property (name VARCHAR, label VARCHAR, type VARCHAR, visible INTEGER, facet INTEGER, filterable INTEGER, position INTEGER)');
             $db->exec("INSERT INTO schema_property VALUES ('year','Year','?int',1,1,1,0), ('cul','Culture','?array',1,1,1,1), ('rights','Rights','?string',1,1,1,2)");
             $db->exec('CREATE TABLE _dto_schema (dto_type VARCHAR, dto_class VARCHAR, structure JSON)');
@@ -35,11 +35,10 @@ final class DuckDbTypedSearchTest extends TestCase
             $db->exec('CREATE TABLE dto.painting ("_itemId" VARCHAR, "_coreId" VARCHAR, title VARCHAR, year BIGINT, cul VARCHAR[], rights VARCHAR, thumbnailUrl VARCHAR)');
             $db->exec('CREATE TABLE dto.print ("_itemId" VARCHAR, "_coreId" VARCHAR, title VARCHAR, year BIGINT, cul JSON)');
             $db->exec("INSERT INTO _dto_schema VALUES ('painting', 'P', '{\"title\":\"VARCHAR\",\"year\":\"BIGINT\",\"cul\":[\"VARCHAR\"],\"rights\":\"VARCHAR\",\"thumbnailUrl\":\"VARCHAR\"}'), ('print', 'Q', '{\"title\":\"VARCHAR\",\"year\":\"BIGINT\",\"cul\":\"JSON\"}')");
-            $item = $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, ?)');
+            $item = $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, CAST(CAST(? AS JSON) AS VARIANT))');
             $stored = [];
             foreach ([['a', 'painting', 'Landscape A', 1900, ['France', 'France'], 'CC0'], ['b', 'painting', 'Landscape B', 1950, ['France', 'Japan'], null],
                 ['c', 'print', 'Landscape C', 1960, ['Japan'], null], ['d', 'print', 'Portrait', 1970, null, null]] as [$id, $type, $title, $year, $cul, $rights]) {
-                // Key order and spacing differ from what json_encode() would re-emit; the hit must return this text.
                 $stored[$id] = '{"year": '.$year.',  "title": "'.$title.'"}';
                 $item->execute(['mus/test:obj:'.$id, $id, 'mus/test:obj', $type, $stored[$id]]);
                 if ('painting' === $type) {
@@ -48,6 +47,10 @@ final class DuckDbTypedSearchTest extends TestCase
                     $db->prepare('INSERT INTO dto.print VALUES (?, ?, ?, ?, ?)')->execute(['mus/test:obj:'.$id, 'mus/test:obj', $title, $year, null === $cul ? null : json_encode($cul)]);
                 }
             }
+            // The hit's thumbnail is the item's first page, not a field of the DTO.
+            $db->exec('CREATE TABLE page (id VARCHAR, row_id VARCHAR, seq INTEGER, url VARCHAR, source_url VARCHAR)');
+            $db->exec("INSERT INTO page VALUES ('mus/test:obj:a#2', 'mus/test:obj:a', 2, 's3://bucket/a-back.jpg', NULL), ('mus/test:obj:a#1', 'mus/test:obj:a', 1, 's3://bucket/a-front.jpg', NULL)");
+            \Survos\FolioBundle\Service\DuckDbFolioExporter::embedPages($db);
             $item = null;
             $db->exec('CHECKPOINT');
             $db = null;
@@ -72,9 +75,10 @@ final class DuckDbTypedSearchTest extends TestCase
             self::assertSame('mus/test:obj:a', $hit['id']);
             self::assertSame('a', $hit['localId']);
             self::assertSame('obj', $hit['coreCode']);
-            self::assertSame($stored['a'], $hit['dtoData']);
+            self::assertEquals(json_decode($stored['a'], true), json_decode($hit['dtoData'], true), 'The hit carries the stored document');
             self::assertSame('Landscape A', $hit[ItemField::TITLE]);
-            self::assertSame('https://example.org/a.jpg', $hit[ItemField::THUMBNAIL_URL]);
+            self::assertSame('s3://bucket/a-front.jpg', $hit[ItemField::THUMBNAIL_URL]);
+            self::assertNull($result->getHits()[1]->getData()[ItemField::THUMBNAIL_URL], 'An item without pages has no thumbnail');
             self::assertSame('painting', $hit[ItemField::CONTENT_TYPE]);
             self::assertSame(['France' => 2, 'Japan' => 2], $result->getFacetDistributions()['cul']->getValues());
             self::assertSame(['CC0' => 1], $result->getFacetDistributions()['rights']->getValues());

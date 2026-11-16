@@ -5,12 +5,19 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\DataContracts\Metadata\ContentType;
+use Survos\DataContracts\Vocabulary\ItemField;
 use Symfony\Component\Filesystem\Filesystem;
 
 /** Materialize the built folio's logical content, with DTO-declared analytical tables. */
 final class DuckDbFolioExporter
 {
     public const int SCHEMA_VERSION = 1;
+    /** A dfolio built smaller than this is packed with 16 KB blocks; see blockSize(). */
+    public const int SMALL_DFOLIO_BYTES = 16 * 1024 * 1024;
+    /** item columns that hold a JSON document; stored as VARIANT. */
+    public const array DOCUMENT_COLUMNS = ['dto_data', 'extras', 'raw'];
+    /** Name of the source SQLite folio while DuckDB has it attached. */
+    private const string SOURCE = 'folio_source';
     public const string DEFAULT_MEMORY_LIMIT = '6GB';
     /** Bytes of source JSON per INSERT when materializing a DTO table; see the comment where it is used. */
     private const int DTO_BATCH_BYTES = 2 * 1024 * 1024;
@@ -69,6 +76,11 @@ final class DuckDbFolioExporter
                 $db->exec('SET memory_limit = '.$db->quote($limit));
                 $db->exec('SET temp_directory = '.$db->quote($directory.'/spill'));
             }
+            // DuckDB reads the SQLite folio itself. Columns arrive as text and are cast to the declared types below, so
+            // a value that does not fit its column fails the export instead of being guessed.
+            $db->exec('LOAD sqlite_scanner');
+            $db->exec('SET sqlite_all_varchar = true');
+            $db->exec('ATTACH '.$db->quote($folio).' AS '.self::SOURCE.' (TYPE sqlite, READ_ONLY)');
             $db->beginTransaction();
             if (null !== $publishRend) {
                 $refs = (new DuckDbRenditionExporter())->export($source, $identity[0]['build_id'], $directory, $publishRend);
@@ -106,6 +118,20 @@ final class DuckDbFolioExporter
                         default => 'VARCHAR',
                     };
                 }
+                if (null === $publishRend || !in_array($table, ['item', 'page'], true)) {
+                    // sqlite_query() rather than the attached table: it also returns generated columns (item.sort_key).
+                    $casts = $names = [];
+                    foreach ($shape as $name => $type) {
+                        $names[] = self::identifier($name);
+                        $casts[] = 'CAST('.self::identifier($name).' AS '.$type.') AS '.self::identifier($name);
+                    }
+                    $db->exec('CREATE TABLE '.self::identifier($table).' AS SELECT '.implode(', ', $casts).' FROM sqlite_query('.$db->quote(self::SOURCE).', '
+                        .$db->quote('SELECT '.implode(', ', $names).' FROM '.self::identifier($table)).')');
+                    $counts['main.'.$table] = (int) $db->query('SELECT count(*) FROM '.self::identifier($table))->fetchColumn();
+                    self::linkOrdinal($db, $table, $shape);
+                    continue;
+                }
+                // A newspaper's item and page rows lose their geometry to the rend, row by row, in PHP.
                 $file = $directory.'/table.jsonl';
                 $structure = $db->quote(json_encode($shape, JSON_THROW_ON_ERROR));
                 // DuckDB's JSON reader holds several times the size of what it ingests, outside the buffer pool, so one
@@ -163,12 +189,7 @@ final class DuckDbFolioExporter
                     $db->exec('CREATE TABLE '.self::identifier($table).' ('.implode(', ', $columns).')');
                 }
                 $counts['main.'.$table] = $count;
-                if ('link' === $table && !array_key_exists('ordinal', $shape)) {
-                    $db->exec('ALTER TABLE link ADD COLUMN ordinal BIGINT');
-                    if (array_key_exists('extras', $shape)) {
-                        $db->exec("UPDATE link SET ordinal = CAST(json_extract_string(extras, '$.ordinal') AS BIGINT)");
-                    }
-                }
+                self::linkOrdinal($db, $table, $shape);
             }
             $flushGrouping();
             if ($groupStaged || isset($refs)) {
@@ -177,6 +198,7 @@ final class DuckDbFolioExporter
             if (0 === ($counts['main.item'] ?? 0)) {
                 throw new \RuntimeException('Refusing to export an empty folio.');
             }
+            self::embedPages($db);
             $db->exec('CREATE SCHEMA dto');
             $db->exec('CREATE TABLE _dto_schema (dto_type VARCHAR, dto_class VARCHAR, structure JSON)');
             foreach ($source->query('SELECT DISTINCT dto_type FROM item ORDER BY dto_type')->fetchAll(\PDO::FETCH_COLUMN) as $type) {
@@ -231,18 +253,35 @@ final class DuckDbFolioExporter
             // A detail page reads one item and its pages. Zone maps keep the first 8 bytes of a string and every id starts
             // with the folio code, so without a key the lookup scans the whole column. Added after the load, so that
             // the key is built once instead of checked for every batch.
+            // The documents are stored as VARIANT: DuckDB splits them into typed sub-columns, so a reader that asks for one
+            // field reads that field, and the file is smaller. Converted last, because the steps above read them as JSON text.
+            foreach (self::DOCUMENT_COLUMNS as $column) {
+                if ((bool) $db->query("SELECT count(*) FROM information_schema.columns WHERE table_catalog = current_database() AND table_schema = 'main' AND table_name = 'item' AND column_name = ".$db->quote($column))->fetchColumn()) {
+                    $db->exec('ALTER TABLE item ALTER COLUMN '.self::identifier($column).' SET DATA TYPE VARIANT USING CAST(CAST('.self::identifier($column).' AS JSON) AS VARIANT)');
+                }
+            }
             $db->exec('ALTER TABLE item ADD PRIMARY KEY (id)');
-            if ((bool) $db->query("SELECT count(*) FROM information_schema.columns WHERE table_schema = 'main' AND table_name = 'page' AND column_name = 'row_id'")->fetchColumn()) {
+            if ((bool) $db->query("SELECT count(*) FROM information_schema.columns WHERE table_catalog = current_database() AND table_schema = 'main' AND table_name = 'page' AND column_name = 'row_id'")->fetchColumn()) {
                 $db->exec('CREATE INDEX page_row_id ON page (row_id)');
             }
             $db->commit();
+            $db->exec('DETACH '.self::SOURCE);
             $db->exec('CHECKPOINT');
+            // A dfolio is read-only once published, so finish it like an archive: copy it into a new file. The copy drops
+            // the blocks that the updates above left unused, and it is the only point where the block size can follow the
+            // size of the data (DuckDB fixes it when a file is created).
+            $built = $directory.'/snapshot.dfolio';
+            $packed = $directory.'/packed.dfolio';
+            $db->exec('ATTACH '.$db->quote($packed).' AS packed (BLOCK_SIZE '.self::blockSize((int) filesize($built)).')');
+            $db->exec('COPY FROM DATABASE '.self::identifier((string) $db->query('SELECT current_database()')->fetchColumn()).' TO packed');
+            $db->exec('CHECKPOINT packed');
+            $db->exec('DETACH packed');
             $db = null;
             $source->commit();
-            if (is_file($directory.'/snapshot.dfolio.wal')) {
+            if (is_file($built.'.wal') || is_file($packed.'.wal')) {
                 throw new \RuntimeException('DuckDB export has an unmerged WAL.');
             }
-            $fs->rename($directory.'/snapshot.dfolio', $target, overwrite: true);
+            $fs->rename($packed, $target, overwrite: true);
 
             return ['path' => $target, 'buildId' => $identity[0]['build_id'], 'rows' => $counts['main.item'], 'counts' => $counts];
         } finally {
@@ -250,6 +289,75 @@ final class DuckDbFolioExporter
             $source = null;
             $fs->remove($directory);
         }
+    }
+
+    /**
+     * DuckDB's default 256 KB block gives every file a floor of about 6 MB, which is most of a small dfolio.
+     * Measured on four datasets: 16 KB blocks are smallest for a file under that floor's range, 64 KB for larger ones.
+     *
+     * @param int $bytes size of the dfolio as built with the default block size
+     */
+    public static function blockSize(int $bytes): int
+    {
+        return $bytes < self::SMALL_DFOLIO_BYTES ? 16384 : 65536;
+    }
+
+    /** @param array<string,string> $shape */
+    private static function linkOrdinal(\PDO $db, string $table, array $shape): void
+    {
+        if ('link' === $table && !array_key_exists('ordinal', $shape)) {
+            $db->exec('ALTER TABLE link ADD COLUMN ordinal BIGINT');
+            if (array_key_exists('extras', $shape)) {
+                $db->exec("UPDATE link SET ordinal = CAST(json_extract_string(extras, '$.ordinal') AS BIGINT)");
+            }
+        }
+    }
+
+    /** Row fields that some sources fill with the address of the row's own page image. */
+    public const array PAGE_COPY_FIELDS = [ItemField::THUMBNAIL_URL, ItemField::LARGE_IMAGE_URL, ItemField::IIIF_BASE];
+
+    /**
+     * Put each item's pages on the item, in page order, so that one read returns a record with its images.
+     * A row image field that only repeats one of those pages (its url, its source, or the public address of
+     * its s3:// copy) is removed from dto_data: the page is the image, and the copy is often stale.
+     * A field with any other value is kept.
+     */
+    public static function embedPages(\PDO $db): void
+    {
+        $columns = $db->query("SELECT column_name FROM information_schema.columns WHERE table_catalog = current_database() AND table_schema = 'main' AND table_name = 'page' ORDER BY ordinal_position")->fetchAll(\PDO::FETCH_COLUMN);
+        if (!in_array('row_id', $columns, true)) {
+            return;
+        }
+        $fields = array_values(array_diff($columns, ['row_id']));
+        $struct = 'struct_pack('.implode(', ', array_map(static fn (string $c): string => self::identifier($c).' := '.self::identifier($c), $fields)).')';
+        $order = implode(', ', array_map(self::identifier(...), array_values(array_intersect(['seq', 'id'], $fields))));
+        $pages = 'list('.$struct.('' === $order ? '' : ' ORDER BY '.$order).')';
+        $db->exec('ALTER TABLE item ADD COLUMN pages '.$db->query('SELECT typeof('.$pages.') FROM page')->fetchColumn());
+        $db->exec('UPDATE item SET pages = g.pages FROM (SELECT row_id, '.$pages.' AS pages FROM page GROUP BY row_id) g WHERE item.id = g.row_id');
+        self::removePageCopies($db, $fields);
+    }
+
+    /**
+     * Runs while dto_data is still JSON text.
+     *
+     * @param list<string> $fields the page columns now on item.pages
+     */
+    private static function removePageCopies(\PDO $db, array $fields): void
+    {
+        if (!in_array('url', $fields, true) || 'VARCHAR' !== $db->query("SELECT data_type FROM information_schema.columns WHERE table_catalog = current_database() AND table_schema = 'main' AND table_name = 'item' AND column_name = 'dto_data'")->fetchColumn()) {
+            return;
+        }
+        $source = in_array('source_url', $fields, true) ? ' OR v = pg.source_url' : '';
+        $repeats = static fn (string $value): string => 'len(list_filter(pages, lambda pg: '.str_replace('v', $value,
+            "v = pg.url$source OR (starts_with(pg.url, 's3://') AND ends_with(v, substr(pg.url, 5)))").')) > 0';
+        $patch = $any = [];
+        foreach (self::PAGE_COPY_FIELDS as $field) {
+            $value = 'json_extract_string(dto_data, '.$db->quote('$.'.$field).')';
+            $any[] = $repeats($value);
+            // A JSON null in a merge patch removes the key.
+            $patch[] = $db->quote($field).', CASE WHEN '.$repeats($value).' THEN NULL ELSE json_extract(dto_data, '.$db->quote('$.'.$field).') END';
+        }
+        $db->exec('UPDATE item SET dto_data = CAST(json_merge_patch(CAST(dto_data AS JSON), json_object('.implode(', ', $patch).')) AS VARCHAR) WHERE pages IS NOT NULL AND ('.implode(' OR ', $any).')');
     }
 
     /** User tables, excluding SQLite internals and FTS virtual tables/shadow storage. */

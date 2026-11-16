@@ -30,7 +30,7 @@ final readonly class DuckDbFolioView
     /** A newspaper record's issue id. DocumentDto declares issueId, so it is in dto_data; a folio that has it only in extras must be rebuilt. */
     public static function issueIdOf(array $record): string
     {
-        $id = self::normalizedData($record['dto_data'] ?? $record['dto_json'] ?? '{}')['issueId'] ?? null;
+        $id = self::normalizedData($record['dto_data'] ?? '{}')['issueId'] ?? null;
         if (!is_string($id) || '' === $id) {
             throw new \UnexpectedValueException(sprintf('Record %s has no issueId in dto_data. Rebuild this folio.', $record['id'] ?? '?'));
         }
@@ -45,15 +45,20 @@ final readonly class DuckDbFolioView
         if (!(bool) $db->query("SELECT count(*) FROM duckdb_constraints() WHERE schema_name = 'main' AND table_name = 'item' AND constraint_type = 'PRIMARY KEY'")->fetchColumn()) {
             throw new \RuntimeException(sprintf('The dfolio of %s has no primary key on item. Export it again.', $folioCode));
         }
-        $statement = $db->prepare('SELECT *, CAST(dto_data AS VARCHAR) AS dto_json FROM item WHERE id = ?');
+        // The documents are VARIANT in the file; the presentation model and the rend restore take JSON text.
+        $documents = implode(', ', array_map(static fn (string $c): string => 'CAST(CAST('.$c.' AS JSON) AS VARCHAR) AS '.$c, DuckDbFolioExporter::DOCUMENT_COLUMNS));
+        $statement = $db->prepare('SELECT * REPLACE ('.$documents.') FROM item WHERE id = ?');
         $statement->execute([Row::id($folioCode.':'.$coreCode, $localId)]);
         $record = $statement->fetch(\PDO::FETCH_ASSOC);
         if (false === $record) {
             throw new NotFoundHttpException('Item not found in this folio working copy.');
         }
-        $pagesQuery = $db->prepare('SELECT * FROM page WHERE row_id = ? ORDER BY seq, id');
-        $pagesQuery->execute([$record['id']]);
-        $pageRows = $pagesQuery->fetchAll(\PDO::FETCH_ASSOC);
+        if (!array_key_exists('pages', $record)) {
+            throw new \RuntimeException(sprintf('The dfolio of %s has no pages on item. Export it again.', $folioCode));
+        }
+        // The exporter puts an item's pages on the item, in page order: the record and its images are one read.
+        $pageRows = array_map(static fn (array $page): array => ['row_id' => $record['id']] + $page, $record['pages'] ?? []);
+        unset($record['pages']);
         $split = (bool) $db->query("SELECT count(*) FROM information_schema.tables WHERE table_name = '_renditions'")->fetchColumn();
         if ($split) {
             $issueId = 'doc' === $coreCode ? $localId : self::issueIdOf($record);
@@ -79,7 +84,7 @@ final readonly class DuckDbFolioView
             'facets' => $facets,
             'folio' => $folio, 'core' => $core, 'row' => $row, 'dto' => $dto, 'dtoClass' => $dtoClass,
             'ctx' => (object) ['folioCode' => $folioCode], 'reader' => 'duckdb',
-            'dtoJson' => $record['dto_json'],
+            'dtoJson' => $record['dto_data'],
             'pageTableExists' => true,
             // These ancillary SQLite-reader panels are not loaded by the DuckDB detail view.
             'claims' => [], 'aiTaskRuns' => [], 'terms' => [], 'termFields' => [],

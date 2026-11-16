@@ -21,10 +21,10 @@ final class DuckDbDeclaredFacetsTest extends TestCase
             self::markTestSkipped('DuckDB required');
         }
         $db = new \PDO('duckdb::memory:');
-        $db->exec('CREATE TABLE item(id VARCHAR, local_id VARCHAR, core_id VARCHAR, dto_type VARCHAR, dto_data JSON)');
+        $db->exec('CREATE TABLE item(id VARCHAR, local_id VARCHAR, core_id VARCHAR, dto_type VARCHAR, dto_data VARIANT)');
         $db->exec('CREATE TABLE schema_property(name VARCHAR, label VARCHAR, type VARCHAR, visible INTEGER, facet INTEGER, filterable INTEGER, position INTEGER)');
         $db->exec("INSERT INTO schema_property VALUES ('year','Year','?int',1,1,1,0), ('collections','Collections','?array',1,1,1,1), ('missing','Missing','string',1,1,1,2), ('bad\''path','Unsafe','string',1,1,1,3), ('year','Year','?int',1,1,1,4)");
-        $insert = $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, ?)');
+        $insert = $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, CAST(CAST(? AS JSON) AS VARIANT))');
         foreach ([['a', 2008, ['Film', 'Film']], ['b', 2012, ['Film', 'TV']], ['c', 2014, ['TV']]] as [$id,$year,$collections]) {
             $insert->execute([$id, $id, 'mus/test:obj', 'object', json_encode(compact('year', 'collections'))]);
         }

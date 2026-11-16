@@ -49,6 +49,8 @@ final class DuckDbFolioImporter
                 }
                 // The template can predate columns the producing build added (e.g. item.sort_key): add what the .dfolio carries.
                 $types = $duck->query("SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'main' AND table_name = ".$duck->quote($table))->fetchAll(\PDO::FETCH_KEY_PAIR);
+                // item.pages repeats the page table for one-read access; the SQLite folio keeps pages in their table.
+                $types = array_filter($types, static fn (string $type): bool => !str_starts_with($type, 'STRUCT'));
                 foreach ($types as $name => $type) {
                     if (!in_array($name, $have[$table], true) && !$this->isGenerated($sqlite, $table, $name)) {
                         $sqlite->exec(sprintf('ALTER TABLE %s ADD COLUMN %s %s', DuckDbFolioExporter::identifier($table), DuckDbFolioExporter::identifier($name),
@@ -66,7 +68,9 @@ final class DuckDbFolioImporter
                     implode(', ', array_map(DuckDbFolioExporter::identifier(...), $columns)),
                     implode(', ', array_fill(0, count($columns), '?')),
                 ));
-                $select = $duck->query('SELECT '.implode(', ', array_map(DuckDbFolioExporter::identifier(...), $columns)).' FROM main.'.DuckDbFolioExporter::identifier($table));
+                // A VARIANT document goes back to SQLite as JSON text.
+                $select = $duck->query('SELECT '.implode(', ', array_map(static fn (string $name): string => 'VARIANT' === $types[$name]
+                    ? 'CAST(CAST('.DuckDbFolioExporter::identifier($name).' AS JSON) AS VARCHAR)' : DuckDbFolioExporter::identifier($name), $columns)).' FROM main.'.DuckDbFolioExporter::identifier($table));
                 $count = 0;
                 $select->setFetchMode(\PDO::FETCH_NUM);
                 foreach ($select as $row) {

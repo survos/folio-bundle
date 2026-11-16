@@ -19,8 +19,8 @@ final class FolioDuckDbSearchTest extends TestCase
             self::markTestSkipped('Native DuckDB required.');
         }
         $db = new \PDO('duckdb::memory:');
-        $db->exec('CREATE TABLE item (id VARCHAR, dto_type VARCHAR, dto_data JSON, local_id VARCHAR, core_id VARCHAR)');
-        $insert = $db->prepare('INSERT INTO item (id, dto_type, dto_data) VALUES (?, ?, ?)');
+        $db->exec('CREATE TABLE item (id VARCHAR, dto_type VARCHAR, dto_data VARIANT, local_id VARCHAR, core_id VARCHAR)');
+        $insert = $db->prepare('INSERT INTO item (id, dto_type, dto_data) VALUES (?, ?, CAST(CAST(? AS JSON) AS VARIANT))');
         foreach ([['a', 'painting', 'Landscape A'], ['b', 'painting', 'Landscape B'], ['c', 'print', 'Landscape C'], ['d', 'print', 'Portrait']] as [$id, $type, $title]) {
             $insert->execute([$id, $type, json_encode([ItemField::TITLE => $title, 'sourceUrl' => 'https://example.org/source/'.$id, ItemField::URL => 'urn:'.$id])]);
         }

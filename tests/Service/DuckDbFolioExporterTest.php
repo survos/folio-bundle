@@ -48,6 +48,8 @@ final class DuckDbFolioExporterTest extends TestCase
         self::assertSame('VARCHAR[]', $db->query('SELECT typeof("aiTasks") FROM dto.painting')->fetchColumn());
         self::assertNull($db->query('SELECT "meritOverall" FROM dto.painting')->fetchColumn());
         self::assertSame(1900, $db->query('SELECT sort_key FROM item')->fetchColumn());
+        self::assertSame('VARIANT/VARIANT', $db->query("SELECT typeof(dto_data) || '/' || typeof(extras) FROM item")->fetchColumn());
+        self::assertSame('雪', $db->query('SELECT CAST(dto_data.title AS VARCHAR) FROM item')->fetchColumn());
         $comparison = (new DuckDbFolioComparator())->compare($this->dir.'/fixture.folio', $result['path']);
         self::assertTrue($comparison['matched']);
         self::assertSame(['painting' => 1], $comparison['dtoProjections']);
@@ -66,6 +68,38 @@ final class DuckDbFolioExporterTest extends TestCase
         self::assertSame(1, (int) $db->query("SELECT count(*) FROM duckdb_indexes() WHERE table_name = 'page' AND expressions::VARCHAR = '[row_id]'")->fetchColumn());
         self::assertSame('p1', $db->query("SELECT id FROM page WHERE row_id = 'fixture:obj:001'")->fetchColumn());
         self::assertTrue((new DuckDbFolioComparator())->compare($this->dir.'/fixture.folio', $result['path'])['matched']);
+    }
+
+    public function testPagesAreOnTheItemAndImageFieldsThatRepeatAPageAreRemoved(): void
+    {
+        $source = new \PDO('sqlite:'.$this->dir.'/fixture.folio');
+        $source->exec('ALTER TABLE page ADD COLUMN row_id TEXT; ALTER TABLE page ADD COLUMN seq INTEGER; ALTER TABLE page ADD COLUMN url TEXT; ALTER TABLE page ADD COLUMN source_url TEXT');
+        $source->exec("UPDATE page SET row_id = 'fixture:obj:001', seq = 2, url = 's3://bucket/orig/back.jpg', source_url = 'https://museum.example/back.jpg'");
+        $source->exec("INSERT INTO page (id, row_id, seq, url, source_url) VALUES ('p0', 'fixture:obj:001', 1, 's3://bucket/orig/front.jpg', 'https://museum.example/front.jpg')");
+        // thumbnailUrl is the archived first page, largeImageUrl its source: both repeat the page. iiifBase is its own service.
+        $source->exec("UPDATE item SET dto_data = json_set(dto_data, '$.thumbnailUrl', 'https://storage.example/bucket/orig/front.jpg', '$.largeImageUrl', 'https://museum.example/front.jpg', '$.iiifBase', 'https://iiif.example/front')");
+        $source = null;
+        $result = (new DuckDbFolioExporter())->export($this->dir.'/fixture.folio', $this->dir.'/fixture.dfolio');
+        $db = (new DuckDbCompanion($result['path'], 'build-a', 1))->open();
+        self::assertSame(['p0', 'p1'], json_decode($db->query('SELECT CAST(to_json(list_transform(pages, lambda p: p.id)) AS VARCHAR) FROM item')->fetchColumn(), true));
+        self::assertSame('s3://bucket/orig/front.jpg', $db->query('SELECT pages[1].url FROM item')->fetchColumn());
+        $data = json_decode($db->query('SELECT CAST(CAST(dto_data AS JSON) AS VARCHAR) FROM item')->fetchColumn(), true);
+        self::assertArrayNotHasKey('thumbnailUrl', $data);
+        self::assertArrayNotHasKey('largeImageUrl', $data);
+        self::assertSame('https://iiif.example/front', $data['iiifBase']);
+        self::assertSame('雪', $data['title']);
+        self::assertNull($db->query('SELECT "thumbnailUrl" FROM dto.painting')->fetchColumn());
+        self::assertTrue((new DuckDbFolioComparator())->compare($this->dir.'/fixture.folio', $result['path'])['matched']);
+    }
+
+    public function testTheFinishedDfolioIsPackedWithABlockSizeForItsSize(): void
+    {
+        self::assertSame(16384, DuckDbFolioExporter::blockSize(1024 * 1024));
+        self::assertSame(16384, DuckDbFolioExporter::blockSize(DuckDbFolioExporter::SMALL_DFOLIO_BYTES - 1));
+        self::assertSame(65536, DuckDbFolioExporter::blockSize(DuckDbFolioExporter::SMALL_DFOLIO_BYTES));
+        $result = (new DuckDbFolioExporter())->export($this->dir.'/fixture.folio', $this->dir.'/fixture.dfolio');
+        $db = (new DuckDbCompanion($result['path'], 'build-a', 1))->open();
+        self::assertSame(16384, (int) $db->query('SELECT block_size FROM pragma_database_size()')->fetchColumn());
     }
 
     public function testMemoryLimitEnvIsValidatedAndLeavesNoSpillBehind(): void
@@ -99,7 +133,7 @@ final class DuckDbFolioExporterTest extends TestCase
         $source = null;
         $result = (new DuckDbFolioExporter())->export($this->dir.'/fixture.folio', $this->dir.'/fixture.dfolio');
         $db = (new DuckDbCompanion($result['path'], 'build-a', 1))->open();
-        self::assertSame($payload, $db->query('SELECT dto_data FROM item')->fetchColumn());
+        self::assertEquals(json_decode($payload, true), json_decode($db->query('SELECT CAST(CAST(dto_data AS JSON) AS VARCHAR) FROM item')->fetchColumn(), true));
         self::assertSame('["observe","analyze"]', $db->query('SELECT to_json("aiTasks")::VARCHAR FROM dto.painting')->fetchColumn());
         self::assertTrue((new DuckDbFolioComparator())->compare($this->dir.'/fixture.folio', $result['path'])['matched']);
     }

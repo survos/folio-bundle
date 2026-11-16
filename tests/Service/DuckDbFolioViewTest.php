@@ -20,8 +20,7 @@ final class DuckDbFolioViewTest extends TestCase
 {
     public static function storageTypes(): iterable
     {
-        yield 'exported text' => ['VARCHAR'];
-        yield 'native JSON' => ['JSON'];
+        yield 'exported documents' => ['VARIANT'];
     }
 
     #[DataProvider('storageTypes')]
@@ -37,7 +36,7 @@ final class DuckDbFolioViewTest extends TestCase
             $path = $root.'/snapshot.dfolio';
             $db = new \PDO('duckdb:'.$path);
             $db->exec("CREATE TABLE item (id VARCHAR PRIMARY KEY, core_id VARCHAR, local_id VARCHAR, label VARCHAR, dto_type VARCHAR, dto_data $storageType, extras $storageType, raw $storageType)");
-            $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, ?, CAST(CAST(? AS JSON) AS VARIANT), CAST(CAST(? AS JSON) AS VARIANT), CAST(CAST(? AS JSON) AS VARIANT))')->execute([
                 'test/example:obj:42', 'test/example:obj', '42', 'Landscape', 'painting',
                 json_encode([ItemField::ID => '42', 'emptyObject' => (object) [], 'emptyList' => [], ItemField::TITLE => 'Landscape', ItemField::URL => 'https://example.org/42']), null, null,
             ]);
@@ -45,6 +44,9 @@ final class DuckDbFolioViewTest extends TestCase
             $db->exec("INSERT INTO page VALUES ('test/example:obj:42#1','test/example:obj:42',1,'https://example.org/image.jpg',NULL,900,600,0,'photo',NULL,'FIRST SIDE',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)");
             $layout = [['text' => 'SECOND SIDE', 'type' => 'paragraph', 'bbox' => ['x' => 10, 'y' => 20, 'width' => 300, 'height' => 40]]];
             $db->prepare("INSERT INTO page VALUES ('test/example:obj:42#2','test/example:obj:42',2,'https://example.org/back.jpg',NULL,900,600,0,'photo',NULL,'SECOND SIDE',NULL,NULL,NULL,NULL,NULL,?,NULL,NULL)")->execute([json_encode($layout)]);
+            // The view reads an item and its pages in one row; the page table is not consulted.
+            \Survos\FolioBundle\Service\DuckDbFolioExporter::embedPages($db);
+            $db->exec('DROP TABLE page');
             $db->exec('CHECKPOINT');
             $db = null;
             $locator = new LocalDuckDbFolioLocator(new DataPaths($root), ['test/example' => $path]);

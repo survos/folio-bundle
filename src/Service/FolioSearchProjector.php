@@ -72,7 +72,11 @@ final class FolioSearchProjector
         $links = $this->sortedCursor($pdo, 'link', "SELECT :folio || ':' || left_core || ':' || left_id AS k, GROUP_CONCAT(:folio || ':' || right_core || ':' || right_id, $separator) FROM link GROUP BY k ORDER BY k", ['folio' => $prefix]);
         [$provider, $dataset] = self::split($folioCode);
 
-        $select = $pdo->query('SELECT id, local_id, label, dto_type, dto_data, extras, core_id FROM item ORDER BY id');
+        // A dfolio stores the documents as VARIANT; both sources hand this loop JSON text.
+        $document = 'duckdb' === $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME)
+            ? static fn (string $column): string => 'CAST(CAST('.$column.' AS JSON) AS VARCHAR) AS '.$column
+            : static fn (string $column): string => $column;
+        $select = $pdo->query('SELECT id, local_id, label, dto_type, '.$document('dto_data').', '.$document('extras').', core_id FROM item ORDER BY id');
         if (!$select instanceof \PDOStatement) {
             throw new \RuntimeException(sprintf('Unable to read rows of folio %s.', $folioCode));
         }

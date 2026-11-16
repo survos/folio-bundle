@@ -23,10 +23,10 @@ final class DuckDbFolioMapTest extends TestCase
         $path = sys_get_temp_dir().'/folio-map-'.bin2hex(random_bytes(6)).'.dfolio';
         try {
             $db = new \PDO('duckdb:'.$path);
-            $db->exec('CREATE TABLE item (id VARCHAR, local_id VARCHAR, core_id VARCHAR, dto_type VARCHAR, dto_data JSON)');
+            $db->exec('CREATE TABLE item (id VARCHAR, local_id VARCHAR, core_id VARCHAR, dto_type VARCHAR, dto_data VARIANT)');
             $db->exec('CREATE TABLE schema_property (name VARCHAR, label VARCHAR, type VARCHAR, visible INTEGER, facet INTEGER, filterable INTEGER, position INTEGER)');
             $db->exec("INSERT INTO schema_property VALUES ('collections','Collections','array',1,1,1,0)");
-            $insert = $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, ?)');
+            $insert = $db->prepare('INSERT INTO item VALUES (?, ?, ?, ?, CAST(CAST(? AS JSON) AS VARIANT))');
             foreach ([['a', 38, -78, ['Sperryville', 'Other']], ['b', 39, -77, ['Other']], ['c', null, -78, ['Sperryville']], ['d', 'invalid', -78, ['Sperryville']], ['e', 91, 0, ['Sperryville']], ['f', 0, 0, ['Zero']]] as [$id, $lat, $lng, $collections]) {
                 $insert->execute([$id, $id, 'test/map:obj', 'object', json_encode(['title' => $id, 'latitude' => $lat, 'longitude' => $lng, 'collections' => $collections])]);
             }

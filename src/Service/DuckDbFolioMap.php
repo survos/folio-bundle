@@ -15,8 +15,8 @@ use Symfony\Component\OptionsResolver\OptionsResolver;
 /** The map uses the same reader, facet declarations and query semantics as DuckDB search. */
 final readonly class DuckDbFolioMap
 {
-    private const string LAT = "try_cast(json_extract_string(d.dto_data, '$.latitude') AS DOUBLE)";
-    private const string LNG = "try_cast(json_extract_string(d.dto_data, '$.longitude') AS DOUBLE)";
+    private const string LAT = 'try_cast(d.dto_data.latitude AS DOUBLE)';
+    private const string LNG = 'try_cast(d.dto_data.longitude AS DOUBLE)';
     private const string COORDINATES = self::LAT.' BETWEEN -90 AND 90 AND '.self::LNG.' BETWEEN -180 AND 180';
 
     public function __construct(
@@ -62,7 +62,7 @@ final readonly class DuckDbFolioMap
                 'geometry' => ['type' => 'Point', 'coordinates' => [(float) $dto['longitude'], (float) $dto['latitude']]],
                 'properties' => ['id' => $row['localId'], 'coreCode' => $row['coreCode'],
                     'label' => $dto['title'] ?? $row['localId'], 'city' => $dto['city'] ?? null,
-                    'thumbnailUrl' => $dto['thumbnailUrl'] ?? null, 'year' => $dto['year'] ?? null],
+                    'thumbnailUrl' => $row['thumbnailUrl'] ?? null, 'year' => $dto['year'] ?? null],
             ];
         }
 

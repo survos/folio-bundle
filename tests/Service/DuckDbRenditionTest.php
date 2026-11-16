@@ -76,7 +76,7 @@ final class DuckDbRenditionTest extends TestCase
         $db = (new DuckDbFolioReader())->open($target);
         self::assertSame(2, $db->query('SELECT count(*) FROM _renditions')->fetchColumn());
         self::assertSame(0, $db->query('SELECT count(*) FROM page WHERE layout IS NOT NULL OR width IS NOT NULL OR height IS NOT NULL')->fetchColumn());
-        foreach ($db->query('SELECT * FROM item', \PDO::FETCH_ASSOC) as $row) {
+        foreach ($db->query('SELECT * REPLACE (CAST(CAST(dto_data AS JSON) AS VARCHAR) AS dto_data, CAST(CAST(extras AS JSON) AS VARCHAR) AS extras, CAST(CAST(raw AS JSON) AS VARCHAR) AS raw) FROM item', \PDO::FETCH_ASSOC) as $row) {
             self::assertSame([], NewspaperGeometry::splitRow('item', $row)[1]);
         }
         $reader = new DuckDbRenditionReader(new DuckDbFolioReader());
@@ -84,7 +84,7 @@ final class DuckDbRenditionTest extends TestCase
             $ref = $reader->reference($db, 's3://bucket/dfolio/news/test/source.dfolio', $issue);
             $rend = (new DuckDbFolioReader())->openRend($this->root.substr($ref['uri'], 4));
             $reader->validateIssue($rend, $issue, $ref['build_id']);
-            $items = array_values(array_filter($db->query('SELECT * FROM item ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC), fn ($r) => str_contains($r['id'], $issue)));
+            $items = array_values(array_filter($db->query('SELECT * REPLACE (CAST(CAST(dto_data AS JSON) AS VARCHAR) AS dto_data, CAST(CAST(extras AS JSON) AS VARCHAR) AS extras, CAST(CAST(raw AS JSON) AS VARCHAR) AS raw) FROM item ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC), fn ($r) => str_contains($r['id'], $issue)));
             $pages = array_values(array_filter($db->query('SELECT * FROM page ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC), fn ($r) => str_contains($r['id'], $issue)));
             [$items,$pages] = $reader->restore($rend, $items, $pages, $issue);
             foreach (['item' => $items, 'page' => $pages] as $table => $rows) {
@@ -96,6 +96,8 @@ final class DuckDbRenditionTest extends TestCase
                             $original[$field] = json_decode($original[$field], true);
                         }
                     }
+                    // pages repeats the page table on the item; the source folio has no such column.
+                    unset($row['pages']);
                     self::assertEquals($original, $row);
                 }
             }

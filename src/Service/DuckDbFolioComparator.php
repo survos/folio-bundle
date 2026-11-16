@@ -57,7 +57,12 @@ final class DuckDbFolioComparator
             // Compare source columns; export-only typed projections are verified separately.
             $sql = 'SELECT '.implode(', ', array_map(static fn (array $c): string => DuckDbFolioExporter::identifier($c['name']), $columns)).' FROM '.$quoted.' ORDER BY '.$order;
             $left = $sqlite->query($sql);
-            $right = $db->query($sql);
+            // The dfolio stores the item documents as VARIANT; read them back as JSON text to compare.
+            $right = $db->query('item' !== $table ? $sql : 'SELECT '.implode(', ', array_map(static function (array $c): string {
+                $name = DuckDbFolioExporter::identifier($c['name']);
+
+                return in_array($c['name'], DuckDbFolioExporter::DOCUMENT_COLUMNS, true) ? 'CAST(CAST('.$name.' AS JSON) AS VARCHAR) AS '.$name : $name;
+            }, $columns)).' FROM '.$quoted.' ORDER BY '.$order);
             $count = 0;
             while (true) {
                 $expected = $left->fetch(\PDO::FETCH_ASSOC);
@@ -70,6 +75,27 @@ final class DuckDbFolioComparator
                             $expected[$field] = self::canonical(json_decode($expected[$field], true, flags: JSON_THROW_ON_ERROR));
                             $actual[$field] = self::canonical(json_decode($actual[$field], true, flags: JSON_THROW_ON_ERROR));
                         }
+                    }
+                }
+                if ('item' === $table && false !== $expected && false !== $actual) {
+                    // A VARIANT does not keep the text of a document, so compare the values. The exporter also removes row
+                    // image fields that only repeat a page (DuckDbFolioExporter::embedPages): a removed field is accepted,
+                    // every other value must be equal.
+                    foreach (DuckDbFolioExporter::DOCUMENT_COLUMNS as $column) {
+                        if (!isset($expected[$column], $actual[$column]) || !is_string($expected[$column]) || !is_string($actual[$column])) {
+                            continue;
+                        }
+                        $source = json_decode($expected[$column], true, flags: JSON_THROW_ON_ERROR);
+                        $exported = json_decode($actual[$column], true, flags: JSON_THROW_ON_ERROR);
+                        if ('dto_data' === $column && is_array($source) && is_array($exported)) {
+                            foreach (DuckDbFolioExporter::PAGE_COPY_FIELDS as $field) {
+                                if (!array_key_exists($field, $exported)) {
+                                    unset($source[$field]);
+                                }
+                            }
+                        }
+                        $expected[$column] = self::canonical($source);
+                        $actual[$column] = self::canonical($exported);
                     }
                 }
                 if ($expected !== $actual) {
@@ -113,6 +139,12 @@ final class DuckDbFolioComparator
                     $wanted[$name] = $value;
                 }
                 $got = json_decode($actual, true, flags: JSON_THROW_ON_ERROR);
+                // A page-copy field the exporter removed is NULL in the projection.
+                foreach (DuckDbFolioExporter::PAGE_COPY_FIELDS as $field) {
+                    if (array_key_exists($field, $wanted) && null === ($got[$field] ?? null)) {
+                        $wanted[$field] = null;
+                    }
+                }
                 // JSON does not distinguish integral double encodings (1 versus 1.0).
                 if (self::canonical($wanted) !== self::canonical($got)) {
                     $fields = array_keys(array_filter($wanted, static fn ($value, $key): bool => self::canonical($value) !== self::canonical($got[$key] ?? null), ARRAY_FILTER_USE_BOTH));
