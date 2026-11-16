@@ -13,6 +13,37 @@ use Survos\FolioBundle\Entity\Row;
 /** Shared detached Row/Page mapping for readers, without ORM writes or a shadow database. */
 final class DuckDbFolioRowMapper
 {
+    /**
+     * SELECT list for item rows that hydrate() can take: the VARIANT documents come back as JSON text,
+     * and the item's pages come with it.
+     */
+    public static function columns(): string
+    {
+        return '* REPLACE ('.implode(', ', array_map(static fn (string $c): string => 'CAST(CAST('.$c.' AS JSON) AS VARCHAR) AS '.$c, DuckDbFolioExporter::DOCUMENT_COLUMNS)).')';
+    }
+
+    /**
+     * The item's pages as page-table rows. The exporter puts them on the item, in page order.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function pages(array $record): array
+    {
+        if (!array_key_exists('pages', $record)) {
+            throw new \RuntimeException(sprintf('The dfolio of %s has no pages on item. Export it again.', explode(':', (string) ($record['core_id'] ?? '?'), 2)[0]));
+        }
+
+        return array_map(static fn (array $page): array => ['row_id' => $record['id']] + $page, $record['pages'] ?? []);
+    }
+
+    /** A Row with its pages, from one item row selected with columns(). */
+    public static function fromRecord(array $record): Row
+    {
+        [$key, $core] = explode(':', (string) $record['core_id'], 2);
+
+        return self::hydrate($key, $core, $record, self::pages($record));
+    }
+
     /** Detached presentation entities: no EntityManager, schema change, or SQLite shadow copy. */
     public static function hydrate(string $key, string $core, array $record, array $pages): Row
     {

@@ -7,7 +7,6 @@ namespace Survos\FolioBundle\Controller;
 use Doctrine\DBAL\Connection;
 use Survos\DataContracts\Dto\Item\BaseItemDto;
 use Survos\DataContracts\Util\ImageUrl;
-use Survos\DataContracts\Vocabulary\RelationBinding;
 use Survos\DataContracts\Vocabulary\TermSetBinding;
 use Survos\FolioBundle\Entity\Core;
 use Survos\FolioBundle\Entity\Doc;
@@ -17,6 +16,8 @@ use Survos\FolioBundle\Entity\Page;
 use Survos\FolioBundle\Entity\Row;
 use Survos\FolioBundle\Entity\Term;
 use Survos\FolioBundle\Entity\TermSet;
+use Survos\FolioBundle\Service\DuckDbFolioConnection;
+use Survos\FolioBundle\Service\DuckDbFolioView;
 use Survos\FolioBundle\Service\FolioChatPromptSuggester;
 use Survos\FolioBundle\Service\FolioChatService;
 use Survos\FolioBundle\Service\FolioDtoTypeResolver;
@@ -79,6 +80,8 @@ final class FolioController extends AbstractController
         private readonly HttpClientInterface $httpClient,
         private readonly RowTermsResolver $rowTermsResolver,
         private readonly RowClaimsResolver $rowClaimsResolver,
+        private readonly DuckDbFolioConnection $dfolio,
+        private readonly DuckDbFolioView $dfolioView,
         private readonly ?ImageUrlBuilderInterface $imageUrls = null,
         // Null unless the host app also requires survos/schema-org-bundle — see this
         // bundle's own registration, which only defines the builder when it is installed.
@@ -90,69 +93,13 @@ final class FolioController extends AbstractController
     // param as a real "provider/dataset" code — FolioRouteAttributeListener resolves it to
     // the real code (404ing on an unknown slug) before this action runs, and the generic
     // RouteIdentityValueResolver resolves $folio from the now-real {folioCode}.
-    #[Route('', name: 'survos_folio_show')]
-    public function show(Folio $folio): Response
+    #[Route('', name: 'survos_folio_show', defaults: ['_folio_reader' => 'duckdb'])]
+    public function show(string $folioCode): Response
     {
-        $ctx = $this->folios->context($folio->code);
-        $conn = $ctx->em->getConnection();
-        $cores = $ctx->em->getRepository(Core::class)->findBy([], ['rowCount' => 'DESC', 'code' => 'ASC']);
-
-        // Every core is first-class — no single "object" core is the centre. Each card gets its own
-        // row count and DTO-type breakdown so the dashboard links straight into any core (obj, doc,
-        // image, aut/people, …) rather than privileging objects.
-        $coreSummaries = [];
-        foreach ($cores as $core) {
-            $coreSummaries[] = [
-                'core' => $core,
-                'dtoChoices' => $this->dtoChoices($conn->executeQuery(
-                    'SELECT dto_type, COUNT(*) AS cnt FROM item WHERE core_id = ? GROUP BY dto_type ORDER BY cnt DESC',
-                    [$core->id],
-                )->fetchAllAssociative()),
-            ];
-        }
-
-        $schemaTables = $conn->executeQuery(
-            'SELECT name, kind, core_code, dto_type, label, row_count FROM schema_table ORDER BY kind, name'
-        )->fetchAllAssociative();
-        $views = $conn->executeQuery(
-            "SELECT name FROM sqlite_master WHERE type = 'view' AND name LIKE 'dto_%' ORDER BY name"
-        )->fetchFirstColumn();
-
-        // The overview page's hero timeline: the primary (largest) core's year spread, if it has
-        // one. Capped to a sample for the preview strip — the full unfiltered set is one click
-        // away via "View all" (survos_folio_slideshow), which has no such cap. Counts/min/max
-        // still reflect the true full range so the ruler itself isn't misleading.
-        $timeline = null;
-        if ([] !== $cores) {
-            $primaryCore = $cores[0];
-            $timelineData = $this->yearTimelineData($conn, $primaryCore->id, limit: 300);
-            if (null !== $timelineData) {
-                $timeline = $timelineData + ['core' => $primaryCore];
-            }
-        }
-
-        return $this->render('@SurvosFolioBundle/folio/show.html.twig', [
-            'ctx' => $ctx,
-            'folio' => $folio,
-            'cores' => $cores,
-            'coreSummaries' => $coreSummaries,
-            'totalRows' => array_reduce($cores, static fn (int $sum, Core $core): int => $sum + $core->rowCount, 0),
-            'docs' => $ctx->em->getRepository(Doc::class)->findBy([], ['position' => 'ASC']),
-            'schemaTables' => $schemaTables,
-            'views' => $views,
-            'linkTypes' => $folio->linkTypes,
-            'timeline' => $timeline,
-        ]);
+        // A folio's front page is its search.
+        return $this->redirectToRoute('survos_folio_search', ['folioCode' => $folioCode]);
     }
 
-    /**
-     * Shared by show() (a homepage-style preview, capped + always year-sorted) and slideshow()
-     * (the full page, honouring the search/facet-derived sort). Returns null if the core has no
-     * usable year spread (e.g. every row's year is null, or they're all the same year) — the
-     * caller should just render without a timeline rather than show a degenerate one-point ruler.
-     *
-     * @return array{slides: list<array<string, mixed>>, slider: array<string, mixed>, counts: array<int, int>}|null
-     */
     private function yearTimelineData(Connection $conn, string $coreId, int $limit = 0): ?array
     {
         $sort = $this->slideshowSortColumn('year:asc');
@@ -374,21 +321,16 @@ final class FolioController extends AbstractController
      * collapse both routes into one, keeping only _core's name for matching — /gallery would
      * resolve as survos_folio_gallery_core with a null coreCode instead of survos_folio_gallery.
      */
-    #[Route('/gallery/{coreCode}', name: 'survos_folio_gallery_core', options: ['expose' => true])]
-    #[Route('/gallery', name: 'survos_folio_gallery', options: ['expose' => true], priority: 10)]
-    public function gallery(Folio $folio, ?string $coreCode = null): Response
+    #[Route('/gallery/{coreCode}', name: 'survos_folio_gallery_core', defaults: ['_folio_reader' => 'duckdb'], options: ['expose' => true])]
+    #[Route('/gallery', name: 'survos_folio_gallery', defaults: ['_folio_reader' => 'duckdb'], options: ['expose' => true], priority: 10)]
+    public function gallery(string $folioCode, ?string $coreCode = null): Response
     {
-        $em = $this->folios->context($folio->code)->em;
-
-        $core = null !== $coreCode
-            ? ($em->find(Core::class, Core::id($folio->code, $coreCode)) ?? throw $this->createNotFoundException($coreCode))
-            : ($em->find(Core::class, Core::id($folio->code, 'obj'))
-                ?? ($em->getRepository(Core::class)->findBy([], ['rowCount' => 'DESC'])[0] ?? null)
-                ?? throw $this->createNotFoundException('No core to browse.'));
+        // 404 when the folio has no dfolio. The grid itself fetches rows from the row API.
+        $this->dfolio->connect(['folioCode' => $folioCode]);
 
         return $this->render('@SurvosFolioBundle/folio/gallery.html.twig', [
-            'folio' => $folio,
-            'coreCode' => $core->code,
+            'folio' => new Folio($folioCode),
+            'coreCode' => $coreCode ?? 'obj',
         ]);
     }
 
@@ -1374,117 +1316,13 @@ final class FolioController extends AbstractController
         ]));
     }
 
-    #[Route('/{coreCode}/{dtoType}/{localId}', name: 'survos_folio_row_show', options: ['expose' => true])]
-    public function rowShow(Folio $folio, string $coreCode, string $dtoType, string $localId, Request $request): Response
+    #[Route('/{coreCode}/{dtoType}/{localId}', name: 'survos_folio_row_show', requirements: ['localId' => '.+'], defaults: ['_folio_reader' => 'duckdb'], options: ['expose' => true])]
+    public function rowShow(string $folioCode, string $coreCode, string $dtoType, string $localId): Response
     {
-        // Content locale (e.g. folioCode="jarc.en") is already stripped and applied by
-        // FolioRouteAttributeListener before this method runs — context() picks it up via
-        // FolioService::$requestContentLocale, no need to read the request here.
-        // See the builder's localized output, survos-sites/scanseum#18.
-        $ctx = $this->folios->context($folio->code);
-        $core = $ctx->em->find(Core::class, Core::id($folio->code, $coreCode))
-            ?? throw $this->createNotFoundException($coreCode);
-        $row = $ctx->em->find(Row::class, Row::id($core->id, $localId))
-            ?? throw $this->createNotFoundException($localId);
-
-        if ($row->dtoType && $dtoType !== $row->dtoType) {
-            $contentLocale = $request->attributes->get('content_locale');
-
-            return $this->redirectToRoute('survos_folio_row_show', array_filter([
-                'folioCode' => $contentLocale ? "$folio->code.$contentLocale" : $folio->code,
-                'coreCode' => $coreCode,
-                'dtoType' => $row->dtoType,
-                'localId' => $localId,
-            ]));
-        }
-
-        $schemaTable = $this->schemaTable($ctx->em->getConnection(), $coreCode, $row->dtoType);
-        $dtoClass = is_array($schemaTable) && is_string($schemaTable['dto_class'] ?? null) ? $schemaTable['dto_class'] : $this->dtoTypeResolver->classForType($row->dtoType);
-
-        // Row::$dtoData is already the flattened output of FolioIngestService::splitDtoData()'s
-        // $dtoClass::fromNormalized() + toMeili() round-trip done at ingest time — i.e. canonical,
-        // alias-resolved field names, NOT raw source data. Re-hydrating it here gives the template a
-        // typed object (dto.title, dto.creators, …) instead of attribute(row.dtoData, 'x')|default(...)
-        // soup, and is the seam for per-content-type rendering later.
-        $dto = null !== $dtoClass && is_a($dtoClass, BaseItemDto::class, true)
-            ? $dtoClass::fromNormalized($row->dtoData ?? [])
-            : null;
-
-        // AI crawlers/bots hammering item pages: an explicit `Accept: text/markdown` skips the
-        // claims/links/terms/adjacent-row queries and full HTML render below entirely, returning
-        // just the narrative text that's the actual content they're after.
-        if (null !== $dto && $this->wantsMarkdown($request)) {
-            return $this->markdownResponse($dto);
-        }
-
-        // Structured data for the page. Deliberately AFTER the markdown bypass above (a
-        // text/markdown response has no <head> to carry JSON-LD) and before the expensive
-        // claims/links/terms queries, so it describes the row itself and never depends on
-        // presentation state the template happens to compute.
-        $this->rowSchemaOrg?->addRow($row, $dto);
-
-        $pageTableExists = $this->tableExists($ctx->em->getConnection(), 'page');
-        $claims = $this->rowClaimsResolver->resolve($ctx->em->getConnection(), $row->id);
-        // A summary imported as a claim (folio:ai:import-claims) fills the DTO's empty field, so the
-        // narrative can show it; claims come ordered by source, so the newest prompt version wins.
-        if (null !== $dto && ($dto->denseSummary ?? '') === '') {
-            foreach ($claims as $claim) {
-                if ('ai:denseSummary' === $claim['predicate'] && is_string($claim['value']) && '' !== trim($claim['value'])) {
-                    $dto->denseSummary = trim($claim['value']);
-                }
-            }
-        }
-        $aiTaskRuns = $this->rowClaimsResolver->aiTaskRuns($claims);
-        $links = $this->rowLinks($ctx->em, $folio->code, $coreCode, $localId);
-        $terms = $this->rowTermsResolver->resolve($ctx->em, $folio->code, $row->dtoData ?? [], $row->extras ?? []);
-        $adjacent = $this->adjacentRows($ctx->em->getConnection(), $core->id, $localId);
-
-        // Fields shown elsewhere (as Terms, or as relation links) are excluded from the DTO Data
-        // table on the left — same single-source bindings, so the table never repeats them.
-        $termFields = array_merge(
-            [],
-            ...array_values(TermSetBinding::fields()),
-            ...array_map(static fn (array $r): array => $r['sourceFields'], array_values(RelationBinding::relations())),
-        );
-
-        // The extras blob also shouldn't repeat fields rendered as Terms or Relations — strip the same
-        // termset/relation source fields (e.g. dept/cul/med, creators/collections), plus structural
-        // ones shown in the header.
-        $extras = $row->extras ?? [];
-        foreach ([...$termFields, 'url'] as $shownElsewhere) {
-            unset($extras[$shownElsewhere]);
-        }
-
-        // row/{dtoType}.html.twig if the content type has its own template (e.g. row/postcard.html.twig,
-        // which extends row/document.html.twig), else row/document.html.twig for text-bearing types,
-        // else row/show.html.twig — which always exists, so resolveTemplate() never falls through empty.
-        // Twig\Environment::resolveTemplate() (not $this->render()) is what lets us pass an ordered
-        // list and skip the ones that don't exist, instead of hand-rolling a loader->exists() loop.
-        $templateNames = array_map(
-            static fn (string $name): string => "@SurvosFolioBundle/folio/row/{$name}.html.twig",
-            $this->dtoTypeResolver->templateCandidates($row->dtoType),
-        );
-
-        return new Response($this->twig->resolveTemplate($templateNames)->render([
-            'ctx' => $ctx,
-            'folio' => $folio,
-            'core' => $core,
-            'row' => $row,
-            'dto' => $dto,
-            'dtoClass' => $dtoClass,
-            'pageTableExists' => $pageTableExists,
-            'claims' => $claims,
-            'aiTaskRuns' => $aiTaskRuns,
-            'links' => $links,
-            'terms' => $terms,
-            'termFields' => $termFields,
-            'extras' => $extras,
-            'adjacent' => $adjacent,
-            'hasUxMap' => class_exists(\Symfony\UX\Map\Map::class),
-        ]));
+        // The type in the address is for the reader of the URL; the item is identified by core and local id.
+        return $this->render('@SurvosFolioBundle/folio/row/duckdb.html.twig', $this->dfolioView->item($folioCode, $coreCode, $localId));
     }
 
-    /** True when the client explicitly asked for text/markdown (not a browser's default wildcard/text-html Accept). */
     private function wantsMarkdown(Request $request): bool
     {
         return in_array('text/markdown', $request->getAcceptableContentTypes(), true);

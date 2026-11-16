@@ -9,14 +9,16 @@ use ApiPlatform\State\Pagination\TraversablePaginator;
 use ApiPlatform\State\ProviderInterface;
 use Survos\FolioBundle\Entity\Core;
 use Survos\FolioBundle\Entity\Row;
-use Survos\FolioBundle\Service\FolioService;
+use Survos\FolioBundle\Service\DuckDbFolioConnection;
+use Survos\FolioBundle\Service\DuckDbFolioRowMapper;
 use Survos\ImageContracts\ImageUrlBuilderInterface;
 use Symfony\Component\HttpFoundation\RequestStack;
 
+/** Rows of a folio for the browser grid and for one item, read from its dfolio. */
 final class FolioRowProvider implements ProviderInterface
 {
     public function __construct(
-        private readonly FolioService $folioService,
+        private readonly DuckDbFolioConnection $connection,
         private readonly RequestStack $requestStack,
         private readonly ?ImageUrlBuilderInterface $imageUrls = null,
     ) {
@@ -29,128 +31,62 @@ final class FolioRowProvider implements ProviderInterface
         if (!is_string($folioCode)) {
             throw new \LogicException('Missing resolved folioCode.');
         }
-        $coreCode = $request->query->get('core', 'obj');
-
-        $ctx = $this->folioService->context($folioCode);
-        $core = $ctx->em->find(Core::class, Core::id($folioCode, $coreCode));
-        if (!$core) {
-            return new TraversablePaginator(new \ArrayIterator([]), 1, 50, 0);
-        }
+        $coreId = Core::id($folioCode, (string) $request->query->get('core', 'obj'));
+        $db = $this->connection->connect(['folioCode' => $folioCode]);
+        $select = 'SELECT '.DuckDbFolioRowMapper::columns().' FROM item WHERE ';
 
         if (isset($uriVariables['localId']) && is_string($uriVariables['localId'])) {
-            $row = $ctx->em->find(Row::class, Row::id($core->id, $uriVariables['localId']));
-            if ($row instanceof Row) {
-                $this->resolveThumbnails([$row]);
+            $statement = $db->prepare($select.'id = ?');
+            $statement->execute([Row::id($coreId, $uriVariables['localId'])]);
+            $record = $statement->fetch(\PDO::FETCH_ASSOC);
+            if (false === $record) {
+                return null;
             }
+            $row = DuckDbFolioRowMapper::fromRecord($record);
+            $this->resolveThumbnails([$row]);
 
             return $row;
         }
 
         $filters = $context['filters'] ?? [];
-        $dtoType = null;
-        if (isset($filters['dtoType']) && is_string($filters['dtoType'])) {
-            $dtoType = $filters['dtoType'];
-        } elseif (isset($filters['dto']) && is_string($filters['dto'])) {
-            $dtoType = $filters['dto'];
+        $where = ['core_id = ?'];
+        $params = [$coreId];
+        $dtoType = $filters['dtoType'] ?? $filters['dto'] ?? null;
+        if (is_string($dtoType) && '' !== $dtoType) {
+            $where[] = 'dto_type = ?';
+            $params[] = $dtoType;
         }
-
-        // Powers the timeline ruler's "seek to year" -- >=, not =, so seeking lands you at
-        // that point in the same year-ascending sort (matching fortepan.hu's own "jump to
-        // year" semantics) rather than only ever showing the one exact year, which could be
-        // empty for it while still having plenty of nearby photos.
-        $yearMin = null;
+        // >=, not =: the timeline ruler seeks to a year and continues in the same year-ascending order.
         if (isset($filters['yearMin']) && is_numeric($filters['yearMin'])) {
-            $yearMin = (int) $filters['yearMin'];
+            $where[] = 'sort_key >= ?';
+            $params[] = (int) $filters['yearMin'];
         }
-
-        // Deliberately crude (LIKE over label + the whole dto_data JSON blob, not FolioRowSearch's
-        // real Meilisearch full-text index) -- a debug tool for combining with the timeline's
-        // yearMin while that Meilisearch integration stays untouched, not a search feature in its
-        // own right (2026-07-31).
-        $q = null;
-        if (isset($filters['q']) && is_string($filters['q']) && '' !== trim($filters['q'])) {
-            $q = trim($filters['q']);
-        }
-
-        // Periodical article records carry their kind (article, advertisement, obituary) in extras,
-        // not in the DTO, so it is matched there. One value or several (recordKind[]=...).
-        $recordKinds = [];
-        if (isset($filters['recordKind'])) {
-            foreach ((array) $filters['recordKind'] as $kind) {
-                if (is_string($kind) && '' !== trim($kind)) {
-                    $recordKinds[] = trim($kind);
-                }
-            }
-        }
-
-        $request = $this->requestStack->getCurrentRequest();
-        $page = max(1, (int) ($request?->query->get('page', 1) ?? 1));
-        $itemsPerPage = max(1, (int) ($request?->query->get('itemsPerPage', 50) ?? 50));
-
-        // Sort by the year (nulls last, so undated rows don't cluster at the front) rather than
-        // local_id insertion order -- same "year:asc = Year Old-New" default FolioRowSearch's
-        // faceted search already uses. Doctrine ORM/DQL has no json_extract() support, so this
-        // goes through the raw connection like FolioRowSearch and TenantController::timelineData()
-        // already do for the same dto_data-is-JSON reason; Row entities are then hydrated by id
-        // and reordered to match, since a WHERE id IN (...) doesn't preserve that order itself.
-        //
-        // sort_key (materialized column), not json_extract(dto_data, '$.year') -- see
-        // FolioFtsIndexer::ensurePrimarySortColumn() for why (measured ~5x faster end to end on
-        // mus/fortepan's 219k rows, 2026-08-04). NULLS LAST lets SQLite use the covering index
-        // directly instead of falling back to a temp sort.
-        $conn = $ctx->em->getConnection();
-        $where = ['core_id = :coreId'];
-        $params = ['coreId' => $core->id];
-        if ($dtoType) {
-            $where[] = 'dto_type = :dtoType';
-            $params['dtoType'] = $dtoType;
-        }
-        if (null !== $yearMin) {
-            $where[] = 'sort_key >= :yearMin';
-            $params['yearMin'] = $yearMin;
-        }
+        // One value or several (recordKind[]=...). DocumentDto declares recordKind, so it is in dto_data.
+        $recordKinds = array_values(array_filter(array_map(
+            static fn (mixed $kind): string => is_string($kind) ? trim($kind) : '',
+            (array) ($filters['recordKind'] ?? []),
+        ), static fn (string $kind): bool => '' !== $kind));
         if ([] !== $recordKinds) {
-            $placeholders = [];
-            foreach (array_values($recordKinds) as $i => $kind) {
-                $placeholders[] = ':recordKind'.$i;
-                $params['recordKind'.$i] = $kind;
-            }
-            $where[] = sprintf("json_extract(extras, '$.recordKind') IN (%s)", implode(', ', $placeholders));
+            $where[] = 'CAST(dto_data."recordKind" AS VARCHAR) IN ('.implode(', ', array_fill(0, count($recordKinds), '?')).')';
+            array_push($params, ...$recordKinds);
         }
-        if (null !== $q) {
-            $where[] = '(label LIKE :q OR dto_data LIKE :q)';
-            $params['q'] = '%'.str_replace(['%', '_'], ['\\%', '\\_'], $q).'%';
+        // A plain substring match on the label and the document text; the search page has the real search.
+        if (isset($filters['q']) && is_string($filters['q']) && '' !== trim($filters['q'])) {
+            $where[] = '(contains(lower(label), lower(?)) OR contains(lower(CAST(CAST(dto_data AS JSON) AS VARCHAR)), lower(?)))';
+            array_push($params, trim($filters['q']), trim($filters['q']));
         }
         $whereSql = implode(' AND ', $where);
 
-        $total = (int) $conn->executeQuery("SELECT COUNT(*) FROM item WHERE $whereSql", $params)->fetchOne();
+        $page = max(1, (int) $request->query->get('page', 1));
+        $itemsPerPage = max(1, (int) $request->query->get('itemsPerPage', 50));
+        $count = $db->prepare('SELECT count(*) FROM item WHERE '.$whereSql);
+        $count->execute($params);
+        $total = (int) $count->fetchColumn();
 
-        $localIds = $conn->executeQuery(
-            sprintf(
-                'SELECT local_id FROM item WHERE %s
-                 ORDER BY sort_key ASC NULLS LAST, local_id ASC
-                 LIMIT %d OFFSET %d',
-                $whereSql,
-                $itemsPerPage,
-                ($page - 1) * $itemsPerPage,
-            ),
-            $params,
-        )->fetchFirstColumn();
-
-        if ([] === $localIds) {
-            return new TraversablePaginator(new \ArrayIterator([]), $page, $itemsPerPage, $total);
-        }
-
-        $compositeIds = array_map(static fn (string $localId): string => Row::id($core->id, $localId), $localIds);
-        $rowsById = [];
-        foreach ($ctx->em->getRepository(Row::class)->findBy(['id' => $compositeIds]) as $row) {
-            $rowsById[$row->id] = $row;
-        }
-        $results = array_values(array_filter(array_map(
-            static fn (string $id): ?Row => $rowsById[$id] ?? null,
-            $compositeIds,
-        )));
-
+        // Year order with undated rows last: sort_key is the row's year, a real column.
+        $statement = $db->prepare($select.$whereSql.' ORDER BY sort_key ASC NULLS LAST, local_id ASC LIMIT '.$itemsPerPage.' OFFSET '.(($page - 1) * $itemsPerPage));
+        $statement->execute($params);
+        $results = array_map(DuckDbFolioRowMapper::fromRecord(...), $statement->fetchAll(\PDO::FETCH_ASSOC));
         $this->resolveThumbnails($results);
 
         return new TraversablePaginator(new \ArrayIterator($results), $page, $itemsPerPage, $total);

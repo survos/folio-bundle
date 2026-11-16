@@ -45,19 +45,13 @@ final readonly class DuckDbFolioView
         if (!(bool) $db->query("SELECT count(*) FROM duckdb_constraints() WHERE schema_name = 'main' AND table_name = 'item' AND constraint_type = 'PRIMARY KEY'")->fetchColumn()) {
             throw new \RuntimeException(sprintf('The dfolio of %s has no primary key on item. Export it again.', $folioCode));
         }
-        // The documents are VARIANT in the file; the presentation model and the rend restore take JSON text.
-        $documents = implode(', ', array_map(static fn (string $c): string => 'CAST(CAST('.$c.' AS JSON) AS VARCHAR) AS '.$c, DuckDbFolioExporter::DOCUMENT_COLUMNS));
-        $statement = $db->prepare('SELECT * REPLACE ('.$documents.') FROM item WHERE id = ?');
+        $statement = $db->prepare('SELECT '.DuckDbFolioRowMapper::columns().' FROM item WHERE id = ?');
         $statement->execute([Row::id($folioCode.':'.$coreCode, $localId)]);
         $record = $statement->fetch(\PDO::FETCH_ASSOC);
         if (false === $record) {
             throw new NotFoundHttpException('Item not found in this folio working copy.');
         }
-        if (!array_key_exists('pages', $record)) {
-            throw new \RuntimeException(sprintf('The dfolio of %s has no pages on item. Export it again.', $folioCode));
-        }
-        // The exporter puts an item's pages on the item, in page order: the record and its images are one read.
-        $pageRows = array_map(static fn (array $page): array => ['row_id' => $record['id']] + $page, $record['pages'] ?? []);
+        $pageRows = DuckDbFolioRowMapper::pages($record);
         unset($record['pages']);
         $split = (bool) $db->query("SELECT count(*) FROM information_schema.tables WHERE table_name = '_renditions'")->fetchColumn();
         if ($split) {

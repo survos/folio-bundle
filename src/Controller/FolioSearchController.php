@@ -4,18 +4,17 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Controller;
 
-use Survos\FolioBundle\Entity\Core;
 use Survos\FolioBundle\Entity\Folio;
-use Survos\FolioBundle\Service\FolioService;
+use Survos\FolioBundle\Service\DuckDbFolioConnection;
+use Survos\FolioBundle\Service\DuckDbFolioMap;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
+/** A folio's search page. The folio is read from its dfolio, like every public folio page. */
 final class FolioSearchController extends AbstractController
 {
-    private const string APP_HIT_TEMPLATE = 'search/hits/folio_row.html.twig';
-
-    public function __construct(private readonly FolioService $folios)
+    public function __construct(private readonly DuckDbFolioConnection $connection, private readonly DuckDbFolioMap $maps)
     {
     }
 
@@ -31,23 +30,22 @@ final class FolioSearchController extends AbstractController
     // The bare-slug form travels through the same {folioCode} param as a real "provider/dataset"
     // code — FolioRouteAttributeListener resolves it before this action runs, same mechanism as
     // FolioController::show(). No separate {slug} route needed.
-    #[Route('/{folioCode}/search', name: 'survos_folio_search', requirements: ['folioCode' => FolioController::FOLIO_CODE_PATTERN], priority: 40)]
-    #[Route('/{folioCode}/search/{coreCode}', name: 'survos_folio_core_search', requirements: ['folioCode' => FolioController::FOLIO_CODE_PATTERN], priority: 30)]
-    #[Route('/{folioCode}/search/{coreCode}/{dtoType}', name: 'survos_folio_core_type_search', requirements: ['folioCode' => FolioController::FOLIO_CODE_PATTERN], priority: 20)]
-    public function __invoke(Folio $folio, ?string $coreCode = null, ?string $dtoType = null): Response
+    #[Route('/{folioCode}/search', name: 'survos_folio_search', requirements: ['folioCode' => FolioController::FOLIO_CODE_PATTERN], defaults: ['_folio_reader' => 'duckdb'], priority: 40)]
+    #[Route('/{folioCode}/search/{coreCode}', name: 'survos_folio_core_search', requirements: ['folioCode' => FolioController::FOLIO_CODE_PATTERN], defaults: ['_folio_reader' => 'duckdb'], priority: 30)]
+    #[Route('/{folioCode}/search/{coreCode}/{dtoType}', name: 'survos_folio_core_type_search', requirements: ['folioCode' => FolioController::FOLIO_CODE_PATTERN], defaults: ['_folio_reader' => 'duckdb'], priority: 20)]
+    public function __invoke(string $folioCode, ?string $coreCode = null, ?string $dtoType = null): Response
     {
-        $ctx = $this->folios->context($folio->code);
+        // The search has one address per folio. A type in the path becomes its Type filter; a core has no filter.
+        if (null !== $coreCode) {
+            return $this->redirectToRoute('survos_folio_search', ['folioCode' => $folioCode] + (null !== $dtoType ? ['contentType' => $dtoType] : []));
+        }
+        // 404 here, before the search component runs, when the folio has no dfolio.
+        $this->connection->connect(['folioCode' => $folioCode]);
 
-        return $this->render('@SurvosFolioBundle/folio/search.html.twig', [
-            'ctx' => $ctx,
-            'folio' => $folio,
-            'cores' => $ctx->em->getRepository(Core::class)->findBy([], ['code' => 'ASC']),
-            'selectedCore' => $coreCode,
-            'selectedDtoType' => $dtoType,
-            // The app's own hit card when it has one, otherwise this bundle's plain default.
-            'hitTemplate' => $this->container->get('twig')->getLoader()->exists(self::APP_HIT_TEMPLATE)
-                ? self::APP_HIT_TEMPLATE
-                : '@SurvosFolioBundle/search/hits/folio_row.html.twig',
+        return $this->render('@SurvosFolioBundle/folio/duckdb/search.html.twig', [
+            'folio' => new Folio($folioCode), 'reader' => 'duckdb',
+            'hasCoordinates' => $this->maps->hasCoordinates($folioCode),
+            'hitTemplate' => '@SurvosFolioBundle/search/hits/folio_duckdb.html.twig',
         ]);
     }
 }
