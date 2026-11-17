@@ -78,6 +78,13 @@ final readonly class PageDto
          * lives once on the folio (property `sourceChecksum.algorithm`), not on every page.
          */
         public ?string $sourceChecksum = null,
+        /** IIIF image service of the page image. */
+        public ?string $iiifInfoUrl = null,
+        /** Source-published thumbnail of the page. */
+        public ?string $thumbnailUrl = null,
+        /** The page's JP2 master and single-page PDF: an https URL or an s3://bucket/key URI. */
+        public ?string $jp2Url = null,
+        public ?string $pdfUrl = null,
     ) {
     }
 }

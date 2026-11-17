@@ -27,12 +27,19 @@ final class DuckDbRenditionTest extends TestCase
         $source->exec("CREATE TABLE _folio_build(build_id TEXT, schema_version INT); INSERT INTO _folio_build VALUES ('source-a',1)");
         $source->exec('CREATE TABLE item(id TEXT PRIMARY KEY, local_id TEXT, core_id TEXT, dto_type TEXT, dto_data TEXT, extras TEXT, raw TEXT)');
         $source->exec('CREATE TABLE page(id TEXT PRIMARY KEY, row_id TEXT, seq INT, page_index INT, width INT, height INT, url TEXT, source_url TEXT, layout TEXT, ledger TEXT, dialogue TEXT, text TEXT)');
-        $source->exec('CREATE TABLE link(left_id TEXT, left_core TEXT, right_id TEXT, right_core TEXT)');
+        $source->exec('CREATE TABLE link(left_id TEXT, left_core TEXT, right_id TEXT, right_core TEXT, link_type_id TEXT, ordinal INT)');
         $insert = $source->prepare('INSERT INTO item VALUES (?,?,?,?,?,?,?)');
         foreach (['one', 'two'] as $issue) {
-            $insert->execute(['news/test:doc:'.$issue, $issue, 'news/test:doc', 'newspaper', json_encode(['id' => $issue, 'title' => '新聞 '.$issue]), json_encode(['pageAssets' => [['pageIndex' => 0, 'width' => 1000, 'height' => 2000]], 'textsheetGrouping' => ['pages' => [['analysis' => ['columnCenters' => [12, 30], 'mastheadRegion' => [0, 0, 100, 20]], 'groups' => [['blockIds' => ['B1']]]]]]]), null]);
+            $insert->execute(['news/test:doc:'.$issue, $issue, 'news/test:doc', 'newspaper', json_encode(['id' => $issue, 'title' => '新聞 '.$issue]), null, null]);
+            // The issue's grouping: one group for the page (its analysis) and one group of blocks, each linked to the issue in order.
+            $source->prepare("UPDATE item SET dto_data = json_set(dto_data, '$.groupingRevision', 'r1', '$.groupingMarking', 'grouped', '$.groupingSchemaVersion', 1) WHERE id = ?")->execute(['news/test:doc:'.$issue]);
+            foreach ([['page-0', ['groupType' => 'page', 'pageIndex' => 0, 'analysis' => ['columnCenters' => [12, 30], 'mastheadRegion' => [0, 0, 100, 20]]]],
+                ['g1', ['pageIndex' => 0, 'column' => 0, 'blockIds' => ['B1']]]] as $ordinal => [$group, $data]) {
+                $insert->execute(['news/test:group:'.$issue.'#'.$group, $issue.'#'.$group, 'news/test:group', 'issue_group', json_encode($data), null, null]);
+                $source->prepare('INSERT INTO link VALUES (?,?,?,?,?,?)')->execute([$issue.'#'.$group, 'group', $issue, 'doc', 'news/test:group:group_in_issue:doc', $ordinal + 1]);
+            }
             $insert->execute(['news/test:article:'.$issue.'-a', $issue.'-a', 'news/test:article', 'newspaper', json_encode(['id' => $issue.'-a', 'issueId' => $issue, 'ocrText' => 'Exact body text']), json_encode(['segments' => [['id' => 's1', 'anchors' => [['page' => 0, 'sourceBlockId' => 'B1', 'box' => [10, 20, 30, 40]]]]]]), null]);
-            $source->prepare('INSERT INTO link VALUES (?,?,?,?)')->execute([$issue.'-a', 'article', $issue, 'doc']);
+            $source->prepare('INSERT INTO link VALUES (?,?,?,?,?,?)')->execute([$issue.'-a', 'article', $issue, 'doc', 'news/test:article:in_issue:doc', null]);
             $source->prepare('INSERT INTO page VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')->execute(['news/test:doc:'.$issue.'#1', 'news/test:doc:'.$issue, 1, 0, 1000, 2000, 'https://images.test/'.$issue, null, json_encode(['blocks' => [['id' => 'B1', 'bbox' => ['x' => 10, 'y' => 20, 'width' => 30, 'height' => 40], 'text' => 'Exact source', 'lines' => [['bbox' => [10, 20, 30, 10], 'words' => [['text' => 'Exact', 'bbox' => [10, 20, 10, 10]]]]]]]]), null, null, 'Exact source']);
         }
         foreach (['item', 'page'] as $table) {
@@ -123,21 +130,20 @@ final class DuckDbRenditionTest extends TestCase
         $reader->reference($db, $target, 'one');
     }
 
-    public function testSavedGroupingIsExportedAsTypedTablesSortedByIssue(): void
+    public function testGroupRowsAndLinksAreProjectedAsTypedTablesSortedByIssue(): void
     {
         $db = (new DuckDbFolioReader())->open($this->export());
         self::assertSame(2, (int) $db->query('SELECT count(*) FROM issue_page')->fetchColumn());
         self::assertSame(2, (int) $db->query('SELECT count(*) FROM issue_grouping')->fetchColumn());
-        self::assertSame(2, (int) $db->query('SELECT count(*) FROM issue_extras')->fetchColumn());
-        // The issue's other extras are kept apart from the grouping, so a reader never has to open item.extras.
-        $extras = $db->query("SELECT extras FROM issue_extras WHERE issue_id = 'one'")->fetchColumn(); // the driver decodes JSON columns
-        self::assertArrayHasKey('pageAssets', $extras);
-        self::assertArrayNotHasKey('textsheetGrouping', $extras);
-        $rows = $db->query('SELECT issue_id, page_index, ord, block_ids FROM issue_group ORDER BY issue_id, page_index, ord', \PDO::FETCH_ASSOC)->fetchAll();
+        // Nothing is read from extras, so there is no table of leftover issue extras either.
+        self::assertSame(0, (int) $db->query("SELECT count(*) FROM information_schema.tables WHERE table_name = 'issue_extras'")->fetchColumn());
+        $rows = $db->query('SELECT issue_id, page_index, ord, id, parent_id, block_ids FROM issue_group ORDER BY issue_id, page_index, ord', \PDO::FETCH_ASSOC)->fetchAll();
         self::assertSame(['one', 'two'], array_column($rows, 'issue_id'));
         self::assertSame([1, 1], array_map('intval', array_column($rows, 'ord')));
-        // The JSON stays where it was, so existing readers and the comparator keep working.
-        self::assertSame(2, (int) $db->query("SELECT count(*) FROM item WHERE extras LIKE '%textsheetGrouping%'")->fetchColumn());
+        self::assertSame(['g1', 'g1'], array_column($rows, 'id'), 'The issue prefix of a group row id is not part of the group id.');
+        self::assertSame(['column-0', 'column-0'], array_column($rows, 'parent_id'), 'Without a parent link the parent is the group\'s column.');
+        self::assertSame([['B1'], ['B1']], array_column($rows, 'block_ids'));
+        self::assertSame(['r1', 'grouped', 'news/test'], $db->query("SELECT revision, marking, folio_code FROM issue_grouping WHERE issue_id = 'one'")->fetch(\PDO::FETCH_NUM));
     }
 
     public function testLinkOrdinalsAreMaterializedWithoutChangingExtras(): void
@@ -147,30 +153,28 @@ final class DuckDbRenditionTest extends TestCase
         $source->exec("UPDATE link SET extras = '{\"ordinal\":10,\"keep\":true}' WHERE right_id = 'one'");
         $source->exec("UPDATE link SET extras = '{\"ordinal\":2}' WHERE right_id = 'two'");
         $db = (new DuckDbFolioReader())->open($this->export());
-        self::assertSame(['two', 'one'], $db->query('SELECT right_id FROM link ORDER BY ordinal')->fetchAll(\PDO::FETCH_COLUMN));
+        self::assertSame(['two', 'one'], $db->query("SELECT right_id FROM link WHERE left_core = 'article' ORDER BY ordinal")->fetchAll(\PDO::FETCH_COLUMN));
         self::assertSame('BIGINT', $db->query("SELECT data_type FROM information_schema.columns WHERE table_name = 'link' AND column_name = 'ordinal'")->fetchColumn());
         self::assertSame('{"ordinal":10,"keep":true}', $db->query("SELECT extras FROM link WHERE right_id = 'one'")->fetchColumn());
     }
 
-    public function testRoleSpansAndHistoryIssuesAreMaterialized(): void
+    public function testRoleSpansAreMaterializedInOrder(): void
     {
         $source = new \PDO('sqlite:'.$this->root.'/source.folio');
         $roles = array_map(static fn (int $i): array => ['id' => 'B1', 'role' => 'body', 'start' => $i, 'end' => $i + 1], range(0, 11));
-        $extras = ['textsheetGroupingHistory' => [], 'textsheetGrouping' => ['marking' => 'grouped', 'pages' => [
-            ['pageIndex' => 0, 'groups' => [['id' => 'group', 'roles' => $roles]]],
-        ]]];
-        $source->prepare("UPDATE item SET extras = ? WHERE local_id = 'one'")->execute([json_encode($extras, JSON_THROW_ON_ERROR)]);
+        $source->prepare("UPDATE item SET dto_data = ? WHERE local_id = 'one#g1'")->execute([json_encode(['pageIndex' => 0, 'blockIds' => ['B1'], 'roles' => $roles], JSON_THROW_ON_ERROR)]);
         $db = (new DuckDbFolioReader())->open($this->export());
         self::assertSame(range(0, 11), $db->query("SELECT ord FROM issue_group_role WHERE issue_id = 'one' ORDER BY ord")->fetchAll(\PDO::FETCH_COLUMN));
         self::assertSame(12, $db->query("SELECT end_line FROM issue_group_role WHERE issue_id = 'one' ORDER BY ord DESC LIMIT 1")->fetchColumn());
         self::assertSame('grouped', $db->query("SELECT marking FROM issue_grouping WHERE issue_id = 'one'")->fetchColumn());
-        self::assertArrayHasKey('textsheetGroupingHistory', $db->query("SELECT extras FROM issue_extras WHERE issue_id = 'one'")->fetchColumn());
     }
 
     public function testEmptyGroupingAndMissingOrdinalsStillHaveTypedSchema(): void
     {
         $source = new \PDO('sqlite:'.$this->root.'/source.folio');
-        $source->exec("UPDATE item SET extras = NULL WHERE core_id = 'news/test:doc'");
+        $source->exec("DELETE FROM item WHERE core_id = 'news/test:group'");
+        $source->exec("DELETE FROM link WHERE left_core = 'group'");
+        $source->exec("UPDATE item SET dto_data = json_remove(dto_data, '$.groupingRevision', '$.groupingMarking') WHERE core_id = 'news/test:doc'");
         $db = (new DuckDbFolioReader())->open($this->export());
         self::assertSame([null, null], $db->query('SELECT ordinal FROM link')->fetchAll(\PDO::FETCH_COLUMN));
         self::assertSame(0, $db->query('SELECT count(*) FROM issue_group_role')->fetchColumn());

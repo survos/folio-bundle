@@ -5,122 +5,101 @@ declare(strict_types=1);
 namespace Survos\FolioBundle\Service;
 
 use Survos\DataContracts\Metadata\ContentType;
+use Survos\DataContracts\Vocabulary\ItemField;
+use Survos\DataContracts\Vocabulary\PeriodicalVocabulary as V;
 
 /**
- * Typed, queryable tables for a newspaper issue's saved text-sheet grouping.
+ * Typed, queryable tables for a newspaper issue's text-sheet grouping, built from the folio's own records.
  *
- * The grouping lives in `item.extras` as one JSON document per issue (about 90 KB each). A reader that needs one
- * issue then fetches the whole `extras` column segment, hundreds of megabytes over S3. These tables carry the same
- * data as columns, sorted by issue so DuckDB's min/max statistics prune a lookup to a single small row group:
+ * A grouping is stored as rows and links: one row per group in the "group" core (IssueGroupDto), linked to its
+ * issue (group_in_issue, ordered), to the article it was published as (group_article) and to a parent group
+ * (group_parent); the grouping's identity is typed fields on the issue row. A reader that wants one issue's
+ * grouping should not scan `item` and `link` for it, so the export projects those records into tables sorted by
+ * issue, where DuckDB's min/max statistics prune a lookup to a single small row group:
  *
  *   issue_grouping (issue_id, schema_version, source_hash, algorithm_hash, input_hash, folio_code, revision, marking)
- *   issue_page (issue_id, page_index, column_count, body_font_size, masthead_status, slots, analysis, ...)
+ *   issue_page (issue_id, page_index, column_count, body_font_size, masthead_status, analysis, slots, ...)
  *   issue_group (issue_id, page_index, ord, id, parent_id, type, col, basis, title, article_id, block_ids, roles, evidence)
  *   issue_group_role (issue_id, page_index, group_ord, group_id, ord, role, block_id, start_line, end_line)
  *
- *   issue_extras (issue_id, extras) -- the rest of the issue's extras (including any grouping history), a
- *                                      few KB, sorted by issue
- *
- * A reader assembles the issue's extras from these projections without touching `item.extras`. The JSON in
- * `item.extras` is left untouched, so older readers, the rend and the folio comparator keep working.
+ * These are a read model: nothing here reads `extras`, and the rows and links stay the record of truth.
  */
 final class DuckDbGroupingProjection
 {
-    /** The extras key written by the periodical grouping service. */
-    public const string FIELD = 'textsheetGrouping';
-    public const string HISTORY = 'textsheetGroupingHistory';
-
-    private const string STAGE = '_issue_grouping_stage';
+    /** Whether the exported folio has group rows to project. */
+    public static function hasGroups(\PDO $db): bool
+    {
+        return (bool) $db->query('SELECT count(*) FROM (SELECT 1 FROM item WHERE dto_type = '.$db->quote(ContentType::ISSUE_GROUP).' LIMIT 1)')->fetchColumn();
+    }
 
     /**
-     * One staging line per page of a newspaper issue's grouping; empty for any other row.
+     * Build the tables, sorted by issue, from the exported `item` and `link` tables.
      *
-     * @param array<string,mixed> $row an `item` row as read from the source folio (after geometry was split off)
-     *
-     * @return list<array{issue_id:string,page_index:int,meta:?array,page:?array,extras:?array}>
+     * @return array<string, int> rows per table
      */
-    public static function pages(array $row): array
-    {
-        if (ContentType::NEWSPAPER !== ($row['dto_type'] ?? null) || !is_string($row['extras'] ?? null)) {
-            return [];
-        }
-        $extras = json_decode($row['extras'], true, flags: JSON_THROW_ON_ERROR);
-        if (!is_array($extras)) {
-            return [];
-        }
-        $issue = (string) $row['local_id'];
-        $grouping = $extras[self::FIELD] ?? null;
-        // Preserve history in issue_extras: the rendition still restores its geometry paths.
-        unset($extras[self::FIELD]);
-        // Only the issue record itself (core "doc") has an issue-level extras document.
-        $lines = str_ends_with((string) ($row['core_id'] ?? ''), ':doc')
-            ? [['issue_id' => $issue, 'page_index' => -1, 'meta' => null, 'page' => null, 'extras' => $extras]] : [];
-        if (!is_array($grouping) || !is_array($grouping['pages'] ?? null)) {
-            return $lines;
-        }
-        $meta = $grouping;
-        unset($meta['pages']);
-        foreach ($grouping['pages'] as $page) {
-            $lines[] = ['issue_id' => $issue, 'page_index' => (int) ($page['pageIndex'] ?? 0), 'meta' => $meta, 'page' => $page, 'extras' => null];
-        }
-
-        return $lines;
-    }
-
-    /** Create the staging table before the first chunk is ingested. */
-    public static function ingest(\PDO $db, string $file, bool $first): void
-    {
-        $select = "SELECT json->>'issue_id' AS issue_id, (json->>'page_index')::INTEGER AS page_index, json->'meta' AS meta, json->'page' AS page, json->'extras' AS extras FROM read_ndjson_objects(".$db->quote($file).')';
-        $db->exec(($first ? 'CREATE TABLE '.self::STAGE.' AS ' : 'INSERT INTO '.self::STAGE.' ').$select);
-    }
-
-    /** Build the typed tables, sorted by issue, from the staged pages; drops the staging table. */
     public static function materialize(\PDO $db): array
     {
-        $db->exec('CREATE TABLE IF NOT EXISTS '.self::STAGE.' (issue_id VARCHAR, page_index INTEGER, meta JSON, page JSON, extras JSON)');
-        $db->exec(<<<'SQL'
-            CREATE TABLE issue_grouping AS
-            SELECT issue_id,
-                   any_value((meta->>'$.schemaVersion')::INTEGER) AS schema_version,
-                   any_value(meta->>'$.sourceHash') AS source_hash,
-                   any_value(meta->>'$.algorithmHash') AS algorithm_hash,
-                   any_value(meta->>'$.inputHash') AS input_hash,
-                   any_value(meta->>'$.folioCode') AS folio_code,
-                   any_value(meta->>'$.revision') AS revision,
-                   any_value(meta->>'$.marking') AS marking
-            FROM _issue_grouping_stage WHERE json_type(page) = 'OBJECT'
-            GROUP BY issue_id
-            ORDER BY issue_id
-            SQL);
-        $db->exec(<<<'SQL'
-            CREATE TABLE issue_page AS
-            SELECT issue_id, page_index,
-                   (page->>'$.analysis.columnCount')::INTEGER AS column_count,
-                   (page->>'$.analysis.bodyFontSize')::DOUBLE AS body_font_size,
-                   page->>'$.analysis.mastheadStatus' AS masthead_status,
-                   json_extract(page, '$.analysis') AS analysis,
-                   json_extract(page, '$.analysis.slots') AS slots,
-                   json_extract(page, '$.analysis.displayFontSizes') AS display_font_sizes,
-                   json_extract(page, '$.unassignedBlockIds') AS unassigned_block_ids,
-                   json_extract(page, '$.programBlockIds') AS program_block_ids,
-                   json_extract(page, '$.mastheadBlockIds') AS masthead_block_ids
-            FROM _issue_grouping_stage WHERE json_type(page) = 'OBJECT'
-            ORDER BY issue_id, page_index
-            SQL);
-        // Groups keep their array order: index into the page's list rather than relying on window ordering.
-        $db->exec(<<<'SQL'
-            CREATE TABLE issue_group AS
-            SELECT issue_id, page_index, o.i + 1 AS ord,
-                   g->>'$.id' AS id, g->>'$.parentId' AS parent_id, g->>'$.type' AS type,
-                   (g->>'$.column')::INTEGER AS col, g->>'$.basis' AS basis, g->>'$.title' AS title,
-                   g->>'$.articleId' AS article_id, (g->'$.blockIds')::VARCHAR[] AS block_ids,
-                   json_extract(g, '$.roles') AS roles, json_extract(g, '$.evidence') AS evidence
-            FROM (SELECT *, json_array_length(json_extract(page, '$.groups'))::BIGINT AS n FROM _issue_grouping_stage WHERE json_type(page) = 'OBJECT') s,
-                 unnest(range(s.n)) AS o(i),
-                 LATERAL (SELECT json_extract(s.page, '$.groups[' || o.i || ']') AS g)
-            ORDER BY issue_id, page_index, ord
-            SQL);
-        $db->exec("CREATE TABLE issue_extras AS SELECT issue_id, extras FROM _issue_grouping_stage WHERE json_type(extras) = 'OBJECT' ORDER BY issue_id");
+        $type = static fn (string $code, string $right): string => $db->quote('%:'.V::GROUP_CORE.':'.$code.':'.$right);
+        $field = static fn (string $name): string => "json_extract_string(i.dto_data, '$.".$name."')";
+        $has = static fn (string $table, string $column): bool => (bool) $db->query('SELECT count(*) FROM information_schema.columns WHERE table_schema = \'main\' AND table_name = '.$db->quote($table).' AND column_name = '.$db->quote($column))->fetchColumn();
+        // Links without a type column cannot name a group relation, so such a folio has no groups to project.
+        $typed = $has('link', 'link_type_id');
+        $linkType = static fn (string $alias, string $code, string $right): string => $typed ? $alias.'.link_type_id LIKE '.$type($code, $right) : 'FALSE';
+        $label = $has('item', 'label') ? 'i.label' : 'NULL::VARCHAR';
+
+        $db->exec('CREATE TABLE issue_grouping AS
+            SELECT i.local_id AS issue_id,
+                   '.$field(ItemField::GROUPING_SCHEMA_VERSION).'::INTEGER AS schema_version,
+                   '.$field(ItemField::GROUPING_SOURCE_HASH).' AS source_hash,
+                   '.$field(ItemField::GROUPING_ALGORITHM_HASH).' AS algorithm_hash,
+                   '.$field(ItemField::GROUPING_INPUT_HASH).' AS input_hash,
+                   split_part(i.core_id, \':\', 1) AS folio_code,
+                   '.$field(ItemField::GROUPING_REVISION).' AS revision,
+                   '.$field(ItemField::GROUPING_MARKING).' AS marking
+            FROM item i
+            WHERE i.core_id LIKE '.$db->quote('%:'.V::ISSUE_CORE).' AND '.$field(ItemField::GROUPING_REVISION).' IS NOT NULL
+            ORDER BY issue_id');
+
+        // Every group with its issue and its order in it; a group's local id is "<issue>#<group id>".
+        $db->exec('CREATE TEMP TABLE _issue_group_rows AS
+            SELECT l.right_id AS issue_id, l.ordinal, i.local_id, '.$label.' AS label, i.dto_data::JSON AS data,
+                   substr(i.local_id, length(l.right_id) + 2) AS id
+            FROM link l JOIN item i ON i.local_id = l.left_id AND i.dto_type = '.$db->quote(ContentType::ISSUE_GROUP).'
+            WHERE l.left_core = '.$db->quote(V::GROUP_CORE).' AND l.right_core = '.$db->quote(V::ISSUE_CORE).'
+              AND '.$linkType('l', V::GROUP_IN_ISSUE, V::ISSUE_CORE));
+
+        $db->exec('CREATE TABLE issue_page AS
+            SELECT issue_id, (data->>\'$.pageIndex\')::INTEGER AS page_index,
+                   (data->>\'$.analysis.columnCount\')::INTEGER AS column_count,
+                   (data->>\'$.analysis.bodyFontSize\')::DOUBLE AS body_font_size,
+                   data->>\'$.analysis.mastheadStatus\' AS masthead_status,
+                   json_extract(data, \'$.analysis\') AS analysis,
+                   json_extract(data, \'$.analysis.slots\') AS slots,
+                   json_extract(data, \'$.analysis.displayFontSizes\') AS display_font_sizes,
+                   coalesce(json_extract(data, \'$.unassignedBlockIds\'), \'[]\'::JSON) AS unassigned_block_ids,
+                   coalesce(json_extract(data, \'$.programBlockIds\'), \'[]\'::JSON) AS program_block_ids,
+                   coalesce(json_extract(data, \'$.mastheadBlockIds\'), \'[]\'::JSON) AS masthead_block_ids
+            FROM _issue_group_rows WHERE data->>\'$.groupType\' = '.$db->quote(V::GROUP_TYPE_PAGE).'
+            ORDER BY issue_id, page_index');
+
+        // ord is the group\'s place on its page; the links order groups across the whole issue.
+        $db->exec('CREATE TABLE issue_group AS
+            SELECT g.issue_id, (g.data->>\'$.pageIndex\')::INTEGER AS page_index,
+                   row_number() OVER (PARTITION BY g.issue_id, (g.data->>\'$.pageIndex\')::INTEGER ORDER BY g.ordinal, g.local_id) AS ord,
+                   g.id,
+                   -- The parent is another group when a link says so; otherwise it is the column the group sits in.
+                   coalesce(substr(p.right_id, length(g.issue_id) + 2), \'column-\' || (g.data->>\'$.column\')) AS parent_id,
+                   g.data->>\'$.groupType\' AS type, (g.data->>\'$.column\')::INTEGER AS col, g.data->>\'$.basis\' AS basis,
+                   g.label AS title, a.right_id AS article_id,
+                   coalesce((g.data->\'$.blockIds\')::VARCHAR[], []::VARCHAR[]) AS block_ids,
+                   coalesce(json_extract(g.data, \'$.roles\'), \'[]\'::JSON) AS roles, json_extract(g.data, \'$.evidence\') AS evidence
+            FROM _issue_group_rows g
+            LEFT JOIN link a ON a.left_core = '.$db->quote(V::GROUP_CORE).' AND a.left_id = g.local_id AND '.$linkType('a', V::GROUP_ARTICLE, V::ARTICLE_CORE).'
+            LEFT JOIN link p ON p.left_core = '.$db->quote(V::GROUP_CORE).' AND p.left_id = g.local_id AND '.$linkType('p', V::GROUP_PARENT, V::GROUP_CORE).'
+            WHERE g.data->>\'$.groupType\' IS DISTINCT FROM '.$db->quote(V::GROUP_TYPE_PAGE).'
+            ORDER BY issue_id, page_index, ord');
+        $db->exec('DROP TABLE _issue_group_rows');
+
         $db->exec(<<<'SQL'
             CREATE TABLE issue_group_role AS
             SELECT g.issue_id, g.page_index, g.ord AS group_ord, g.id AS group_id,
@@ -130,14 +109,12 @@ final class DuckDbGroupingProjection
                  LATERAL (SELECT json_extract(g.roles, '$[' || r.i || ']') AS role)
             ORDER BY g.issue_id, g.page_index, g.ord, r.i
             SQL);
-        $db->exec('DROP TABLE '.self::STAGE);
 
-        return [
-            'main.issue_extras' => (int) $db->query('SELECT count(*) FROM issue_extras')->fetchColumn(),
-            'main.issue_grouping' => (int) $db->query('SELECT count(*) FROM issue_grouping')->fetchColumn(),
-            'main.issue_page' => (int) $db->query('SELECT count(*) FROM issue_page')->fetchColumn(),
-            'main.issue_group' => (int) $db->query('SELECT count(*) FROM issue_group')->fetchColumn(),
-            'main.issue_group_role' => (int) $db->query('SELECT count(*) FROM issue_group_role')->fetchColumn(),
-        ];
+        $counts = [];
+        foreach (['issue_grouping', 'issue_page', 'issue_group', 'issue_group_role'] as $table) {
+            $counts['main.'.$table] = (int) $db->query('SELECT count(*) FROM '.$table)->fetchColumn();
+        }
+
+        return $counts;
     }
 }

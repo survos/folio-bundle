@@ -27,10 +27,11 @@ final class DuckDbRenditionExporter
             throw new \RuntimeException('An article cannot belong to multiple issue renditions.');
         }
         $docs = $source->query("SELECT id, local_id, core_id FROM item WHERE core_id LIKE '%:doc' ORDER BY id");
+        // An issue's rendition holds the issue, and the records linked to it: its articles and its groups.
         $records = $source->prepare("SELECT * FROM item WHERE id = ? OR id IN
-            (SELECT ? || left_id FROM link WHERE left_core = 'article' AND right_core = 'doc' AND right_id = ?)");
+            (SELECT ? || left_core || ':' || left_id FROM link WHERE left_core IN ('article', 'group') AND right_core = 'doc' AND right_id = ?)");
         $pages = $source->prepare("SELECT * FROM page WHERE row_id = ? OR row_id IN
-            (SELECT ? || left_id FROM link WHERE left_core = 'article' AND right_core = 'doc' AND right_id = ?)");
+            (SELECT ? || left_core || ':' || left_id FROM link WHERE left_core IN ('article', 'group') AND right_core = 'doc' AND right_id = ?)");
         $path = $directory.'/paper.drend';
         $db = new \PDO('duckdb:'.$path);
         $db->beginTransaction();
@@ -68,8 +69,8 @@ final class DuckDbRenditionExporter
         };
         foreach ($docs as $issue) {
             $name = $issue['local_id'];
-            $articlePrefix = substr($issue['core_id'], 0, -3).'article:';
-            $args = [$issue['id'], $articlePrefix, $name];
+            $folioPrefix = substr($issue['core_id'], 0, -3); // "<folio>:" of "<folio>:doc"
+            $args = [$issue['id'], $folioPrefix, $name];
             // Rows go in issue by issue, so each issue's rows are contiguous and a read of one issue skips the rest.
             $records->execute($args);
             foreach ($records as $row) {

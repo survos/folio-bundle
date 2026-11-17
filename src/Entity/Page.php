@@ -180,6 +180,30 @@ class Page
     #[Groups(['page:read'])]
     public ?string $sourceChecksum = null;
 
+    /** The page image's IIIF image service (its info.json URL without the file name), when one serves it. */
+    #[ORM\Column(name: 'iiif_info_url', length: 1024, nullable: true)]
+    #[ApiProperty('IIIF image service of the page image')]
+    #[Groups(['page:read'])]
+    public ?string $iiifInfoUrl = null;
+
+    /** A ready-made small image of the page, when the source publishes one. */
+    #[ORM\Column(name: 'thumbnail_url', length: 1024, nullable: true)]
+    #[ApiProperty('Source-published thumbnail of the page')]
+    #[Groups(['page:read'])]
+    public ?string $thumbnailUrl = null;
+
+    /**
+     * The page's JP2 master and single-page PDF, as an https URL or an s3://bucket/key URI, so a crop can be
+     * cut from them instead of rasterizing the issue PDF.
+     */
+    #[ORM\Column(name: 'jp2_url', length: 1024, nullable: true)]
+    #[Groups(['page:read'])]
+    public ?string $jp2Url = null;
+
+    #[ORM\Column(name: 'pdf_url', length: 1024, nullable: true)]
+    #[Groups(['page:read'])]
+    public ?string $pdfUrl = null;
+
     public function __construct(Row $row, int $seq, string $url)
     {
         $this->row = $row;

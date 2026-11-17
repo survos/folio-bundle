@@ -34,6 +34,10 @@ class Link
     #[ORM\Column(length: 180, options: ['comment' => 'Target row local_id'])]
     public string $rightId;
 
+    /** Position of the left row within the right one (an article in its issue, a stop in its tour). */
+    #[ORM\Column(nullable: true, options: ['comment' => 'Position within an ordered parent'])]
+    public ?int $ordinal = null;
+
     #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Extra link metadata'])]
     public ?array $extras = null;
 

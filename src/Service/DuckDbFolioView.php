@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Service;
 
+use Survos\DataContracts\Vocabulary\PeriodicalVocabulary;
 use Survos\FolioBundle\Entity\Core;
 use Survos\FolioBundle\Entity\Folio;
 use Survos\FolioBundle\Entity\Row;
@@ -45,9 +46,15 @@ final readonly class DuckDbFolioView
         return $data;
     }
 
-    /** A newspaper record's issue id. DocumentDto declares issueId, so it is in dto_data; a folio that has it only in extras must be rebuilt. */
+    /**
+     * A newspaper record's issue id. DocumentDto declares issueId, so an article has it in dto_data; a folio that
+     * has it only in extras must be rebuilt. A group row is scoped by its issue: the issue is in its id.
+     */
     public static function issueIdOf(array $record): string
     {
+        if (1 === preg_match('~^[^:]+:'.PeriodicalVocabulary::GROUP_CORE.':(.+)$~D', (string) ($record['id'] ?? ''), $group)) {
+            return PeriodicalVocabulary::issueOfGroup($group[1]);
+        }
         $id = self::normalizedData($record['dto_data'] ?? '{}')['issueId'] ?? null;
         if (!is_string($id) || '' === $id) {
             throw new \UnexpectedValueException(sprintf('Record %s has no issueId in dto_data. Rebuild this folio.', $record['id'] ?? '?'));

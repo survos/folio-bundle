@@ -67,6 +67,10 @@ final class DuckDbFolioRowMapper
                 'dense_summary' => 'denseSummary', 'thumb_hash' => 'thumbHash', 'color' => 'color', 'source_checksum' => 'sourceChecksum'] as $column => $property) {
                 $page->$property = $saved[$column];
             }
+            // Columns added later: a dfolio built before them simply has no value.
+            foreach (['iiif_info_url' => 'iiifInfoUrl', 'thumbnail_url' => 'thumbnailUrl', 'jp2_url' => 'jp2Url', 'pdf_url' => 'pdfUrl'] as $column => $property) {
+                $page->$property = $saved[$column] ?? null;
+            }
             foreach (['width', 'height'] as $dimension) {
                 $page->$dimension = null === $saved[$dimension] ? null : (int) $saved[$dimension];
             }

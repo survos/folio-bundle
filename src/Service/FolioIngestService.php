@@ -54,8 +54,8 @@ final class FolioIngestService
      * here on purpose — see {@see FolioBulkInserter} — so if the entity mapping changes, update these.
      */
     private const ITEM_COLUMNS = ['id', 'core_id', 'local_id', 'label', 'dto_type', 'dto_data', 'extras', 'raw'];
-    private const LINK_COLUMNS = ['id', 'link_type_id', 'left_core', 'left_id', 'right_core', 'right_id', 'extras'];
-    private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'type', 'url', 'source_url', 'media_id', 'text', 'htr', 'dense_summary', 'ledger', 'layout', 'dialogue', 'width', 'height', 'thumb_hash', 'color', 'source_checksum'];
+    private const LINK_COLUMNS = ['id', 'link_type_id', 'left_core', 'left_id', 'right_core', 'right_id', 'ordinal', 'extras'];
+    private const PAGE_COLUMNS = ['id', 'row_id', 'seq', 'page_index', 'type', 'url', 'source_url', 'media_id', 'text', 'htr', 'dense_summary', 'ledger', 'layout', 'dialogue', 'width', 'height', 'thumb_hash', 'color', 'source_checksum', 'iiif_info_url', 'thumbnail_url', 'jp2_url', 'pdf_url'];
     private const CLAIM_COLUMNS = ['id', 'item_id', 'predicate', 'value', 'source', 'confidence', 'agent', 'claimed_at', 'meta', 'run_id'];
 
     public function __construct(
@@ -345,6 +345,10 @@ final class FolioIngestService
                 is_string($data['thumbHash'] ?? null) && '' !== $data['thumbHash'] ? $data['thumbHash'] : null,
                 is_string($data['color'] ?? null) && '' !== $data['color'] ? $data['color'] : null,
                 is_string($data['sourceChecksum'] ?? null) && '' !== $data['sourceChecksum'] ? $data['sourceChecksum'] : null,
+                is_string($data['iiifInfoUrl'] ?? null) && '' !== $data['iiifInfoUrl'] ? $data['iiifInfoUrl'] : null,
+                is_string($data['thumbnailUrl'] ?? null) && '' !== $data['thumbnailUrl'] ? $data['thumbnailUrl'] : null,
+                is_string($data['jp2Url'] ?? null) && '' !== $data['jp2Url'] ? $data['jp2Url'] : null,
+                is_string($data['pdfUrl'] ?? null) && '' !== $data['pdfUrl'] ? $data['pdfUrl'] : null,
             ]);
 
             if (0 === ++$count % $batch) {
@@ -1292,6 +1296,7 @@ final class FolioIngestService
                 'predicate',
                 'objectCore',
                 'objectId',
+                'ordinal',
             ]));
 
             // Order must match self::LINK_COLUMNS. Id mirrors the Link entity's xxh128 hash.
@@ -1302,6 +1307,7 @@ final class FolioIngestService
                 $subjectId,
                 $type->rightCore,
                 $objectId,
+                is_numeric($data['ordinal'] ?? null) ? (int) $data['ordinal'] : null,
                 $this->encodeJson($extras),
             ]);
 

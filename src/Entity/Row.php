@@ -104,6 +104,11 @@ class Row implements RouteParametersInterface
     #[Groups(['row:read'])]
     public ?array $dtoData = null;
 
+    /**
+     * Overflow: source fields the row's DTO does not declare. Not a place to read from. A field an application
+     * needs is declared on the DTO (then it is in $dtoData), stored as a link, or given a typed column.
+     * Becoming private; use {@see unmapped()} for the few places that list the leftovers (debug views, mapping review).
+     */
     #[ORM\Column(type: Types::JSON, nullable: true, options: ['comment' => 'Non-DTO source fields'])]
     #[Groups(['row:read'])]
     public ?array $extras = null;
@@ -139,6 +144,18 @@ class Row implements RouteParametersInterface
         $this->id = self::id($core->id, $localId);
         $this->claims = new ArrayCollection();
         $this->pages = new ArrayCollection();
+    }
+
+    /**
+     * Source fields no DTO declares, for display and mapping review only.
+     *
+     * @internal application code must not branch on these: declare the field on the DTO instead
+     *
+     * @return array<string, mixed>
+     */
+    public function unmapped(): array
+    {
+        return $this->extras ?? [];
     }
 
     public static function id(string $coreId, string $localId): string

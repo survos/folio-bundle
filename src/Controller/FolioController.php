@@ -1507,7 +1507,8 @@ final class FolioController extends AbstractController
                 'core' => $targetCore,
                 'localId' => $targetId,
                 'row' => $target instanceof Row ? $target : null,
-                'ordinal' => is_numeric($link->extras['ordinal'] ?? null) ? (int) $link->extras['ordinal'] : null,
+                // The typed column; a folio built before it existed still has the value in the link's extras.
+                'ordinal' => $link->ordinal ?? (is_numeric($link->extras['ordinal'] ?? null) ? (int) $link->extras['ordinal'] : null),
             ];
         }
 

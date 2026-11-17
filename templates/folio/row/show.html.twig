@@ -9,8 +9,8 @@
 {# Articles retain the issue PDF alongside derived scans. pdfPage is one-based;
    an article's pageCount is its span, not the length of the source PDF. #}
 {% set pdfUrl = (dto ? dto.pdfUrl : row.dtoData.pdfUrl|default(null)) ?: (row.dtoData.sourcePdfUrl ?? row.extras.sourcePdfUrl ?? null) %}
-{% set pdfInitialPage = row.dtoData.pdfPage ?? row.extras.pdfPage ?? 1 %}
-{% set pdfPageCount = (row.dtoData.pdfPage ?? row.extras.pdfPage ?? null) ? 0 : (dto ? (dto.pageCount ?: 0) : row.dtoData.pageCount|default(0)) %}
+{% set pdfInitialPage = row.dtoData.pageStart ?? row.dtoData.pdfPage ?? row.extras.pdfPage ?? 1 %}
+{% set pdfPageCount = (row.dtoData.pageStart ?? row.dtoData.pdfPage ?? row.extras.pdfPage ?? null) ? 0 : (dto ? (dto.pageCount ?: 0) : row.dtoData.pageCount|default(0)) %}
 
 {# dto is BaseItemDto::fromNormalized($row->dtoData), hydrated by FolioController::rowShow() —
    null only for legacy rows ingested without a dtoType at all (classForType() otherwise always

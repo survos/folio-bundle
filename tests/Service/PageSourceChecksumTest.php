@@ -22,14 +22,14 @@ final class PageSourceChecksumTest extends TestCase
         $conn = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         try {
             $conn->executeStatement('CREATE TABLE item (id TEXT PRIMARY KEY, dto_data TEXT)');
-            $conn->executeStatement('CREATE TABLE page (id TEXT PRIMARY KEY, row_id TEXT, seq INT, page_index INT, type TEXT, url TEXT, source_url TEXT, media_id TEXT, text TEXT, htr TEXT, dense_summary TEXT, ledger TEXT, layout TEXT, dialogue TEXT, width INT, height INT, thumb_hash TEXT, color TEXT, source_checksum TEXT)');
+            $conn->executeStatement('CREATE TABLE page (id TEXT PRIMARY KEY, row_id TEXT, seq INT, page_index INT, type TEXT, url TEXT, source_url TEXT, media_id TEXT, text TEXT, htr TEXT, dense_summary TEXT, ledger TEXT, layout TEXT, dialogue TEXT, width INT, height INT, thumb_hash TEXT, color TEXT, source_checksum TEXT, iiif_info_url TEXT, thumbnail_url TEXT, jp2_url TEXT, pdf_url TEXT)');
             $rowId = Row::id('oni/pennsylvania-sn1:doc', 'sn1-1857-06-24-ed-1');
             $conn->insert('item', ['id' => $rowId, 'dto_data' => '{}']);
 
             $file = $root.'/page.jsonl';
             file_put_contents($file, implode("\n", [
                 json_encode(['coreCode' => 'doc', 'localId' => 'sn1-1857-06-24-ed-1', 'url' => 'https://example.test/1.jp2', 'seq' => 1, 'pageIndex' => 0, 'sourceChecksum' => '0123456789abcdef0123456789abcdef']),
-                json_encode(['coreCode' => 'doc', 'localId' => 'sn1-1857-06-24-ed-1', 'url' => 'https://example.test/2.jp2', 'seq' => 2, 'pageIndex' => 1]),
+                json_encode(['coreCode' => 'doc', 'localId' => 'sn1-1857-06-24-ed-1', 'url' => 'https://example.test/2.jp2', 'seq' => 2, 'pageIndex' => 1, 'iiifInfoUrl' => 'https://example.test/iiif/2', 'thumbnailUrl' => 'https://example.test/2.jpg', 'jp2Url' => 's3://papers/sn1/2.jp2', 'pdfUrl' => 'https://example.test/2.pdf']),
                 json_encode(['coreCode' => 'doc', 'localId' => 'sn1-1857-06-24-ed-1', 'url' => 'https://example.test/3.jp2', 'seq' => 3, 'pageIndex' => 2, 'sourceChecksum' => '']),
             ])."\n");
 
@@ -44,6 +44,14 @@ final class PageSourceChecksumTest extends TestCase
                 ['0123456789abcdef0123456789abcdef', null, null],
                 $conn->fetchFirstColumn('SELECT source_checksum FROM page ORDER BY seq'),
                 'A page keeps its checksum; a page without one, or with an empty one, stores NULL.',
+            );
+            self::assertSame(
+                [
+                    ['iiif_info_url' => null, 'thumbnail_url' => null, 'jp2_url' => null, 'pdf_url' => null],
+                    ['iiif_info_url' => 'https://example.test/iiif/2', 'thumbnail_url' => 'https://example.test/2.jpg', 'jp2_url' => 's3://papers/sn1/2.jp2', 'pdf_url' => 'https://example.test/2.pdf'],
+                ],
+                $conn->fetchAllAssociative('SELECT iiif_info_url, thumbnail_url, jp2_url, pdf_url FROM page WHERE seq < 3 ORDER BY seq'),
+                'The page image service, thumbnail and source file keys are typed page columns, not issue extras.',
             );
         } finally {
             $conn->close();

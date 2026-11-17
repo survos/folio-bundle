@@ -92,21 +92,6 @@ final class DuckDbFolioExporter
                 unset($insert);
             }
             $counts = isset($refs) ? ['main._renditions' => count($refs)] : [];
-            $groupFile = $directory.'/grouping.jsonl';
-            $groupHandle = null;
-            $groupBytes = 0;
-            $groupStaged = false;
-            $flushGrouping = static function () use ($db, $groupFile, &$groupHandle, &$groupBytes, &$groupStaged): void {
-                if (is_resource($groupHandle)) {
-                    fclose($groupHandle);
-                    $groupHandle = null;
-                }
-                if ($groupBytes > 0) {
-                    DuckDbGroupingProjection::ingest($db, $groupFile, !$groupStaged);
-                    $groupStaged = true;
-                    $groupBytes = 0;
-                }
-            };
             foreach (self::tables($source) as $table) {
                 $shape = [];
                 foreach ($source->query('PRAGMA table_xinfo('.self::identifier($table).')') as $column) {
@@ -149,17 +134,6 @@ final class DuckDbFolioExporter
                         if (null !== $publishRend && in_array($table, ['item', 'page'], true)) {
                             [$row] = NewspaperGeometry::splitRow($table, $row);
                         }
-                        if (null !== $publishRend && 'item' === $table) {
-                            foreach (DuckDbGroupingProjection::pages($row) as $page) {
-                                $groupHandle ??= fopen($groupFile, 'wb') ?: throw new \RuntimeException('Cannot write '.$groupFile);
-                                $groupLine = json_encode($page, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
-                                fwrite($groupHandle, $groupLine);
-                                $groupBytes += strlen($groupLine);
-                                if ($groupBytes >= self::INGEST_CHUNK_BYTES) {
-                                    $flushGrouping();
-                                }
-                            }
-                        }
                         $line = json_encode($row, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
                         fwrite($handle, $line);
                         $chunkBytes += strlen($line);
@@ -191,8 +165,8 @@ final class DuckDbFolioExporter
                 $counts['main.'.$table] = $count;
                 self::linkOrdinal($db, $table, $shape);
             }
-            $flushGrouping();
-            if ($groupStaged || isset($refs)) {
+            // A newspaper's grouping is group rows and links; project them into tables a reader can prune by issue.
+            if (isset($refs) || DuckDbGroupingProjection::hasGroups($db)) {
                 $counts += DuckDbGroupingProjection::materialize($db);
             }
             if (0 === ($counts['main.item'] ?? 0)) {
@@ -310,6 +284,9 @@ final class DuckDbFolioExporter
             if (array_key_exists('extras', $shape)) {
                 $db->exec("UPDATE link SET ordinal = CAST(json_extract_string(extras, '$.ordinal') AS BIGINT)");
             }
+        } elseif ('link' === $table && array_key_exists('extras', $shape)) {
+            // The source folio has the typed column, but its links may have been ingested before ingest filled it.
+            $db->exec("UPDATE link SET ordinal = CAST(json_extract_string(extras, '$.ordinal') AS BIGINT) WHERE ordinal IS NULL AND json_extract_string(extras, '$.ordinal') IS NOT NULL");
         }
     }
 

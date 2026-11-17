@@ -107,7 +107,7 @@ final readonly class FolioViewBuilder
                 // Ordinal is common enough across relationships (position within an ordered
                 // parent) to flatten unconditionally -- null and harmless for link types that
                 // don't use it. Anything else in extras is still reachable via link_extras.
-                ["json_extract(l.extras, '\$.ordinal') AS ordinal", 'l.extras AS link_extras'],
+                ["COALESCE(l.ordinal, json_extract(l.extras, '\$.ordinal')) AS ordinal", 'l.extras AS link_extras'],
             );
 
             $sql = sprintf(
