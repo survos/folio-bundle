@@ -20,7 +20,7 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
     }
 
     /** Fields the search page shows or matches; each becomes a VARCHAR column of the typed source. */
-    private const array TEXT_FIELDS = [ItemField::TITLE, ItemField::DESCRIPTION, ItemField::SEARCH_SUMMARY, ItemField::URL, 'sourceUrl'];
+    private const array TEXT_FIELDS = [ItemField::TITLE, ItemField::NAME, ItemField::DESCRIPTION, ItemField::SEARCH_SUMMARY, ItemField::URL, 'sourceUrl'];
 
     /**
      * Options: folioCode; itemSource (bool) keeps the item table as the source, for a caller that scopes the
@@ -66,7 +66,9 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
         $this->addAvailableSort(null, 'Relevance');
         $this->addAvailableSort('title:asc', 'Title A–Z');
         $field = static fn (string $name): string => $typed ? 'd."'.$name.'"' : 'CAST(d.dto_data."'.$name.'" AS VARCHAR)';
-        $title = $field(ItemField::TITLE);
+        // Item DTOs have titles; entity DTOs (people, organizations, places) have names.
+        // This presentation column drives the heading, text search and alphabetical sort.
+        $title = 'COALESCE(NULLIF('.$field(ItemField::TITLE).", ''), ".$field(ItemField::NAME).')';
         $description = $field(ItemField::DESCRIPTION);
         $sourceUrl = 'COALESCE(NULLIF('.$field('sourceUrl').", ''), ".$field(ItemField::URL).')';
         // Parsing dto_data for every candidate reads the whole column. With a typed source the ranked query
