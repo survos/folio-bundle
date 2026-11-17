@@ -6,6 +6,12 @@
 {% set provider = parts[0] %}
 {% set dataset = parts[1] %}
 
+{# Articles retain the issue PDF alongside derived scans. pdfPage is one-based;
+   an article's pageCount is its span, not the length of the source PDF. #}
+{% set pdfUrl = (dto ? dto.pdfUrl : row.dtoData.pdfUrl|default(null)) ?: (row.dtoData.sourcePdfUrl ?? row.extras.sourcePdfUrl ?? null) %}
+{% set pdfInitialPage = row.dtoData.pdfPage ?? row.extras.pdfPage ?? 1 %}
+{% set pdfPageCount = (row.dtoData.pdfPage ?? row.extras.pdfPage ?? null) ? 0 : (dto ? (dto.pageCount ?: 0) : row.dtoData.pageCount|default(0)) %}
+
 {# dto is BaseItemDto::fromNormalized($row->dtoData), hydrated by FolioController::rowShow() —
    null only for legacy rows ingested without a dtoType at all (classForType() otherwise always
    resolves, falling back to GenericItemDto). The `else` branch below is that fallback only. #}
@@ -200,8 +206,7 @@
         {% set pageAskUrls = pageAskUrls|merge([path('survos_folio_page_chat', {folioCode: row.folioCode, coreCode: core.code, dtoType: row.dtoType ?: 'row', localId: row.localId, seq: page.seq})]) %}
     {% endfor %}
     {% set hasOcr = pageTexts|filter(t => t|trim is not empty)|length > 0 %}
-    {% set isSingleImage = pages|length == 1 and not (dto ? dto.pdfUrl : attribute(row.dtoData, 'pdfUrl')|default(null)) %}
-    {% set pdfUrl = dto ? dto.pdfUrl : attribute(row.dtoData, 'pdfUrl')|default(null) %}
+    {% set isSingleImage = pages|length == 1 and not pdfUrl %}
     {% set docPageCount = dto ? (dto.pageCount ?: 0) : attribute(row.dtoData, 'pageCount')|default(0) %}
     {% set videoPages = pages|filter(p => p.url matches '/\\.(mp4|mpe?g|mov|avi|wmv|m4v|webm)($|\\?)/i')|merge([]) %}
     {% set ocrText = dto ? dto.ocrText : attribute(row.dtoData, 'ocrText')|default(null) %}
@@ -308,14 +313,15 @@
                             <div class="card-body p-0">
                                 <twig:iiif:pdf
                                     :url="pdfUrl"
-                                    :pageCount="docPageCount"
+                                    :page="pdfInitialPage"
+                                    :pageCount="pdfPageCount"
                                     :height="600"
                                     :showLinks="true"
                                 />
                             </div>
 
                             <div id="doc-page-status" class="card-footer py-2 small text-muted">
-                                {{ docPageCount ? 'PDF · ' ~ docPageCount ~ ' pages' : 'PDF' }}{{ hasOcr ? '' : ' — no extracted text' }}
+                                {{ pdfPageCount ? 'PDF · ' ~ pdfPageCount ~ ' pages' : 'PDF' }}{{ hasOcr ? '' : ' — no extracted text' }}
                             </div>
                         </div>
 
@@ -503,7 +509,7 @@
                                         .replace(/&lt;\?&gt;/g, '<sup class="text-danger" title="uncertain reading">?</sup>')
                                         .replace(/\n/g, '<br>');
                                 }
-                                function renderPage(i, total) {
+                                function renderPage(i, total, sourceIndex = i) {
                                     var ocrEl = document.getElementById('doc-ocr-text');
                                     if (!ocrEl) return;
                                     var htr = pageHtr()[i], layout = pageLayouts()[i], badge = document.getElementById('doc-ocr-badge');
@@ -518,22 +524,24 @@
                                         if (badge) { badge.textContent = 'OCR'; badge.className = 'badge bg-blue-lt'; }
                                     }
                                     var ocrPage = document.getElementById('doc-ocr-page');
-                                    if (ocrPage && total) ocrPage.textContent = 'page ' + (i + 1) + ' of ' + total;
+                                    if (ocrPage && total) ocrPage.textContent = 'page ' + (sourceIndex + 1) + ' of ' + total;
                                 }
                                 // Render page 1 once the panel exists (this script runs before it in the DOM).
                                 document.addEventListener('DOMContentLoaded', function () {
                                     renderPage(0, Math.max(pageTexts().length, pageLayouts().length, pageHtr().length));
                                 });
                                 document.addEventListener('iiif-viewer:page', function (e) {
-                                    var i = e.detail.index, total = e.detail.total;
-                                    renderPage(i, total);
+                                    var sourceIndex = e.detail.index, total = e.detail.total;
+                                    var pdfIndexes = {{ (pdfUrl ? pages|map(p => p.pageIndex) : [])|json_encode|raw }};
+                                    var i = {{ pdfUrl ? 'true' : 'false' }} ? pdfIndexes.indexOf(sourceIndex) : sourceIndex;
+                                    renderPage(i, total, sourceIndex);
                                     var hasText = ((pageTexts()[i] || '').trim()) || ((pageLayouts()[i] || []).length);
                                     var status = document.getElementById('doc-page-status');
                                     var statusText = document.getElementById('doc-page-status-text');
                                     if (statusText) {
-                                        statusText.textContent = 'Page ' + (i + 1) + ' of ' + total + (hasText ? '' : ' — no extracted text');
+                                        statusText.textContent = 'Page ' + (sourceIndex + 1) + ' of ' + total + (hasText ? '' : ' — no extracted text');
                                     } else if (status) {
-                                        status.textContent = 'Page ' + (i + 1) + ' of ' + total + (hasText ? '' : ' — no extracted text');
+                                        status.textContent = 'Page ' + (sourceIndex + 1) + ' of ' + total + (hasText ? '' : ' — no extracted text');
                                     }
                                 });
                             })();
