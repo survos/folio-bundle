@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace Survos\FolioBundle\Controller;
 
-use Survos\FolioBundle\Entity\Folio;
-use Survos\FolioBundle\Service\DuckDbFolioConnection;
 use Survos\FolioBundle\Service\DuckDbFolioMap;
+use Survos\FolioBundle\Service\DuckDbFolioView;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
@@ -14,7 +13,7 @@ use Symfony\Component\Routing\Attribute\Route;
 /** A folio's search page. The folio is read from its dfolio, like every public folio page. */
 final class FolioSearchController extends AbstractController
 {
-    public function __construct(private readonly DuckDbFolioConnection $connection, private readonly DuckDbFolioMap $maps)
+    public function __construct(private readonly DuckDbFolioView $view, private readonly DuckDbFolioMap $maps)
     {
     }
 
@@ -35,15 +34,7 @@ final class FolioSearchController extends AbstractController
     #[Route('/{folioCode}/search/{coreCode}/{dtoType}', name: 'survos_folio_core_type_search', requirements: ['folioCode' => FolioController::FOLIO_CODE_PATTERN], defaults: ['_folio_reader' => 'duckdb'], priority: 20)]
     public function __invoke(string $folioCode, ?string $coreCode = null, ?string $dtoType = null): Response
     {
-        // The search has one address per folio. A type in the path becomes its Type filter; a core has no filter.
-        if (null !== $coreCode) {
-            return $this->redirectToRoute('survos_folio_search', ['folioCode' => $folioCode] + (null !== $dtoType ? ['contentType' => $dtoType] : []));
-        }
-        // 404 here, before the search component runs, when the folio has no dfolio.
-        $this->connection->connect(['folioCode' => $folioCode]);
-
-        return $this->render('@SurvosFolioBundle/folio/duckdb/search.html.twig', [
-            'folio' => new Folio($folioCode), 'reader' => 'duckdb',
+        return $this->render('@SurvosFolioBundle/folio/duckdb/search.html.twig', $this->view->search($folioCode, $coreCode, $dtoType) + [
             'hasCoordinates' => $this->maps->hasCoordinates($folioCode),
             'hitTemplate' => '@SurvosFolioBundle/search/hits/folio_duckdb.html.twig',
         ]);

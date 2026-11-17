@@ -36,14 +36,14 @@ final readonly class DuckDbFolioMap
     {
         $search = new FolioDuckDbSearch($this->vectors, $this->connection);
         // The coordinate scope below is written over item.dto_data.
-        $search->create(['folioCode' => $folioCode, 'itemSource' => true]);
+        $search->create(['folioCode' => $folioCode, 'itemSource' => true] + array_intersect_key($source, array_flip(['coreCode', 'dtoType'])));
         $parameters = $search->getAdapterParameters();
-        $parameters['where'] = self::COORDINATES;
+        $parameters['where'] = ('' !== $parameters['where'] ? $parameters['where'].' AND ' : '').self::COORDINATES;
         $parts = explode(',', $bbox);
         if (4 === count($parts) && 4 === count(array_filter($parts, 'is_numeric'))) {
             [$west, $south, $east, $north] = array_map('floatval', $parts);
             $parameters['where'] .= ' AND '.self::LAT.' BETWEEN ? AND ? AND '.self::LNG.' BETWEEN ? AND ?';
-            $parameters['params'] = [$south, $north, $west, $east];
+            $parameters['params'] = [...$parameters['params'], $south, $north, $west, $east];
         }
         $adapter = new DuckDbAdapter($this->connection);
         $resolver = new OptionsResolver();

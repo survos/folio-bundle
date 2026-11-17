@@ -9,10 +9,10 @@
     {% set hitOptions = hitOptions|merge({dtoType: selectedDtoType}) %}
 {% endif %}
 {% set fixedFilters = {} %}
-{% if selectedCore|default(null) %}
+{% if searchName|default('folio_row') != 'folio_duckdb' and selectedCore|default(null) %}
     {% set fixedFilters = fixedFilters|merge({core: selectedCore}) %}
 {% endif %}
-{% if selectedDtoType|default(null) %}
+{% if searchName|default('folio_row') != 'folio_duckdb' and selectedDtoType|default(null) %}
     {% set fixedFilters = fixedFilters|merge({dtoType: selectedDtoType}) %}
 {% endif %}
 
@@ -81,7 +81,7 @@
         {# The shared search — do NOT override this in an app skin, keep it identical everywhere. #}
         <div id="ux-search-results-top" style="scroll-margin-top: 1rem;"></div>
 
-        <div id="ux-search-wrapper" class="container-xl">
+        <div id="ux-search-wrapper" class="container-xl" data-folio-core="{{ selectedCore|default(null) }}">
             {% do app.request.attributes.set('ux_search_placeholder', 'Search ID, title, description, summary, OCR text') %}
             <twig:Survos:Search:Layout
                 :name="searchName|default('folio_row')"

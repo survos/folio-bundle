@@ -44,6 +44,10 @@ final class DuckDbFolioMapTest extends TestCase
             self::assertCount(0, $map->features('test/map', ['collections' => "Sperryville' OR 1=1 --"]));
             self::assertCount(0, $map->features('test/map', ['collections' => 'Sperryville'], '-77,38,-76,40'));
             self::assertCount(1, $map->features('test/map', ['collections' => 'Zero']));
+            self::assertCount(3, $map->features('test/map', ['coreCode' => 'obj', 'dtoType' => 'object']));
+            self::assertCount(0, $map->features('test/map', ['coreCode' => 'doc']));
+            self::assertCount(0, $map->features('test/map', ['coreCode' => 'obj', 'dtoType' => 'document']));
+            self::assertCount(1, $map->features('test/map', ['coreCode' => 'obj', 'dtoType' => 'object'], '-79,37,-77.5,38.5'));
             $db = new \PDO('duckdb:'.$path);
             $db->exec('DELETE FROM item');
             $db = null;

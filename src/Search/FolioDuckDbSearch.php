@@ -74,6 +74,16 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
         // A hit's thumbnail is the item's first page. The DTO's own image fields are copies of it at best.
         $thumbnail = ($pages ? 'pages[1].url' : 'NULL::VARCHAR').' AS "'.ItemField::THUMBNAIL_URL.'"';
         $payload = ['local_id AS "localId"', 'CAST(CAST(dto_data AS JSON) AS VARCHAR) AS "dtoData"', $thumbnail];
+        // A route's core/type scope must survive clearing facets, paging and live updates.
+        $scope = $params = [];
+        if (isset($options['coreCode'])) {
+            $scope[] = 'd.core_id = ?';
+            $params[] = \Survos\FolioBundle\Entity\Core::id($key, $options['coreCode']);
+        }
+        if (isset($options['dtoType'])) {
+            $scope[] = 'd.dto_type = ?';
+            $params[] = $options['dtoType'];
+        }
         $this->setAdapterParameters([
             'table' => $table, 'idColumn' => 'd.id',
             'selectColumns' => ['d.id', ...($typed ? [] : ['d.'.$payload[0], 'CAST(CAST(d.dto_data AS JSON) AS VARCHAR) AS "dtoData"', ($pages ? 'd.' : '').$thumbnail]), "split_part(d.core_id, ':', 2) AS \"coreCode\"", "'".$key."' AS \"datasetCode\"", $sourceUrl.' AS "'.ItemField::URL.'"', $title.' AS "'.ItemField::TITLE.'"', $description.' AS "'.ItemField::DESCRIPTION.'"', 'd.dto_type AS "'.ItemField::CONTENT_TYPE.'"'],
@@ -83,6 +93,7 @@ final class FolioDuckDbSearch extends AbstractSearch implements HitTemplateSearc
             'connectionOptions' => ['folioCode' => $key, 'datasetCode' => $key],
             ...($typed ? ['hydrate' => ['table' => 'item', 'idColumn' => 'id', 'columns' => $payload]] : []),
             ...$vectors,
+            'where' => implode(' AND ', $scope), 'params' => $params,
         ]);
     }
 

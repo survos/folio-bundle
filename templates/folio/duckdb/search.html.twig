@@ -1,14 +1,45 @@
 {% extends '@SurvosFolioBundle/folio/search.html.twig' %}
 {% set searchName = 'folio_duckdb' %}
 {% block folio_search_header %}
-    <div class="container-xl py-3"><h1>Search {{ folioLabel }}</h1>
+    {% set selectedLabelKey = 'core.' ~ selectedCore %}
+    {% set selectedLabel = selectedLabelKey|trans({}, 'system') %}
+    <div class="container-xl py-3"><h1>{{ selectedCore ? (selectedLabel == selectedLabelKey ? selectedCore : selectedLabel) ~ ' · ' : 'Search ' }}{{ folioLabel }}</h1>
+        <nav aria-label="Browse cores" class="d-flex flex-wrap gap-2 mb-3">
+            <a class="btn btn-sm {{ selectedCore is null ? 'btn-primary' : 'btn-outline-primary' }}"
+               href="{{ path('survos_folio_search', {folioCode: folio.code, language: app.request.query.get('language')}) }}">All records</a>
+            {% for core in cores %}
+                {% set labelKey = 'core.' ~ core.code %}
+                {% set label = labelKey|trans({}, 'system') %}
+                <a class="btn btn-sm {{ selectedCore == core.code ? 'btn-primary' : 'btn-outline-primary' }}"
+                   {% if selectedCore == core.code %}aria-current="page"{% endif %}
+                   href="{{ path('survos_folio_core_search', {folioCode: folio.code, coreCode: core.code, language: app.request.query.get('language')}) }}">
+                    {{ label == labelKey ? core.code : label }} · {{ core.rowCount|number_format }}
+                </a>
+            {% endfor %}
+        </nav>
         {% if hasCoordinates %}
             {% set mapBase = path('survos_folio_duckdb_map', {folioCode: folio.code}) %}
-            {% set token = slideshow_filter(app.request.query.all) %}
+            {% set mapScope = {} %}
+            {% if selectedCore %}{% set mapScope = mapScope|merge({coreCode: selectedCore}) %}{% endif %}
+            {% if selectedDtoType %}{% set mapScope = mapScope|merge({dtoType: selectedDtoType}) %}{% endif %}
+            {% set token = slideshow_filter(app.request.query.all|merge(mapScope)) %}
             <a class="btn btn-sm btn-outline-primary" href="{{ token ? mapBase ~ '/' ~ token : mapBase }}"
-               {{ stimulus_controller(survos_stimulus('folio-bundle', 'map-link'), {base: mapBase}) }}>
+               {{ stimulus_controller(survos_stimulus('folio-bundle', 'map-link'), {base: mapBase, fixed: mapScope}) }}>
                 {{ ux_icon('tabler:map-2', {class: 'icon me-1'}) }} Map
             </a>
         {% endif %}</div>
 {% endblock %}
-{% block folio_search_styles %}{% endblock %}
+{% block folio_search_styles %}
+    <style>
+        #ux-search-wrapper[data-folio-core="doc"] .ux-search-hits__list > div,
+        #ux-search-wrapper[data-folio-core="per"] .ux-search-hits__list > div,
+        #ux-search-wrapper[data-folio-core="org"] .ux-search-hits__list > div { width: 50%; }
+        #ux-search-wrapper[data-folio-core="image"] .ux-search-hits__list > div { width: 25%; }
+        @media (max-width: 991px) {
+            #ux-search-wrapper[data-folio-core="image"] .ux-search-hits__list > div { width: 50%; }
+        }
+        @media (max-width: 575px) {
+            #ux-search-wrapper[data-folio-core] .ux-search-hits__list > div { width: 100%; }
+        }
+    </style>
+{% endblock %}

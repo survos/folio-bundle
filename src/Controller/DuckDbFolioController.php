@@ -25,11 +25,7 @@ final class DuckDbFolioController extends AbstractController
     #[Route('/search', name: 'survos_folio_duckdb_search', methods: ['GET'], priority: 60)]
     public function search(string $folioCode): Response
     {
-        // Check the registered manifestation before rendering the shared search component.
-        $this->connection->connect(['folioCode' => $folioCode]);
-
-        return $this->render('@SurvosFolioBundle/folio/duckdb/search.html.twig', [
-            'folio' => new Folio($folioCode), 'reader' => 'duckdb',
+        return $this->render('@SurvosFolioBundle/folio/duckdb/search.html.twig', $this->view->search($folioCode) + [
             'hasCoordinates' => $this->maps->hasCoordinates($folioCode),
             'hitTemplate' => '@SurvosFolioBundle/search/hits/folio_duckdb.html.twig',
         ]);

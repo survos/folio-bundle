@@ -88,6 +88,22 @@ final class DuckDbTypedSearchTest extends TestCase
             $result = $adapter->search($query, $search);
             self::assertSame(1, $result->getTotalResults());
             self::assertSame('c', $result->getHits()[0]->getData()['localId']);
+            // Core scopes also apply to the typed UNION source and its facet distributions.
+            $search->create(['folioCode' => 'mus/test', 'coreCode' => 'doc']);
+            $search->setResolvedAdapterParameters($resolver->resolve($search->getAdapterParameters()));
+            self::assertSame(0, $adapter->search($search->createQuery(), $search)->getTotalResults());
+            $search->create(['folioCode' => 'mus/test', 'coreCode' => 'obj', 'dtoType' => 'print']);
+            $search->setResolvedAdapterParameters($resolver->resolve($search->getAdapterParameters()));
+            $result = $adapter->search($search->createQuery(), $search);
+            self::assertSame(2, $result->getTotalResults());
+            self::assertSame(['print' => 2], $result->getFacetDistributions()[ItemField::CONTENT_TYPE]->getValues());
+
+            $view = new \Survos\FolioBundle\Service\DuckDbFolioView($connection, new \Survos\FolioBundle\Service\FolioDtoTypeResolver());
+            $browse = $view->search('mus/test', 'obj');
+            self::assertSame(4, $browse['cores']['obj']->rowCount);
+            self::assertSame('obj', $browse['selectedCore']);
+            $this->expectException(\Symfony\Component\HttpKernel\Exception\NotFoundHttpException::class);
+            $view->search('mus/test', 'missing');
         } finally {
             $db = null;
             if (is_file($path)) {

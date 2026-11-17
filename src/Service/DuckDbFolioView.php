@@ -16,6 +16,24 @@ final readonly class DuckDbFolioView
     {
     }
 
+    /** Core counts come from the same manifestation searched by the browse page. */
+    public function search(string $folioCode, ?string $coreCode = null, ?string $dtoType = null): array
+    {
+        $db = $this->connection->connect(['folioCode' => $folioCode]);
+        $folio = new Folio($folioCode);
+        $cores = [];
+        foreach ($db->query("SELECT split_part(core_id, ':', 2) AS code, count(*) AS total FROM item GROUP BY core_id ORDER BY code")->fetchAll(\PDO::FETCH_ASSOC) as $record) {
+            $core = new Core($folio, $record['code']);
+            $core->rowCount = (int) $record['total'];
+            $cores[$core->code] = $core;
+        }
+        if (null !== $coreCode && !isset($cores[$coreCode])) {
+            throw new NotFoundHttpException(sprintf('Unknown folio core "%s".', $coreCode));
+        }
+
+        return ['folio' => $folio, 'cores' => $cores, 'selectedCore' => $coreCode, 'selectedDtoType' => $dtoType, 'reader' => 'duckdb'];
+    }
+
     /** PDO decodes native JSON columns; exported VARCHAR columns still contain JSON text. */
     private static function normalizedData(mixed $value): array
     {
